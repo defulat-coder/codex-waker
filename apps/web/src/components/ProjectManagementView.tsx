@@ -430,10 +430,22 @@ export function ProjectManagementView({
             </div>
             {!impact && !impactError && <p className="modal-hint">正在检查真实删除影响…</p>}
             {impact && (
-              <p className="modal-hint">
-                删除后会移除 {impact.sessionContexts} 条会话项目关联，并级联删除 {impact.tasks}{' '}
-                条项目任务。磁盘上的目录和 Git checkout 不会被删除。
-              </p>
+              <div className="modal-hint">
+                <p>
+                  删除后会移除 {impact.sessionContexts} 条会话项目关联；{impact.tasksPreserved}{' '}
+                  条任务会解除项目关联并保留历史与时间线。
+                </p>
+                <p>
+                  {impact.automationDefinitions} 个自动任务会解除项目关联并暂停；
+                  {impact.automationRuns} 条运行历史及其 {impact.automationTasksPreserved}{' '}
+                  条任务记录会保留。
+                </p>
+                <p>
+                  {impact.workflowDefinitions} 个工作流会解除项目关联并暂停；
+                  {impact.workflowRuns} 条工作流运行历史会保留。
+                </p>
+                <p>磁盘上的目录和 Git checkout 不会被删除。</p>
+              </div>
             )}
             {impactError && (
               <div className="legacy-error" role="alert">

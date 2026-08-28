@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { WorkspaceStore } from '@waker/workspace-data';
 import { buildApp } from './app.js';
 import type { AppConfig } from './config.js';
 
@@ -85,6 +86,15 @@ describe('local knowledge API', () => {
 
 describe('local workspace API', () => {
   const root = mkdtempSync(join(tmpdir(), 'waker-api-workspace-'));
+  mkdirSync(join(root, '.codex', 'agents'), { recursive: true });
+  writeFileSync(
+    join(root, '.codex', 'agents', 'codex-assistant.md'),
+    '---\nname: Codex Assistant\nmark: CA\ntagline: Test\ndescription: Test\nsuggestions:\n  - Test\n---\n\nTest agent.\n',
+  );
+  writeFileSync(
+    join(root, '.codex', 'agents', 'reviewer.md'),
+    '---\nname: Reviewer\nmark: RV\ntagline: Test\ndescription: Test\nsuggestions:\n  - Test\n---\n\nReview agent.\n',
+  );
   const app = buildApp(config, { cwd: root });
 
   before(async () => app.ready());
@@ -93,8 +103,20 @@ describe('local workspace API', () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it('persists projects and turns an automation run into a task', async () => {
+  it('persists projects and refuses to queue automation while Codex is disabled', async () => {
     mkdirSync(join(root, 'project'));
+    const ghostProject = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects',
+      payload: {
+        wakerId: 'future-ghost',
+        name: '幽灵项目',
+        visibility: 'private',
+        source: 'filesystem',
+        path: 'project',
+      },
+    });
+    assert.equal(ghostProject.statusCode, 404);
     const project = await app.inject({
       method: 'POST',
       url: '/api/v1/projects',
@@ -108,6 +130,7 @@ describe('local workspace API', () => {
     });
     assert.equal(project.statusCode, 201);
     assert.equal(project.json().path, 'project');
+    assert.equal(project.json().wakerId, 'codex-assistant');
 
     const impact = await app.inject({
       method: 'GET',
@@ -118,7 +141,20 @@ describe('local workspace API', () => {
       projectId: project.json().id,
       sessionContexts: 0,
       tasks: 0,
-      behavior: { sessionContexts: 'delete', tasks: 'cascade-delete' },
+      tasksPreserved: 0,
+      automationDefinitions: 0,
+      automationRuns: 0,
+      automationTasksPreserved: 0,
+      workflowDefinitions: 0,
+      workflowRuns: 0,
+      behavior: {
+        sessionContexts: 'delete',
+        tasks: 'detach-and-preserve',
+        automationDefinitions: 'detach-and-pause',
+        automationTasks: 'preserve',
+        workflowDefinitions: 'detach-and-pause',
+        workflowRuns: 'preserve',
+      },
     });
     const foreignImpact = await app.inject({
       method: 'GET',
@@ -161,6 +197,7 @@ describe('local workspace API', () => {
         kind: 'schedule',
         schedule: '0 9 * * *',
         prompt: '总结项目进展',
+        projectId: project.json().id,
       },
     });
     assert.equal(automation.statusCode, 201);
@@ -171,9 +208,8 @@ describe('local workspace API', () => {
       url: `/api/v1/automations/${automationId}/run`,
       payload: { wakerId: 'codex-assistant' },
     });
-    assert.equal(run.statusCode, 202);
-    assert.equal(run.json().type, 'automation');
-    assert.equal(run.json().status, 'pending');
+    assert.equal(run.statusCode, 503);
+    assert.match(run.json().error, /未启用/);
 
     const resources = await app.inject({
       method: 'GET',
@@ -181,8 +217,25 @@ describe('local workspace API', () => {
     });
     assert.equal(resources.statusCode, 200);
     assert.equal(resources.json().projects.length, 1);
+    assert.equal(resources.json().projects[0].wakerId, 'codex-assistant');
     assert.equal(resources.json().automations.length, 1);
-    assert.equal(resources.json().tasks.length, 1);
+    assert.equal(resources.json().tasks.length, 0);
+
+    const secondConnection = new WorkspaceStore(join(root, '.codex', 'workspace.sqlite'));
+    try {
+      const queued = secondConnection.enqueueAutomationRun('codex-assistant', automationId, {
+        trigger: 'manual',
+      });
+      const blockedDelete = await app.inject({
+        method: 'DELETE',
+        url: `/api/v1/projects/${project.json().id}?wakerId=codex-assistant`,
+      });
+      assert.equal(blockedDelete.statusCode, 409);
+      assert.match(blockedDelete.json().error, /active automation run/);
+      secondConnection.cancelAutomationRun('codex-assistant', queued.id);
+    } finally {
+      secondConnection.close();
+    }
   });
 
   it('rejects project paths outside the host workspace', async () => {
@@ -201,72 +254,195 @@ describe('local workspace API', () => {
     assert.match(response.json().error, /当前工作区内/);
   });
 
-  it('runs a versioned workflow through wait, resume, complete and trace', async () => {
+  it('runs a host-owned Workflow through Human Action while forge endpoints stay absent', async () => {
+    const definition = {
+      schemaVersion: 1,
+      start: 'ask',
+      nodes: [
+        { id: 'ask', kind: 'ask_user', prompt: '继续？', inputKey: 'answer', next: 'done' },
+        { id: 'done', kind: 'terminal', status: 'succeeded', output: '{{answer}}' },
+      ],
+    };
+    const validated = await app.inject({
+      method: 'POST',
+      url: '/api/v1/workflows/validate',
+      payload: { wakerId: 'codex-assistant', script: JSON.stringify(definition) },
+    });
+    assert.equal(validated.statusCode, 200);
+    assert.equal(validated.json().valid, true);
     const workflow = await app.inject({
       method: 'POST',
       url: '/api/v1/workflows',
-      payload: { name: '验收流程', script: 'ask -> finish', status: 'active' },
+      payload: {
+        wakerId: 'codex-assistant',
+        name: '验收流程',
+        definition,
+        status: 'active',
+      },
     });
     assert.equal(workflow.statusCode, 201);
     const workflowId = workflow.json().id as string;
+    const foreignRun = await app.inject({
+      method: 'POST',
+      url: `/api/v1/workflows/${workflowId}/run`,
+      payload: { wakerId: 'reviewer' },
+    });
+    assert.equal(foreignRun.statusCode, 404);
+
+    const callerDefinition = {
+      schemaVersion: 1,
+      start: 'call',
+      nodes: [
+        { id: 'call', kind: 'call_workflow', workflowId, next: 'done' },
+        { id: 'done', kind: 'terminal', status: 'succeeded' },
+      ],
+    };
+    const caller = await app.inject({
+      method: 'POST',
+      url: '/api/v1/workflows',
+      payload: { wakerId: 'codex-assistant', name: '调用流程', definition: callerDefinition },
+    });
+    assert.equal(caller.statusCode, 201);
+    const cycleDefinition = {
+      schemaVersion: 1,
+      start: 'call',
+      nodes: [
+        {
+          id: 'call',
+          kind: 'call_workflow',
+          workflowId: caller.json().id as string,
+          next: 'done',
+        },
+        { id: 'done', kind: 'terminal', status: 'succeeded' },
+      ],
+    };
+    const cycleValidation = await app.inject({
+      method: 'POST',
+      url: '/api/v1/workflows/validate',
+      payload: { wakerId: 'codex-assistant', workflowId, script: JSON.stringify(cycleDefinition) },
+    });
+    assert.equal(cycleValidation.statusCode, 200);
+    assert.equal(cycleValidation.json().valid, false);
+    assert.match(cycleValidation.json().errors.join(' '), /cycle/);
+    const detail = await app.inject({
+      method: 'GET',
+      url: `/api/v1/workflows/${workflowId}?wakerId=codex-assistant`,
+    });
+    assert.equal(detail.statusCode, 200);
+    assert.deepEqual(detail.json().definition, definition);
+    const summaries = await app.inject({
+      method: 'GET',
+      url: '/api/v1/workflows?wakerId=codex-assistant',
+    });
+    assert.equal(summaries.statusCode, 200);
+    assert.equal(summaries.json().items[0].script, undefined);
+    assert.equal(summaries.json().items[0].definition, undefined);
+    const versions = await app.inject({
+      method: 'GET',
+      url: `/api/v1/workflows/${workflowId}/versions?wakerId=codex-assistant`,
+    });
+    assert.equal(versions.statusCode, 200);
+    assert.equal(versions.json().items[0].definition, undefined);
+    assert.equal(versions.json().total, 1);
+    const updated = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/workflows/${workflowId}`,
+      payload: {
+        wakerId: 'codex-assistant',
+        expectedVersion: 1,
+        description: '第二版',
+      },
+    });
+    assert.equal(updated.statusCode, 200);
+    assert.equal(updated.json().version, 2);
+    const diff = await app.inject({
+      method: 'GET',
+      url: `/api/v1/workflows/${workflowId}/diff?wakerId=codex-assistant&fromVersion=1&toVersion=2`,
+    });
+    assert.equal(diff.statusCode, 200);
+    assert.match(diff.json().diff, /第二版/);
+    const dryRollback = await app.inject({
+      method: 'POST',
+      url: `/api/v1/workflows/${workflowId}/rollback`,
+      payload: {
+        wakerId: 'codex-assistant',
+        targetVersion: 1,
+        expectedVersion: 2,
+        apply: false,
+      },
+    });
+    assert.equal(dryRollback.statusCode, 200);
+    assert.equal(dryRollback.json().applied, false);
+    assert.equal(dryRollback.json().workflow.version, 2);
     const queued = await app.inject({
       method: 'POST',
       url: `/api/v1/workflows/${workflowId}/run`,
-      payload: { input: { topic: 'test' } },
+      payload: { wakerId: 'codex-assistant', input: { topic: 'test' } },
     });
     assert.equal(queued.statusCode, 202);
     const runId = queued.json().id as string;
     assert.equal(queued.json().status, 'queued');
-    assert.equal(
-      (await app.inject({ method: 'POST', url: `/api/v1/workflow-runs/${runId}/start` })).json()
-        .status,
-      'running',
-    );
-    assert.equal(
-      (
-        await app.inject({
-          method: 'POST',
-          url: `/api/v1/workflow-runs/${runId}/events`,
-          payload: { type: 'step.completed', payload: { step: 'ask' } },
-        })
-      ).statusCode,
-      201,
-    );
-    assert.equal(
-      (
-        await app.inject({
-          method: 'POST',
-          url: `/api/v1/workflow-runs/${runId}/wait`,
-          payload: { prompt: '继续？' },
-        })
-      ).json().status,
-      'waiting_input',
-    );
+    for (const action of ['start', 'events', 'wait', 'complete', 'fail']) {
+      assert.equal(
+        (await app.inject({ method: 'POST', url: `/api/v1/workflow-runs/${runId}/${action}` }))
+          .statusCode,
+        404,
+        action,
+      );
+    }
+    let trace = await app.inject({
+      method: 'GET',
+      url: `/api/v1/workflow-runs/${runId}/trace?wakerId=codex-assistant`,
+    });
+    for (let index = 0; index < 20 && trace.json().run.status !== 'waiting_input'; index += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      trace = await app.inject({
+        method: 'GET',
+        url: `/api/v1/workflow-runs/${runId}/trace?wakerId=codex-assistant`,
+      });
+    }
+    assert.equal(trace.json().run.status, 'waiting_input');
+    for (const action of ['resume', 'cancel', 'retry'] as const) {
+      const foreignAction = await app.inject({
+        method: 'POST',
+        url: `/api/v1/workflow-runs/${runId}/${action}`,
+        payload:
+          action === 'resume'
+            ? { wakerId: 'reviewer', input: '越权输入' }
+            : { wakerId: 'reviewer' },
+      });
+      assert.equal(foreignAction.statusCode, 404, action);
+    }
     assert.equal(
       (
         await app.inject({
           method: 'POST',
           url: `/api/v1/workflow-runs/${runId}/resume`,
-          payload: { input: '继续' },
+          payload: { wakerId: 'codex-assistant', input: '继续' },
         })
-      ).json().status,
-      'running',
+      ).statusCode,
+      202,
+    );
+    for (let index = 0; index < 20 && trace.json().run.status !== 'succeeded'; index += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      trace = await app.inject({
+        method: 'GET',
+        url: `/api/v1/workflow-runs/${runId}/trace?wakerId=codex-assistant`,
+      });
+    }
+    assert.equal(trace.json().run.status, 'succeeded');
+    assert.equal(trace.json().run.output, '继续');
+    assert.ok(
+      trace.json().events.some((event: { type: string }) => event.type === 'waiting_input'),
     );
     assert.equal(
       (
         await app.inject({
-          method: 'POST',
-          url: `/api/v1/workflow-runs/${runId}/complete`,
-          payload: { output: '完成' },
+          method: 'GET',
+          url: `/api/v1/workflow-runs/${runId}/trace?wakerId=reviewer`,
         })
-      ).json().status,
-      'succeeded',
-    );
-    const trace = await app.inject({ method: 'GET', url: `/api/v1/workflow-runs/${runId}/trace` });
-    assert.equal(trace.statusCode, 200);
-    assert.equal(trace.json().run.workflowId, workflowId);
-    assert.ok(
-      trace.json().events.some((event: { type: string }) => event.type === 'step.completed'),
+      ).statusCode,
+      404,
     );
   });
 
@@ -329,24 +505,159 @@ describe('local workspace API', () => {
     });
     assert.equal(broaden.statusCode, 400);
 
-    const action = await app.inject({
+    const forgedAction = await app.inject({
       method: 'POST',
       url: '/api/v1/human-actions',
       payload: {
         wakerId: 'codex-assistant',
-        source: 'workflow',
+        source: 'codex',
         sourceId: 'run-one',
         title: '确认继续',
         prompt: '是否继续？',
       },
     });
-    assert.equal(action.statusCode, 201);
-    const resolved = await app.inject({
+    assert.equal(forgedAction.statusCode, 404);
+  });
+});
+
+describe('automation execution API', () => {
+  const root = mkdtempSync(join(tmpdir(), 'waker-api-automation-run-'));
+  mkdirSync(join(root, '.codex', 'agents'), { recursive: true });
+  mkdirSync(join(root, 'project'));
+  writeFileSync(
+    join(root, '.codex', 'agents', 'test-agent.md'),
+    '---\nname: Test Agent\nmark: TA\ntagline: Test\ndescription: Test\nsuggestions:\n  - Test\n---\n\nTest agent.\n',
+  );
+  let calls = 0;
+  const app = buildApp(
+    { ...config, CODEX_AGENT_ENABLED: true },
+    {
+      cwd: root,
+      schedulerIntervalMs: false,
+      automationRuntime: {
+        runTurn: async () => {
+          calls += 1;
+          if (calls === 1) throw new Error(`provider failed at ${root}/private.txt`);
+          return {
+            answer: `Completed in ${root}/project`,
+            thinkingText: '',
+            usage: { input: 7, output: 3, total: 10 },
+          };
+        },
+        abortTurn: async () => undefined,
+      },
+    },
+  );
+
+  before(async () => app.ready());
+  after(async () => {
+    await app.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  async function runById(runId: string) {
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/api/v1/automation-runs?wakerId=test-agent',
+      });
+      const run = response.json().items.find((item: { id: string }) => item.id === runId);
+      if (run && !['queued', 'running'].includes(run.status)) return run;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    throw new Error(`automation run did not settle: ${runId}`);
+  }
+
+  it('executes, persists failure, retries in a new session and preserves history on delete', async () => {
+    const project = await app.inject({
       method: 'POST',
-      url: `/api/v1/human-actions/${action.json().id}/resolve`,
-      payload: { wakerId: 'codex-assistant', result: { approved: true } },
+      url: '/api/v1/projects',
+      payload: {
+        wakerId: 'test-agent',
+        name: 'Project',
+        visibility: 'private',
+        source: 'filesystem',
+        path: 'project',
+      },
     });
-    assert.equal(resolved.json().status, 'handled');
+    assert.equal(project.statusCode, 201);
+    const automation = await app.inject({
+      method: 'POST',
+      url: '/api/v1/automations',
+      payload: {
+        wakerId: 'test-agent',
+        name: 'Paused check',
+        kind: 'api',
+        prompt: 'Read <status> & report',
+        projectId: project.json().id,
+        enabled: false,
+        thinking: 'medium',
+      },
+    });
+    assert.equal(automation.statusCode, 201);
+    assert.equal(automation.json().lifecycle, 'paused');
+    assert.equal(automation.json().projectId, project.json().id);
+
+    const queued = await app.inject({
+      method: 'POST',
+      url: `/api/v1/automations/${automation.json().id}/run`,
+      payload: { wakerId: 'test-agent' },
+    });
+    assert.equal(queued.statusCode, 202);
+    assert.equal(queued.json().trigger, 'manual');
+    assert.equal(queued.json().promptSnapshot, 'Read <status> & report');
+    const failed = await runById(queued.json().id);
+    assert.equal(failed.status, 'failed');
+    assert.ok(failed.sessionId);
+    assert.equal(String(failed.error).includes(root), false);
+
+    const retryResponse = await app.inject({
+      method: 'POST',
+      url: `/api/v1/automation-runs/${failed.id}/retry`,
+      payload: { wakerId: 'test-agent' },
+    });
+    assert.equal(retryResponse.statusCode, 202);
+    assert.equal(retryResponse.json().attempt, 2);
+    assert.equal(retryResponse.json().retryOfRunId, failed.id);
+    const succeeded = await runById(retryResponse.json().id);
+    assert.equal(succeeded.status, 'succeeded');
+    assert.equal(succeeded.result, 'Completed in ./project');
+    assert.deepEqual(succeeded.usage, { input: 7, output: 3, total: 10 });
+    assert.notEqual(succeeded.sessionId, failed.sessionId);
+
+    const forged = await app.inject({
+      method: 'POST',
+      url: `/api/v1/automation-runs/${succeeded.id}/complete`,
+      payload: { wakerId: 'test-agent', output: 'forged' },
+    });
+    assert.equal(forged.statusCode, 404);
+
+    const impact = await app.inject({
+      method: 'GET',
+      url: `/api/v1/automations/${automation.json().id}/delete-impact?wakerId=test-agent`,
+    });
+    assert.deepEqual(impact.json(), {
+      automationId: automation.json().id,
+      runs: 2,
+      tasks: 2,
+      sessions: 2,
+    });
+    const deleted = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/automations/${automation.json().id}?wakerId=test-agent`,
+    });
+    assert.equal(deleted.statusCode, 204);
+    const retryDeleted = await app.inject({
+      method: 'POST',
+      url: `/api/v1/automation-runs/${failed.id}/retry`,
+      payload: { wakerId: 'test-agent' },
+    });
+    assert.equal(retryDeleted.statusCode, 400);
+    const history = await app.inject({
+      method: 'GET',
+      url: `/api/v1/automation-runs?wakerId=test-agent&automationId=${automation.json().id}`,
+    });
+    assert.equal(history.json().total, 2);
   });
 });
 

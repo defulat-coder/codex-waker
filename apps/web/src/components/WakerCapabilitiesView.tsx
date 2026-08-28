@@ -2,14 +2,11 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import type { HumanActionRecord, WakerConnector } from '@waker/contracts';
 import {
   createConnector,
-  createDemoHumanAction,
   connectorAction,
   deleteConnector,
   fetchConnectors,
   fetchHumanActions,
   fetchPermissions,
-  ignoreHumanAction,
-  resolveHumanAction,
   updatePermissions,
   type PermissionEnvelope,
 } from '../lib/api.js';
@@ -227,13 +224,7 @@ export function WakerCapabilitiesView({
           </div>
         </div>
       ) : (
-        <HumanActionsList
-          wakerId={wakerId}
-          actions={actions}
-          onChanged={() => void load()}
-          notify={notify}
-          allowDemo
-        />
+        <HumanActionsList actions={actions} />
       )}
     </section>
   );
@@ -254,19 +245,7 @@ function Policy({ policy }: { policy: PermissionEnvelope['host'] }) {
     </dl>
   );
 }
-export function HumanActionsList({
-  wakerId,
-  actions,
-  onChanged,
-  notify,
-  allowDemo = false,
-}: {
-  wakerId: string;
-  actions: HumanActionRecord[];
-  onChanged: () => void;
-  notify: (text: string) => void;
-  allowDemo?: boolean;
-}) {
+export function HumanActionsList({ actions }: { actions: HumanActionRecord[] }) {
   return (
     <section className="human-actions">
       <div className="section-heading">
@@ -274,21 +253,7 @@ export function HumanActionsList({
           <h2>待处理操作</h2>
           <p>{actions.length} 项需要人工决定。</p>
         </div>
-        {allowDemo && (
-          <button
-            className="legacy-button"
-            onClick={async () => {
-              try {
-                await createDemoHumanAction(wakerId);
-                onChanged();
-              } catch (cause) {
-                notify(cause instanceof Error ? cause.message : '创建失败');
-              }
-            }}
-          >
-            创建本地演示 Action
-          </button>
-        )}
+        <p>处理与忽略统一在任务看板的“人工操作”中完成。</p>
       </div>
       {actions.length ? (
         <div className="resource-table">
@@ -300,24 +265,7 @@ export function HumanActionsList({
                   {item.prompt} · {item.source}:{item.sourceId}
                 </small>
               </div>
-              <button
-                className="legacy-button primary"
-                onClick={async () => {
-                  await resolveHumanAction(item.id, wakerId, { accepted: true });
-                  onChanged();
-                }}
-              >
-                处理
-              </button>
-              <button
-                className="legacy-button"
-                onClick={async () => {
-                  await ignoreHumanAction(item.id, wakerId);
-                  onChanged();
-                }}
-              >
-                忽略
-              </button>
+              <span className={cx('resource-status', item.status)}>{item.status}</span>
             </div>
           ))}
         </div>
@@ -325,50 +273,5 @@ export function HumanActionsList({
         <p className="outputs-empty">没有待处理操作。</p>
       )}
     </section>
-  );
-}
-
-export function TaskHumanActions({
-  wakerId,
-  notify,
-}: {
-  wakerId: string;
-  notify: (text: string) => void;
-}) {
-  const [actions, setActions] = useState<HumanActionRecord[] | null>(null);
-  const [error, setError] = useState('');
-  const load = useCallback(
-    () =>
-      fetchHumanActions(wakerId)
-        .then(setActions)
-        .catch((cause) => setError(cause instanceof Error ? cause.message : '人工操作加载失败')),
-    [wakerId],
-  );
-  useEffect(() => {
-    void load();
-  }, [load]);
-  return (
-    <div className="legacy-subsection">
-      {error ? (
-        <div className="legacy-error">
-          <p>{error}</p>
-          <button className="legacy-button" onClick={() => void load()}>
-            重试
-          </button>
-        </div>
-      ) : actions ? (
-        <HumanActionsList
-          wakerId={wakerId}
-          actions={actions}
-          onChanged={() => void load()}
-          notify={notify}
-        />
-      ) : (
-        <div className="loading-rows">
-          <i />
-          <i />
-        </div>
-      )}
-    </div>
   );
 }

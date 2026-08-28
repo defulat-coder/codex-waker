@@ -616,7 +616,7 @@ export class AgentSessionStore {
     const mtimeMs = statSync(file).mtimeMs;
     const cached = this.rolloutCache.get(file);
     if (cached && cached.mtimeMs === mtimeMs) return cached.messages;
-    const messages = parseRolloutMessages(readFileSync(file, 'utf8'));
+    const messages = parseRolloutMessages(readFileSync(file, 'utf8'), [this.cwd]);
     this.rolloutCache.set(file, { mtimeMs, messages });
     return messages;
   }

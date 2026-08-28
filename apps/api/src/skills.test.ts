@@ -93,6 +93,8 @@ describe('skills endpoints', () => {
 describe('skills upload endpoint', () => {
   const root = mkdtempSync(join(tmpdir(), 'codex-api-skills-upload-'));
   const app = buildApp(config, { cwd: root });
+  const handMade =
+    '---\nname: hand-made\ndescription: 手工上传。\nversion: 1\n---\n\n手工上传的正文。\n';
 
   before(async () => app.ready());
   after(async () => {
@@ -100,26 +102,35 @@ describe('skills upload endpoint', () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it('POST /skills/upload writes .codex/skills/<name>/SKILL.md and returns 201', async () => {
+  it('POST /skills/upload stages a strict source, installs with Skills CLI and returns 201', async () => {
     const response = await app.inject({
       method: 'POST',
       url: '/api/v1/skills/upload',
-      payload: { name: 'hand-made', content: '手工上传的正文。', description: '手工上传。' },
+      payload: { name: 'hand-made', content: handMade },
     });
     assert.equal(response.statusCode, 201);
     const body = response.json();
     assert.equal(body.name, 'hand-made');
-    assert.equal(body.scope, 'codex');
-    assert.equal(body.path, '.codex/skills/hand-made/SKILL.md');
-    const written = readFileSync(join(root, '.codex', 'skills', 'hand-made', 'SKILL.md'), 'utf8');
-    assert.match(written, /^---\nname: "hand-made"/);
+    assert.equal(body.scope, 'agents');
+    assert.equal(body.path, '.agents/skills/hand-made/SKILL.md');
+    assert.equal(body.availability, 'available');
+    assert.equal(body.valid, true);
+    assert.equal(body.version, '1');
+    assert.equal(body.integrity, 'unverified');
+    assert.equal(body.source, 'local-upload');
+    assert.equal(String(body.lock.source).startsWith('/'), false);
+    const written = readFileSync(join(root, '.agents', 'skills', 'hand-made', 'SKILL.md'), 'utf8');
+    assert.match(written, /^---\nname: hand-made/);
     assert.match(written, /手工上传的正文。/);
+    assert.equal(existsSync(join(root, '.codex', 'skill-sources', 'hand-made', 'SKILL.md')), true);
     // 上传后能进已安装列表并能读出完整内容。
     const listed = await app.inject({ method: 'GET', url: '/api/v1/skills/installed' });
     assert.equal(listed.json().total, 1);
     const content = await app.inject({
       method: 'GET',
-      url: '/api/v1/skills/installed/content?scope=codex&name=hand-made',
+      url: `/api/v1/skills/installed/content?scope=agents&name=hand-made&locator=${encodeURIComponent(
+        body.locator,
+      )}`,
     });
     assert.equal(content.statusCode, 200);
     assert.equal(content.json().content, '手工上传的正文。');
@@ -129,13 +140,13 @@ describe('skills upload endpoint', () => {
     const conflict = await app.inject({
       method: 'POST',
       url: '/api/v1/skills/upload',
-      payload: { name: 'hand-made', content: '重复上传。' },
+      payload: { name: 'hand-made', content: handMade.replace('正文', '新正文') },
     });
     assert.equal(conflict.statusCode, 409);
     const badName = await app.inject({
       method: 'POST',
       url: '/api/v1/skills/upload',
-      payload: { name: 'Bad Name', content: '正文。' },
+      payload: { name: 'Bad Name', content: handMade },
     });
     assert.equal(badName.statusCode, 400);
     const empty = await app.inject({
@@ -144,6 +155,12 @@ describe('skills upload endpoint', () => {
       payload: { name: 'empty-skill', content: '' },
     });
     assert.equal(empty.statusCode, 400);
+    const missingFrontmatter = await app.inject({
+      method: 'POST',
+      url: '/api/v1/skills/upload',
+      payload: { name: 'plain-skill', content: '只有正文。' },
+    });
+    assert.equal(missingFrontmatter.statusCode, 400);
     const tooLarge = await app.inject({
       method: 'POST',
       url: '/api/v1/skills/upload',
@@ -152,21 +169,43 @@ describe('skills upload endpoint', () => {
     assert.equal(tooLarge.statusCode, 400);
   });
 
-  it('POST /skills/remove deletes an uploaded skill directly and returns the list', async () => {
+  it('POST /skills/remove delegates an installed upload to Skills CLI', async () => {
+    const listed = await app.inject({ method: 'GET', url: '/api/v1/skills/installed' });
+    const item = listed.json().items[0];
     const removed = await app.inject({
       method: 'POST',
       url: '/api/v1/skills/remove',
-      payload: { name: 'hand-made', scope: 'codex' },
+      payload: { name: 'hand-made', scope: 'agents', locator: item.locator },
     });
     assert.equal(removed.statusCode, 200);
     assert.equal(removed.json().total, 0);
-    assert.equal(existsSync(join(root, '.codex', 'skills', 'hand-made')), false);
+    assert.equal(existsSync(join(root, '.agents', 'skills', 'hand-made')), false);
+    assert.equal(existsSync(join(root, '.codex', 'skill-sources', 'hand-made')), false);
     const missing = await app.inject({
       method: 'POST',
       url: '/api/v1/skills/remove',
-      payload: { name: 'hand-made', scope: 'codex' },
+      payload: { name: 'hand-made', scope: 'agents', locator: item.locator },
     });
     assert.equal(missing.statusCode, 404);
+  });
+
+  it('deletes an explicitly selected legacy host source without touching repo skills', async () => {
+    const directory = join(root, '.codex', 'skills', 'legacy');
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(
+      join(directory, 'SKILL.md'),
+      '---\nname: legacy\ndescription: Legacy host source.\n---\n\nLegacy.\n',
+    );
+    const listed = await app.inject({ method: 'GET', url: '/api/v1/skills/installed' });
+    const legacy = listed.json().items.find((item: { scope: string }) => item.scope === 'codex');
+    assert.equal(legacy.availability, 'available');
+    const removed = await app.inject({
+      method: 'POST',
+      url: '/api/v1/skills/remove',
+      payload: { name: 'legacy', scope: 'codex', locator: legacy.locator },
+    });
+    assert.equal(removed.statusCode, 200);
+    assert.equal(existsSync(directory), false);
   });
 
   it('POST /skills/remove 404s skills that are not installed and rejects traversal-shaped names', async () => {
@@ -174,7 +213,10 @@ describe('skills upload endpoint', () => {
     const unknown = await app.inject({
       method: 'POST',
       url: '/api/v1/skills/remove',
-      payload: { name: 'ghost-skill' },
+      payload: {
+        name: 'ghost-skill',
+        locator: 'agents:.agents/skills/ghost-skill/SKILL.md',
+      },
     });
     assert.equal(unknown.statusCode, 404);
     // 纯点号 / 连续点的名字在 schema 层就被拒（目录遍历形态）。

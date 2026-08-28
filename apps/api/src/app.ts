@@ -29,6 +29,10 @@ import { registerWorkspaceRoutes } from './routes/workspace.js';
 import { registerSessionOutputRoutes } from './routes/session-outputs.js';
 import { registerCapabilityRoutes } from './routes/capabilities.js';
 import { runDueAutomations } from './scheduler.js';
+import { AutomationExecutor, type AutomationExecutorOptions } from './automation-executor.js';
+import { WorkflowExecutor, type WorkflowExecutorOptions } from './workflow-executor.js';
+import { registerWorkflowRoutes } from './routes/workflows.js';
+import { registerBoardRoutes } from './routes/board.js';
 
 type AppDependencies = {
   sessionStore?: AgentSessionStore;
@@ -38,6 +42,13 @@ type AppDependencies = {
   artifactStore?: ArtifactStore;
   cwd?: string;
   schedulerIntervalMs?: number | false;
+  automationExecutor?: AutomationExecutor;
+  automationRuntime?: Pick<AutomationExecutorOptions, 'runTurn' | 'abortTurn'>;
+  workflowExecutor?: WorkflowExecutor;
+  workflowRuntime?: Pick<
+    WorkflowExecutorOptions,
+    'runTurn' | 'abortTurn' | 'now' | 'setTimer' | 'clearTimer'
+  >;
 };
 
 export function buildApp(
@@ -63,7 +74,33 @@ export function buildApp(
   const ownsArtifacts = !dependencies.artifactStore;
   const artifacts =
     dependencies.artifactStore ?? new ArtifactStore({ storageRoot: join(codexDir, 'artifacts') });
-  const ctx: AppContext = { config, cwd, sessions, knowledge, memory, workspaceData, artifacts };
+  const automationExecutor =
+    dependencies.automationExecutor ??
+    new AutomationExecutor({
+      cwd,
+      store: workspaceData,
+      sessions,
+      ...dependencies.automationRuntime,
+    });
+  const workflowExecutor =
+    dependencies.workflowExecutor ??
+    new WorkflowExecutor({
+      cwd,
+      store: workspaceData,
+      sessions,
+      ...dependencies.workflowRuntime,
+    });
+  const ctx: AppContext = {
+    config,
+    cwd,
+    sessions,
+    knowledge,
+    memory,
+    workspaceData,
+    artifacts,
+    automationExecutor,
+    workflowExecutor,
+  };
 
   const app = Fastify({
     logger: {
@@ -79,27 +116,41 @@ export function buildApp(
   const schedulerIntervalMs =
     dependencies.schedulerIntervalMs === undefined ? 30_000 : dependencies.schedulerIntervalMs;
   let scheduler: ReturnType<typeof setInterval> | undefined;
-  if (schedulerIntervalMs !== false) {
+  if (schedulerIntervalMs !== false && config.CODEX_AGENT_ENABLED) {
     app.addHook('onReady', async () => {
+      automationExecutor.recover(loadAgents(cwd).map((agent) => agent.id));
       const tick = () => {
+        // Agent definitions are files and can change while the local server is running.
         const result = runDueAutomations(
           workspaceData,
           loadAgents(cwd).map((agent) => agent.id),
         );
+        for (const run of result.runs) {
+          if (run.status === 'queued') automationExecutor.enqueue(run.wakerId, run.id);
+        }
         for (const error of result.errors) app.log.warn(error, 'scheduled automation failed');
       };
       tick();
       scheduler = setInterval(tick, schedulerIntervalMs);
       scheduler.unref();
     });
-    app.addHook('onClose', async () => {
-      if (scheduler) clearInterval(scheduler);
+  } else if (config.CODEX_AGENT_ENABLED) {
+    app.addHook('onReady', async () => {
+      automationExecutor.recover(loadAgents(cwd).map((agent) => agent.id));
     });
   }
-  if (ownsKnowledge) app.addHook('onClose', async () => knowledge.close());
-  if (ownsWorkspace) app.addHook('onClose', async () => workspaceData.close());
-  if (ownsMemory) app.addHook('onClose', async () => memory.close());
-  if (ownsArtifacts) app.addHook('onClose', async () => artifacts.close());
+  app.addHook('onReady', async () => {
+    workflowExecutor.recover(loadAgents(cwd).map((agent) => agent.id));
+  });
+  app.addHook('onClose', async () => {
+    if (scheduler) clearInterval(scheduler);
+    await automationExecutor.close();
+    await workflowExecutor.close();
+    if (ownsKnowledge) knowledge.close();
+    if (ownsWorkspace) workspaceData.close();
+    if (ownsMemory) memory.close();
+    if (ownsArtifacts) artifacts.close();
+  });
 
   app.get('/healthz', async () => ({
     status: 'ok',
@@ -120,6 +171,8 @@ export function buildApp(
       registerKnowledgeRoutes(v1, ctx);
       registerMemoryRoutes(v1, ctx);
       registerWorkspaceRoutes(v1, ctx);
+      registerWorkflowRoutes(v1, ctx);
+      registerBoardRoutes(v1, ctx);
       registerSessionOutputRoutes(v1, ctx);
       registerCapabilityRoutes(v1, ctx);
     },

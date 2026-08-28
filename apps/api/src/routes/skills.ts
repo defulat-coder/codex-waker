@@ -1,4 +1,8 @@
 import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type { FastifyInstance } from 'fastify';
 import type {
@@ -13,10 +17,17 @@ import type {
 } from '@waker/contracts';
 import {
   listInstalledSkills,
+  assertSkillsMutationRootsSafe,
+  hasRepoSkillResidue,
+  readStagingMetadata,
   readInstalledSkillContent,
   removeProjectSkill,
+  removeUploadedSkillSource,
+  SKILLS_CLI_VERSION,
   SkillUploadError,
-  uploadSkill,
+  stageUploadedSkill,
+  writeStagingMetadata,
+  redactPrivateRoots,
 } from '@waker/codex-runtime';
 import {
   SkillContentQuerySchema,
@@ -46,12 +57,132 @@ const detailCache = new Map<string, { fetchedAt: number; detail: LibrarySkillDet
 
 const FETCH_TIMEOUT_MS = 15_000;
 const INSTALL_TIMEOUT_MS = 180_000;
+const GIT_TIMEOUT_MS = 120_000;
 /** owner/repo 与 skillId 的第二道防线（schema 已按同一 pattern 校验）。 */
 const SOURCE_REGEX = /^[a-z0-9_.-]+\/[a-z0-9_.-]+$/;
 // 与 SkillNameSchema 同一 pattern：禁止纯点号与连续点。
 const NAME_REGEX = /^(?!\.*$)(?!.*\.\.)[a-z0-9_.-]+$/;
+const RUNTIME_NAME_REGEX = /^[a-z0-9-]{1,80}$/;
 
 class SkillsShError extends Error {}
+
+let mutationTail: Promise<void> = Promise.resolve();
+
+async function serializeMutation<T>(
+  cwd: string,
+  skillId: string | undefined,
+  action: () => Promise<T>,
+): Promise<T> {
+  const previous = mutationTail;
+  let release!: () => void;
+  mutationTail = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await previous;
+  try {
+    assertSkillsMutationRootsSafe(cwd, skillId);
+    return await action();
+  } finally {
+    release();
+  }
+}
+
+function safeCommandError(error: unknown, cwd: string): string {
+  const stderr = (error as { stderr?: string })?.stderr?.trim();
+  return redactPrivateRoots(
+    (stderr || (error instanceof Error ? error.message : String(error)))
+      .replace(/https?:\/\/[^@\s/]+:[^@\s]+@/gi, 'https://[credentials]@')
+      .replace(/([?&](?:token|key|password|secret)=)[^&\s]+/gi, '$1[redacted]')
+      .replace(/\s+/g, ' ')
+      .slice(0, 500),
+    [cwd, homedir()],
+  );
+}
+
+async function runSkillsCli(cwd: string, args: string[], skillId: string): Promise<void> {
+  assertSkillsMutationRootsSafe(cwd, skillId);
+  await execFileAsync('npx', ['-y', `skills@${SKILLS_CLI_VERSION}`, ...args], {
+    cwd,
+    timeout: INSTALL_TIMEOUT_MS,
+  });
+}
+
+function assertSkillTargetAvailable(cwd: string, skillId: string): void {
+  if (
+    listInstalledSkills(cwd).some(
+      (item) => item.name === skillId || item.path.split('/').at(-2) === skillId,
+    )
+  ) {
+    throw new SkillUploadError('CONFLICT', `技能已存在：${skillId}`);
+  }
+}
+
+async function rollbackSkillInstall(cwd: string, skillId: string): Promise<void> {
+  try {
+    await runSkillsCli(cwd, ['remove', skillId, '-y'], skillId);
+  } catch {
+    // The original install error remains primary; postcondition below detects residue.
+  }
+  if (hasRepoSkillResidue(cwd, skillId)) {
+    throw new Error(`技能安装失败且回滚未完成：${skillId}`);
+  }
+}
+
+function sourceDirectoryName(source: string): string {
+  const slug = source.replace('/', '--');
+  const hash = createHash('sha256').update(source).digest('hex').slice(0, 10);
+  return `github-${slug}-${hash}`;
+}
+
+async function stageGithubSource(cwd: string, source: string, skillId: string): Promise<string> {
+  assertSkillsMutationRootsSafe(cwd, skillId);
+  const root = join(cwd, '.codex', 'skill-sources');
+  mkdirSync(root, { recursive: true });
+  assertSkillsMutationRootsSafe(cwd, skillId);
+  const target = join(root, sourceDirectoryName(source));
+  if (existsSync(target)) {
+    const metadata = readStagingMetadata(cwd, target);
+    if (!metadata || metadata.kind !== 'github' || metadata.source !== source || !metadata.commit)
+      throw new Error('已有技能来源无法验证，拒绝复用');
+    const [{ stdout: head }, { stdout: status }] = await Promise.all([
+      execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: target, timeout: 10_000 }),
+      execFileAsync('git', ['status', '--porcelain'], { cwd: target, timeout: 10_000 }),
+    ]);
+    if (head.trim() !== metadata.commit || status.trim())
+      throw new Error('技能来源 checkout 已漂移，拒绝以原始来源名安装');
+  } else {
+    const temporary = mkdtempSync(join(root, '.tmp-github-'));
+    try {
+      await execFileAsync(
+        'git',
+        [
+          'clone',
+          '--depth',
+          '1',
+          '--filter=blob:none',
+          `https://github.com/${source}.git`,
+          temporary,
+        ],
+        { cwd, timeout: GIT_TIMEOUT_MS },
+      );
+      const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], {
+        cwd: temporary,
+        timeout: 10_000,
+      });
+      writeStagingMetadata(temporary, {
+        kind: 'github',
+        source,
+        skillId,
+        commit: stdout.trim(),
+      });
+      renameSync(temporary, target);
+    } catch (error) {
+      rmSync(temporary, { recursive: true, force: true });
+      throw error;
+    }
+  }
+  return target;
+}
 
 async function fetchText(url: string): Promise<string> {
   const response = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
@@ -100,6 +231,9 @@ async function loadSkillDetail(source: string, skillId: string): Promise<Library
       id,
       name: parsed.name ?? skillId,
       source,
+      thirdParty: true,
+      contentReviewed: false,
+      riskNotice: 'skills.sh 是第三方发现源；安装前尚未审查仓库中的 SKILL.md、脚本或工具依赖。',
       ...(parsed.description ? { description: parsed.description } : {}),
       ...(parsed.installs !== undefined ? { installs: parsed.installs } : {}),
     };
@@ -112,9 +246,17 @@ async function loadSkillDetail(source: string, skillId: string): Promise<Library
   }
 }
 
-/** 已安装技能名集合（.agents/skills + .codex/skills），用于给库条目打 installed 标记。 */
-function installedNames(cwd: string): Set<string> {
-  return new Set(listInstalledSkills(cwd).map((item) => item.name));
+function isLibrarySkillInstalled(
+  entry: Pick<LibrarySkillSummary, 'id' | 'source'>,
+  installed: ReturnType<typeof listInstalledSkills>,
+): boolean {
+  const skillId = entry.id.split('/').at(-1);
+  return installed.some(
+    (item) =>
+      item.availability === 'available' &&
+      item.source === entry.source &&
+      (item.name === skillId || item.path.split('/').at(-2) === skillId),
+  );
 }
 
 function installedResponse(cwd: string): InstalledSkillListResponse {
@@ -122,30 +264,22 @@ function installedResponse(cwd: string): InstalledSkillListResponse {
   return { items, total: items.length };
 }
 
-/** 从 execFile 异常里提取一段可读的 stderr 摘要。 */
-function stderrSummary(error: unknown): string {
-  const stderr = (error as { stderr?: string })?.stderr?.trim();
-  const summary = (stderr || (error instanceof Error ? error.message : String(error))).replace(
-    /\s+/g,
-    ' ',
-  );
-  return summary.slice(0, 500);
-}
-
 export function registerSkillRoutes(app: FastifyInstance, ctx: AppContext): void {
   app.get('/skills/installed', async (): Promise<InstalledSkillListResponse> =>
     installedResponse(ctx.cwd),
   );
 
-  app.get<{ Querystring: { scope: 'codex' | 'agents'; name: string } }>(
+  app.get<{
+    Querystring: { scope: 'codex' | 'agents'; name: string; locator?: string };
+  }>(
     '/skills/installed/content',
     {
       schema: { querystring: SkillContentQuerySchema },
     },
     async (request, reply): Promise<InstalledSkillContent | void> => {
-      const { scope, name } = request.query;
+      const { scope, name, locator } = request.query;
       if (!NAME_REGEX.test(name)) return reply.code(400).send({ error: '技能名称不合法' });
-      const content = readInstalledSkillContent(ctx.cwd, scope, name);
+      const content = readInstalledSkillContent(ctx.cwd, scope, name, locator);
       if (!content) return reply.code(404).send({ error: '技能不存在' });
       return content;
     },
@@ -158,7 +292,7 @@ export function registerSkillRoutes(app: FastifyInstance, ctx: AppContext): void
     },
     async (request, reply): Promise<LibrarySkillDetail | void> => {
       const { source, skillId } = request.query;
-      if (!SOURCE_REGEX.test(source) || !NAME_REGEX.test(skillId))
+      if (!SOURCE_REGEX.test(source) || !RUNTIME_NAME_REGEX.test(skillId))
         return reply.code(400).send({ error: '技能来源或 id 不合法' });
       try {
         return await loadSkillDetail(source, skillId);
@@ -178,20 +312,20 @@ export function registerSkillRoutes(app: FastifyInstance, ctx: AppContext): void
     async (request, reply): Promise<SkillLibraryResponse | void> => {
       const query = request.query.query?.trim() ?? '';
       const limit = request.query.limit ?? 50;
-      const installed = installedNames(ctx.cwd);
+      const installed = listInstalledSkills(ctx.cwd);
       try {
         if (query.length >= 2) {
           const hits = await searchSkills(query, limit);
           const items: LibrarySkillSummary[] = hits.map((hit) => ({
             ...hit,
-            installed: installed.has(hit.name),
+            installed: isLibrarySkillInstalled(hit, installed),
           }));
           return { items, total: items.length, mode: 'search' };
         }
         const top = await loadTopSkills();
         const items: LibrarySkillSummary[] = top
           .slice(0, limit)
-          .map((entry) => ({ ...entry, installed: installed.has(entry.name) }));
+          .map((entry) => ({ ...entry, installed: isLibrarySkillInstalled(entry, installed) }));
         return { items, total: items.length, mode: 'top' };
       } catch (error) {
         if (error instanceof SkillsShError)
@@ -201,7 +335,8 @@ export function registerSkillRoutes(app: FastifyInstance, ctx: AppContext): void
     },
   );
 
-  // 安装即 `npx -y skills add <source> --skill <skillId> -a universal -y`（写入 .agents/skills + skills-lock.json）。
+  // GitHub is cloned into a durable host source first; only the pinned Skills CLI mutates
+  // .agents/skills and skills-lock.json.
   app.post<{ Body: SkillInstallRequest }>(
     '/skills/install',
     {
@@ -212,13 +347,33 @@ export function registerSkillRoutes(app: FastifyInstance, ctx: AppContext): void
       if (!SOURCE_REGEX.test(source) || !NAME_REGEX.test(skillId))
         return reply.code(400).send({ error: '技能来源或 id 不合法' });
       try {
-        await execFileAsync(
-          'npx',
-          ['-y', 'skills', 'add', source, '--skill', skillId, '-a', 'universal', '-y'],
-          { cwd: ctx.cwd, timeout: INSTALL_TIMEOUT_MS },
-        );
+        await serializeMutation(ctx.cwd, skillId, async () => {
+          assertSkillTargetAvailable(ctx.cwd, skillId);
+          const staged = await stageGithubSource(ctx.cwd, source, skillId);
+          try {
+            await runSkillsCli(
+              ctx.cwd,
+              ['add', staged, '--skill', skillId, '--copy', '-a', 'universal', '-y'],
+              skillId,
+            );
+            const installed = listInstalledSkills(ctx.cwd).find(
+              (item) =>
+                item.scope === 'agents' &&
+                item.availability === 'available' &&
+                item.valid &&
+                item.source === source &&
+                (item.name === skillId || item.path.split('/').at(-2) === skillId),
+            );
+            if (!installed) throw new Error('Skills CLI 完成后未找到匹配的有效技能');
+          } catch (error) {
+            await rollbackSkillInstall(ctx.cwd, skillId);
+            throw error;
+          }
+        });
       } catch (error) {
-        return reply.code(502).send({ error: `技能安装失败：${stderrSummary(error)}` });
+        if (error instanceof SkillUploadError && error.code === 'CONFLICT')
+          return reply.code(409).send({ error: error.message });
+        return reply.code(502).send({ error: `技能安装失败：${safeCommandError(error, ctx.cwd)}` });
       }
       return installedResponse(ctx.cwd);
     },
@@ -230,31 +385,44 @@ export function registerSkillRoutes(app: FastifyInstance, ctx: AppContext): void
       schema: { body: SkillRemoveSchema },
     },
     async (request, reply) => {
-      const { name } = request.body;
+      const { name, locator } = request.body;
       if (!NAME_REGEX.test(name)) return reply.code(400).send({ error: '技能名称不合法' });
-      const installed = listInstalledSkills(ctx.cwd).find((item) => item.name === name);
+      const installed = listInstalledSkills(ctx.cwd).find((item) => item.locator === locator);
       // 删除前确认确实已安装：未安装直接 404，不把未知名字透传给 skills CLI。
       if (!installed) return reply.code(404).send({ error: '技能不存在' });
       const scope = request.body.scope ?? installed.scope;
-      // 手工上传/项目自带的 .codex/skills 条目直接删目录，不走 skills CLI。
+      if (scope !== installed.scope) return reply.code(404).send({ error: '技能不存在' });
+      // Project CODEX_HOME sources are the only direct filesystem deletion path.
       if (scope === 'codex') {
-        if (!removeProjectSkill(ctx.cwd, name))
-          return reply.code(404).send({ error: '技能不存在' });
+        const removed = await serializeMutation(ctx.cwd, undefined, async () =>
+          removeProjectSkill(ctx.cwd, name, installed.locator),
+        );
+        if (!removed) return reply.code(404).send({ error: '技能不存在' });
         return installedResponse(ctx.cwd);
       }
       try {
-        await execFileAsync('npx', ['-y', 'skills', 'remove', name, '-y'], {
-          cwd: ctx.cwd,
-          timeout: INSTALL_TIMEOUT_MS,
+        await serializeMutation(ctx.cwd, installed.path.split('/').at(-2), async () => {
+          const directoryName = installed.path.split('/').at(-2);
+          if (!directoryName) throw new Error('技能目录无法识别');
+          await runSkillsCli(ctx.cwd, ['remove', directoryName, '-y'], directoryName);
+          if (hasRepoSkillResidue(ctx.cwd, directoryName))
+            throw new Error('Skills CLI 完成后技能仍然存在');
+          if (
+            installed.source === 'local-upload' &&
+            !removeUploadedSkillSource(ctx.cwd, installed.lock?.source, directoryName)
+          ) {
+            throw new Error('技能已移除，但上传来源清理失败');
+          }
         });
       } catch (error) {
-        return reply.code(502).send({ error: `技能删除失败：${stderrSummary(error)}` });
+        return reply.code(502).send({ error: `技能删除失败：${safeCommandError(error, ctx.cwd)}` });
       }
       return installedResponse(ctx.cwd);
     },
   );
 
-  // 手工上传：写入 .codex/skills/<name>/SKILL.md；409/400 与 agents 路由同一映射。
+  // Instruction-only uploads are staged under .codex/skill-sources, then installed
+  // into the real repo skill location through the same pinned Skills CLI.
   app.post<{ Body: UploadSkillRequest }>(
     '/skills/upload',
     {
@@ -262,13 +430,34 @@ export function registerSkillRoutes(app: FastifyInstance, ctx: AppContext): void
     },
     async (request, reply) => {
       try {
-        const summary = uploadSkill(ctx.cwd, request.body);
+        const summary = await serializeMutation(ctx.cwd, request.body.name.trim(), async () => {
+          const staged = stageUploadedSkill(ctx.cwd, request.body);
+          assertSkillTargetAvailable(ctx.cwd, staged.name);
+          try {
+            await runSkillsCli(
+              ctx.cwd,
+              ['add', staged.directory, '--skill', staged.name, '--copy', '-a', 'universal', '-y'],
+              staged.name,
+            );
+            const installed = listInstalledSkills(ctx.cwd).find(
+              (item) =>
+                item.scope === 'agents' &&
+                item.path === `.agents/skills/${staged.name}/SKILL.md` &&
+                item.valid,
+            );
+            if (!installed) throw new Error('Skills CLI 完成后未找到上传的有效技能');
+            return installed;
+          } catch (error) {
+            await rollbackSkillInstall(ctx.cwd, staged.name);
+            throw error;
+          }
+        });
         return reply.code(201).send(summary);
       } catch (error) {
         if (error instanceof SkillUploadError) {
           return reply.code(error.code === 'CONFLICT' ? 409 : 400).send({ error: error.message });
         }
-        throw error;
+        return reply.code(502).send({ error: `技能上传失败：${safeCommandError(error, ctx.cwd)}` });
       }
     },
   );

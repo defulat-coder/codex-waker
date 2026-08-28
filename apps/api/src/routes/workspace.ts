@@ -1,13 +1,17 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { Type } from '@sinclair/typebox';
+import { AGENT_THINKING_LEVELS } from '@waker/contracts';
 import type {
+  AgentThinkingLevel,
+  AutomationRunRecord,
+  ChatUsage,
   LocalResourcesResponse,
   ProjectDeleteImpact,
   WakerAutomation,
   WakerChannel,
   WakerProject,
   WakerTask,
-  WakerWorkflow,
+  WakerWorkflowSummary,
 } from '@waker/contracts';
 import type {
   Automation,
@@ -16,21 +20,32 @@ import type {
   Project,
   Task,
   Workflow,
-  WorkflowRun,
-  WorkflowRunEvent,
 } from '@waker/workspace-data';
+import {
+  getCodexModelConfig,
+  getCodexReasoningEffort,
+  listCodexModels,
+} from '@waker/codex-runtime';
 import type { AppContext } from '../context.js';
+import { agentOr404, rejectDeletingAgent } from '../context.js';
 import { resolveProjectDirectory } from '../project-path.js';
 
 const id = Type.String({ minLength: 1, maxLength: 160 });
 const wakerBody = Type.Object({ wakerId: id });
+const nullableId = Type.Union([id, Type.Null()]);
+const nullableText = Type.Union([Type.String({ minLength: 1, maxLength: 240 }), Type.Null()]);
+const nullableTimestamp = Type.Union([Type.String({ minLength: 1, maxLength: 80 }), Type.Null()]);
+const nullableThinking = Type.Union([
+  ...AGENT_THINKING_LEVELS.map((level) => Type.Literal(level)),
+  Type.Null(),
+]);
 const iso = (value: number | null): string | undefined =>
   value === null ? undefined : new Date(value).toISOString();
 
 function projectDto(value: Project): WakerProject {
   return {
     id: value.id,
-    ...(value.visibility === 'private' ? { wakerId: value.wakerId } : {}),
+    wakerId: value.wakerId,
     name: value.name,
     ...(value.description ? { description: value.description } : {}),
     visibility: value.visibility,
@@ -52,24 +67,65 @@ function automationDto(value: Automation): WakerAutomation {
     kind: value.kind,
     ...(value.schedule ? { schedule: value.schedule } : {}),
     prompt: value.prompt,
+    ...(value.projectId ? { projectId: value.projectId } : {}),
+    ...(value.model ? { model: value.model } : {}),
+    ...(value.thinking ? { thinking: value.thinking } : {}),
     enabled: value.enabled,
+    lifecycle: value.completedAt ? 'completed' : value.enabled ? 'active' : 'paused',
+    timezone: value.timezone,
+    ...(iso(value.startAt) ? { startAt: iso(value.startAt) } : {}),
+    ...(iso(value.endAt) ? { endAt: iso(value.endAt) } : {}),
+    ...(value.maxRuns === null ? {} : { maxRuns: value.maxRuns }),
+    runCount: value.runCount,
+    misfirePolicy: value.misfirePolicy,
     ...(iso(value.lastRun) ? { lastRunAt: iso(value.lastRun) } : {}),
+    ...(iso(value.lastScheduledAt) ? { lastScheduledAt: iso(value.lastScheduledAt) } : {}),
     ...(iso(value.nextRun) ? { nextRunAt: iso(value.nextRun) } : {}),
+    ...(iso(value.completedAt) ? { completedAt: iso(value.completedAt) } : {}),
     createdAt: new Date(value.createdAt).toISOString(),
     updatedAt: new Date(value.updatedAt).toISOString(),
   };
 }
 
-function automationRunDto(value: AutomationRun) {
+function usageDto(value: unknown): ChatUsage | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const usage = value as Record<string, unknown>;
+  if (
+    !['input', 'output', 'total'].every(
+      (key) => Number.isSafeInteger(usage[key]) && (usage[key] as number) >= 0,
+    )
+  )
+    return undefined;
+  return {
+    input: usage.input as number,
+    output: usage.output as number,
+    total: usage.total as number,
+  };
+}
+
+function automationRunDto(value: AutomationRun): AutomationRunRecord {
+  const usage = usageDto(value.usage);
   return {
     id: value.id,
     automationId: value.automationId,
     taskId: value.taskId,
     wakerId: value.wakerId,
     status: value.status,
+    trigger: value.trigger,
+    ...(iso(value.scheduledFor) ? { scheduledFor: iso(value.scheduledFor) } : {}),
+    nameSnapshot: value.nameSnapshot,
+    promptSnapshot: value.promptSnapshot,
+    ...(value.projectId ? { projectId: value.projectId } : {}),
+    ...(value.sessionId ? { sessionId: value.sessionId } : {}),
+    ...(value.model ? { model: value.model } : {}),
+    ...(value.thinking ? { thinking: value.thinking } : {}),
     ...(value.input === undefined ? {} : { input: value.input }),
     ...(value.output === undefined ? {} : { output: value.output }),
+    ...(typeof value.result === 'string' ? { result: value.result } : {}),
+    ...(usage ? { usage } : {}),
     ...(value.error ? { error: value.error } : {}),
+    attempt: value.attempt,
+    ...(value.retryOfRunId ? { retryOfRunId: value.retryOfRunId } : {}),
     createdAt: new Date(value.createdAt).toISOString(),
     updatedAt: new Date(value.updatedAt).toISOString(),
     ...(iso(value.startedAt) ? { startedAt: iso(value.startedAt) } : {}),
@@ -77,45 +133,61 @@ function automationRunDto(value: AutomationRun) {
   };
 }
 
-function workflowDto(value: Workflow): WakerWorkflow {
+function optionalTimestamp(value: string | null | undefined): number | null | undefined {
+  if (value === undefined || value === null) return value;
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) throw new Error('时间必须是 ISO 8601 格式');
+  return parsed;
+}
+
+function cleanAutomationPrompt(value: string): string {
+  const clean = [...value]
+    .filter((character) => {
+      const code = character.charCodeAt(0);
+      return code === 9 || code === 10 || code === 13 || (code > 31 && code !== 127);
+    })
+    .join('')
+    .trim();
+  if (!clean) throw new Error('prompt is required');
+  if (clean.length > 20_000) throw new Error('prompt exceeds 20000 characters');
+  return clean;
+}
+
+function validateAutomationSelection(
+  ctx: AppContext,
+  wakerId: string,
+  value: { projectId?: string | null; model?: string | null; thinking?: string | null },
+): { projectId: string | null; model: string | null; thinking: AgentThinkingLevel } {
+  const projectId = value.projectId ?? null;
+  if (projectId && !ctx.workspaceData.getOwnedProject(wakerId, projectId))
+    throw new Error('项目不存在或不属于当前 Waker');
+  const model = value.model ?? getCodexModelConfig({}, ctx.cwd).model ?? null;
+  if (model && !listCodexModels(ctx.cwd).some((entry) => entry.id === model))
+    throw new Error(`模型不在可用列表中：${model}`);
+  if (value.thinking && !(AGENT_THINKING_LEVELS as readonly string[]).includes(value.thinking))
+    throw new Error(`无效的思考级别：${value.thinking}`);
+  const thinking = getCodexReasoningEffort(
+    (value.thinking ?? undefined) as AgentThinkingLevel | undefined,
+    ctx.cwd,
+  );
+  return { projectId, model, thinking };
+}
+
+function workflowDto(value: Workflow): WakerWorkflowSummary {
   return {
     id: value.id,
+    wakerId: value.wakerId,
+    ...(value.projectId ? { projectId: value.projectId } : {}),
+    ...(value.model ? { model: value.model } : {}),
+    ...(value.thinking ? { thinking: value.thinking } : {}),
     name: value.name,
     ...(value.description ? { description: value.description } : {}),
-    script: value.script,
-    status: value.status === 'error' ? 'error' : value.status === 'draft' ? 'draft' : 'ready',
-    createdAt: new Date(value.createdAt).toISOString(),
-    updatedAt: new Date(value.updatedAt).toISOString(),
-  };
-}
-
-function workflowRunDto(value: WorkflowRun) {
-  return {
-    id: value.id,
-    workflowId: value.workflowId,
-    workflowVersion: value.workflowVersion,
-    nameSnapshot: value.nameSnapshot,
-    descriptionSnapshot: value.descriptionSnapshot,
-    scriptSnapshot: value.scriptSnapshot,
     status: value.status,
-    ...(value.input === undefined ? {} : { input: value.input }),
-    ...(value.output === undefined ? {} : { output: value.output }),
-    ...(value.error ? { error: value.error } : {}),
+    version: value.version,
+    nodeCount: value.definition?.nodes.length ?? 0,
+    validationErrors: value.validationErrors,
     createdAt: new Date(value.createdAt).toISOString(),
     updatedAt: new Date(value.updatedAt).toISOString(),
-    ...(iso(value.startedAt) ? { startedAt: iso(value.startedAt) } : {}),
-    ...(iso(value.completedAt) ? { completedAt: iso(value.completedAt) } : {}),
-  };
-}
-
-function workflowEventDto(value: WorkflowRunEvent) {
-  return {
-    id: value.id,
-    runId: value.runId,
-    sequence: value.sequence,
-    type: value.type,
-    ...(value.payload === undefined ? {} : { payload: value.payload }),
-    createdAt: new Date(value.createdAt).toISOString(),
   };
 }
 
@@ -142,21 +214,30 @@ function channelDto(value: Channel): WakerChannel {
 function taskDto(value: Task): WakerTask {
   return {
     id: value.id,
-    title: value.title,
-    type: value.type === 'automation' || value.type === 'workflow' ? value.type : 'conversation',
-    status:
-      value.status === 'queued'
-        ? 'pending'
-        : value.status === 'cancelled'
-          ? 'failed'
-          : value.status,
     wakerId: value.wakerId,
+    title: value.title,
+    description: value.description,
+    type: value.type,
+    origin: value.origin,
+    managed: value.origin === 'derived',
+    status: value.status,
+    priority: value.priority,
+    position: value.position,
+    version: value.version,
     ...(value.projectId ? { projectId: value.projectId } : {}),
-    ...(value.source ? { source: value.source } : {}),
-    ...(value.result ? { result: value.result } : {}),
-    ...(value.error ? { error: value.error } : {}),
+    sourceType: value.sourceType,
+    sourceId: value.sourceId,
+    source: value.source,
+    ...(value.runId ? { runId: value.runId } : {}),
+    ...(value.sessionId ? { sessionId: value.sessionId } : {}),
+    ...(value.parentTaskId ? { parentTaskId: value.parentTaskId } : {}),
+    ...(value.result === null ? {} : { result: value.result }),
+    ...(value.error === null ? {} : { error: value.error }),
     createdAt: new Date(value.createdAt).toISOString(),
     updatedAt: new Date(value.updatedAt).toISOString(),
+    lastActiveAt: new Date(value.lastActiveAt).toISOString(),
+    ...(value.startedAt ? { startedAt: new Date(value.startedAt).toISOString() } : {}),
+    ...(value.completedAt ? { completedAt: new Date(value.completedAt).toISOString() } : {}),
   };
 }
 
@@ -171,7 +252,7 @@ export function registerWorkspaceRoutes(app: FastifyInstance, ctx: AppContext): 
     const response: LocalResourcesResponse = {
       projects: ctx.workspaceData.listProjects(wakerId).map(projectDto),
       automations: ctx.workspaceData.listAutomations(wakerId).map(automationDto),
-      workflows: ctx.workspaceData.listWorkflows().map(workflowDto),
+      workflows: ctx.workspaceData.listWorkflows(wakerId).map(workflowDto),
       channels: ctx.workspaceData.listChannels().map(channelDto),
       tasks: ctx.workspaceData.listTasks(wakerId).map(taskDto),
     };
@@ -201,6 +282,8 @@ export function registerWorkspaceRoutes(app: FastifyInstance, ctx: AppContext): 
         source: 'filesystem' | 'git';
         path: string;
       };
+      if (!agentOr404(ctx, body.wakerId, reply)) return;
+      if (rejectDeletingAgent(reply, body.wakerId)) return;
       try {
         const path = resolveProjectDirectory(ctx.cwd, body.path, body.source).storedPath;
         return reply.code(201).send(
@@ -244,6 +327,8 @@ export function registerWorkspaceRoutes(app: FastifyInstance, ctx: AppContext): 
         source?: 'filesystem' | 'git';
         path?: string;
       };
+      if (!agentOr404(ctx, wakerId, reply)) return;
+      if (rejectDeletingAgent(reply, wakerId)) return;
       const current = ctx.workspaceData.getOwnedProject(wakerId, projectId);
       if (!current) return reply.code(404).send({ error: '项目不存在' });
       try {
@@ -272,7 +357,14 @@ export function registerWorkspaceRoutes(app: FastifyInstance, ctx: AppContext): 
       if (!impact) return reply.code(404).send({ error: '项目不存在' });
       const response: ProjectDeleteImpact = {
         ...impact,
-        behavior: { sessionContexts: 'delete', tasks: 'cascade-delete' },
+        behavior: {
+          sessionContexts: 'delete',
+          tasks: 'detach-and-preserve',
+          automationDefinitions: 'detach-and-pause',
+          automationTasks: 'preserve',
+          workflowDefinitions: 'detach-and-pause',
+          workflowRuns: 'preserve',
+        },
       };
       return response;
     },
@@ -286,9 +378,17 @@ export function registerWorkspaceRoutes(app: FastifyInstance, ctx: AppContext): 
     async (request, reply) => {
       const { projectId } = request.params as { projectId: string };
       const { wakerId } = request.query as { wakerId: string };
-      return ctx.workspaceData.deleteProject(wakerId, projectId)
-        ? reply.code(204).send()
-        : reply.code(404).send({ error: '项目不存在' });
+      if (!agentOr404(ctx, wakerId, reply)) return;
+      if (rejectDeletingAgent(reply, wakerId)) return;
+      try {
+        return ctx.workspaceData.deleteProject(wakerId, projectId)
+          ? reply.code(204).send()
+          : reply.code(404).send({ error: '项目不存在' });
+      } catch (error) {
+        return reply.code(409).send({
+          error: error instanceof Error ? error.message : '项目暂时无法删除',
+        });
+      }
     },
   );
 
@@ -302,14 +402,52 @@ export function registerWorkspaceRoutes(app: FastifyInstance, ctx: AppContext): 
           kind: Type.Union([Type.Literal('schedule'), Type.Literal('api'), Type.Literal('event')]),
           schedule: Type.Optional(Type.String({ maxLength: 240 })),
           prompt: Type.String({ minLength: 1, maxLength: 20_000 }),
+          projectId: Type.Optional(nullableId),
+          model: Type.Optional(nullableText),
+          thinking: Type.Optional(nullableThinking),
+          enabled: Type.Optional(Type.Boolean()),
+          timezone: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
+          startAt: Type.Optional(nullableTimestamp),
+          endAt: Type.Optional(nullableTimestamp),
+          maxRuns: Type.Optional(Type.Union([Type.Integer({ minimum: 1 }), Type.Null()])),
+          misfirePolicy: Type.Optional(
+            Type.Union([Type.Literal('run_once'), Type.Literal('skip')]),
+          ),
         }),
       },
     },
     async (request, reply) => {
+      const body = request.body as {
+        wakerId: string;
+        name: string;
+        kind: 'schedule' | 'api' | 'event';
+        schedule?: string;
+        prompt: string;
+        projectId?: string | null;
+        model?: string | null;
+        thinking?: AgentThinkingLevel | null;
+        enabled?: boolean;
+        timezone?: string;
+        startAt?: string | null;
+        endAt?: string | null;
+        maxRuns?: number | null;
+        misfirePolicy?: 'run_once' | 'skip';
+      };
+      if (!agentOr404(ctx, body.wakerId, reply)) return;
+      if (rejectDeletingAgent(reply, body.wakerId)) return;
       try {
-        return reply
-          .code(201)
-          .send(automationDto(ctx.workspaceData.createAutomation(request.body as never)));
+        const selection = validateAutomationSelection(ctx, body.wakerId, body);
+        return reply.code(201).send(
+          automationDto(
+            ctx.workspaceData.createAutomation({
+              ...body,
+              ...selection,
+              prompt: cleanAutomationPrompt(body.prompt),
+              startAt: optionalTimestamp(body.startAt),
+              endAt: optionalTimestamp(body.endAt),
+            }),
+          ),
+        );
       } catch (error) {
         return badRequest(reply, error);
       }
@@ -327,6 +465,16 @@ export function registerWorkspaceRoutes(app: FastifyInstance, ctx: AppContext): 
           schedule: Type.Optional(Type.String({ maxLength: 240 })),
           prompt: Type.Optional(Type.String({ minLength: 1, maxLength: 20_000 })),
           enabled: Type.Optional(Type.Boolean()),
+          projectId: Type.Optional(nullableId),
+          model: Type.Optional(nullableText),
+          thinking: Type.Optional(nullableThinking),
+          timezone: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
+          startAt: Type.Optional(nullableTimestamp),
+          endAt: Type.Optional(nullableTimestamp),
+          maxRuns: Type.Optional(Type.Union([Type.Integer({ minimum: 1 }), Type.Null()])),
+          misfirePolicy: Type.Optional(
+            Type.Union([Type.Literal('run_once'), Type.Literal('skip')]),
+          ),
         }),
       },
     },
@@ -338,9 +486,53 @@ export function registerWorkspaceRoutes(app: FastifyInstance, ctx: AppContext): 
         schedule?: string;
         prompt?: string;
         enabled?: boolean;
+        projectId?: string | null;
+        model?: string | null;
+        thinking?: AgentThinkingLevel | null;
+        timezone?: string;
+        startAt?: string | null;
+        endAt?: string | null;
+        maxRuns?: number | null;
+        misfirePolicy?: 'run_once' | 'skip';
       };
-      const updated = ctx.workspaceData.updateAutomation(wakerId, automationId, patch);
-      return updated ? automationDto(updated) : reply.code(404).send({ error: '自动任务不存在' });
+      if (!agentOr404(ctx, wakerId, reply)) return;
+      if (rejectDeletingAgent(reply, wakerId)) return;
+      const current = ctx.workspaceData.getAutomation(wakerId, automationId);
+      if (!current) return reply.code(404).send({ error: '自动任务不存在' });
+      try {
+        const selection = validateAutomationSelection(ctx, wakerId, {
+          projectId: patch.projectId === undefined ? current.projectId : patch.projectId,
+          model: patch.model === undefined ? current.model : patch.model,
+          thinking: patch.thinking === undefined ? current.thinking : patch.thinking,
+        });
+        const { prompt, startAt, endAt, ...storedPatch } = patch;
+        const updated = ctx.workspaceData.updateAutomation(wakerId, automationId, {
+          ...storedPatch,
+          ...selection,
+          ...(prompt === undefined ? {} : { prompt: cleanAutomationPrompt(prompt) }),
+          ...(startAt === undefined ? {} : { startAt: optionalTimestamp(startAt) }),
+          ...(endAt === undefined ? {} : { endAt: optionalTimestamp(endAt) }),
+        });
+        return updated ? automationDto(updated) : reply.code(404).send({ error: '自动任务不存在' });
+      } catch (error) {
+        return badRequest(reply, error);
+      }
+    },
+  );
+
+  app.get(
+    '/automations/:automationId/delete-impact',
+    {
+      schema: {
+        params: Type.Object({ automationId: id }),
+        querystring: Type.Object({ wakerId: id }),
+      },
+    },
+    async (request, reply) => {
+      const { automationId } = request.params as { automationId: string };
+      const { wakerId } = request.query as { wakerId: string };
+      const impact = ctx.workspaceData.getAutomationDeleteImpact(wakerId, automationId);
+      return impact ?? reply.code(404).send({ error: '自动任务不存在' });
     },
   );
 
@@ -355,9 +547,15 @@ export function registerWorkspaceRoutes(app: FastifyInstance, ctx: AppContext): 
     async (request, reply) => {
       const { automationId } = request.params as { automationId: string };
       const { wakerId } = request.query as { wakerId: string };
-      return ctx.workspaceData.deleteAutomation(wakerId, automationId)
-        ? reply.code(204).send()
-        : reply.code(404).send({ error: '自动任务不存在' });
+      try {
+        return ctx.workspaceData.deleteAutomation(wakerId, automationId)
+          ? reply.code(204).send()
+          : reply.code(404).send({ error: '自动任务不存在' });
+      } catch (error) {
+        return reply
+          .code(409)
+          .send({ error: error instanceof Error ? error.message : '自动任务暂时无法删除' });
+      }
     },
   );
 
@@ -367,10 +565,19 @@ export function registerWorkspaceRoutes(app: FastifyInstance, ctx: AppContext): 
     async (request, reply) => {
       const { automationId } = request.params as { automationId: string };
       const { wakerId } = request.body as { wakerId: string };
+      if (!agentOr404(ctx, wakerId, reply)) return;
+      if (rejectDeletingAgent(reply, wakerId)) return;
+      if (!ctx.config.CODEX_AGENT_ENABLED)
+        return reply.code(503).send({ error: 'Codex 模型未启用，无法运行自动任务' });
       try {
-        return reply
-          .code(202)
-          .send(taskDto(ctx.workspaceData.runAutomation(wakerId, automationId)));
+        const automation = ctx.workspaceData.getAutomation(wakerId, automationId);
+        if (!automation) return reply.code(404).send({ error: '自动任务不存在' });
+        validateAutomationSelection(ctx, wakerId, automation);
+        const run = ctx.workspaceData.enqueueAutomationRun(wakerId, automationId, {
+          trigger: 'manual',
+        });
+        ctx.automationExecutor.enqueue(wakerId, run.id);
+        return reply.code(202).send(automationRunDto(run));
       } catch (error) {
         return badRequest(reply, error);
       }
@@ -383,6 +590,8 @@ export function registerWorkspaceRoutes(app: FastifyInstance, ctx: AppContext): 
     async (request, reply) => {
       const { automationId } = request.params as { automationId: string };
       const { wakerId } = request.body as { wakerId: string };
+      if (!agentOr404(ctx, wakerId, reply)) return;
+      if (rejectDeletingAgent(reply, wakerId)) return;
       const updated = ctx.workspaceData.pauseAutomation(wakerId, automationId);
       return updated ? automationDto(updated) : reply.code(404).send({ error: '自动任务不存在' });
     },
@@ -394,6 +603,8 @@ export function registerWorkspaceRoutes(app: FastifyInstance, ctx: AppContext): 
     async (request, reply) => {
       const { automationId } = request.params as { automationId: string };
       const { wakerId } = request.body as { wakerId: string };
+      if (!agentOr404(ctx, wakerId, reply)) return;
+      if (rejectDeletingAgent(reply, wakerId)) return;
       try {
         const updated = ctx.workspaceData.resumeAutomation(wakerId, automationId);
         return updated ? automationDto(updated) : reply.code(404).send({ error: '自动任务不存在' });
@@ -403,212 +614,46 @@ export function registerWorkspaceRoutes(app: FastifyInstance, ctx: AppContext): 
     },
   );
 
-  app.get('/automation-runs', async (request, reply) => {
-    const query = request.query as { wakerId?: string; automationId?: string };
-    if (!query.wakerId) return reply.code(400).send({ error: 'wakerId 必填' });
-    const items = ctx.workspaceData
-      .listAutomationRuns(query.wakerId, query.automationId)
-      .map(automationRunDto);
-    return { items, total: items.length };
-  });
-
-  for (const action of ['start', 'complete', 'cancel'] as const) {
-    app.post(
-      `/automation-runs/:runId/${action}`,
-      {
-        schema: {
-          params: Type.Object({ runId: id }),
-          body: Type.Object({ wakerId: id, output: Type.Optional(Type.Unknown()) }),
-        },
-      },
-      async (request, reply) => {
-        const { runId } = request.params as { runId: string };
-        const body = request.body as { wakerId: string; output?: unknown };
-        try {
-          const run =
-            action === 'start'
-              ? ctx.workspaceData.startAutomationRun(body.wakerId, runId)
-              : action === 'complete'
-                ? ctx.workspaceData.completeAutomationRun(body.wakerId, runId, body.output)
-                : ctx.workspaceData.cancelAutomationRun(body.wakerId, runId);
-          return automationRunDto(run);
-        } catch (error) {
-          return badRequest(reply, error);
-        }
-      },
-    );
-  }
-
-  app.post(
-    '/automation-runs/:runId/fail',
-    {
-      schema: {
-        params: Type.Object({ runId: id }),
-        body: Type.Object({ wakerId: id, error: Type.String({ minLength: 1, maxLength: 10_000 }) }),
-      },
-    },
-    async (request, reply) => {
-      const { runId } = request.params as { runId: string };
-      const body = request.body as { wakerId: string; error: string };
-      try {
-        return automationRunDto(
-          ctx.workspaceData.failAutomationRun(body.wakerId, runId, body.error),
-        );
-      } catch (error) {
-        return badRequest(reply, error);
-      }
-    },
-  );
-
-  app.post(
-    '/workflows',
-    {
-      schema: {
-        body: Type.Object({
-          name: Type.String({ minLength: 1, maxLength: 160 }),
-          description: Type.Optional(Type.String({ maxLength: 2000 })),
-          script: Type.String({ maxLength: 100_000 }),
-          status: Type.Optional(
-            Type.Union([
-              Type.Literal('draft'),
-              Type.Literal('active'),
-              Type.Literal('paused'),
-              Type.Literal('error'),
-            ]),
-          ),
-        }),
-      },
-    },
-    async (request, reply) => {
-      const body = request.body as {
-        name: string;
-        description?: string;
-        script: string;
-        status?: 'draft' | 'active' | 'paused' | 'error';
-      };
-      try {
-        return reply.code(201).send(
-          workflowDto(
-            ctx.workspaceData.createWorkflow({
-              ...body,
-              description: body.description ?? '',
-              status: body.status ?? 'draft',
-            }),
-          ),
-        );
-      } catch (error) {
-        return badRequest(reply, error);
-      }
-    },
-  );
-
-  app.patch(
-    '/workflows/:workflowId',
-    {
-      schema: {
-        params: Type.Object({ workflowId: id }),
-        body: Type.Partial(
-          Type.Object({
-            name: Type.String({ minLength: 1, maxLength: 160 }),
-            description: Type.String({ maxLength: 2000 }),
-            script: Type.String({ maxLength: 100_000 }),
-            status: Type.Union([
-              Type.Literal('draft'),
-              Type.Literal('active'),
-              Type.Literal('paused'),
-              Type.Literal('error'),
-            ]),
-          }),
-        ),
-      },
-    },
-    async (request, reply) => {
-      const { workflowId } = request.params as { workflowId: string };
-      const updated = ctx.workspaceData.updateWorkflow(workflowId, request.body as never);
-      return updated ? workflowDto(updated) : reply.code(404).send({ error: 'WakerFlow 不存在' });
-    },
-  );
-
-  app.delete(
-    '/workflows/:workflowId',
-    { schema: { params: Type.Object({ workflowId: id }) } },
-    async (request, reply) => {
-      const { workflowId } = request.params as { workflowId: string };
-      return ctx.workspaceData.deleteWorkflow(workflowId)
-        ? reply.code(204).send()
-        : reply.code(404).send({ error: 'WakerFlow 不存在' });
-    },
-  );
-
-  app.post(
-    '/workflows/:workflowId/run',
-    {
-      schema: {
-        params: Type.Object({ workflowId: id }),
-        body: Type.Optional(Type.Object({ input: Type.Optional(Type.Unknown()) })),
-      },
-    },
-    async (request, reply) => {
-      const { workflowId } = request.params as { workflowId: string };
-      try {
-        return reply
-          .code(202)
-          .send(
-            workflowRunDto(
-              ctx.workspaceData.runWorkflow(
-                workflowId,
-                (request.body as { input?: unknown } | undefined)?.input,
-              ),
-            ),
-          );
-      } catch (error) {
-        return badRequest(reply, error);
-      }
-    },
-  );
-
-  app.get('/workflow-runs', async (request) => {
-    const { workflowId } = request.query as { workflowId?: string };
-    const items = ctx.workspaceData.listWorkflowRuns(workflowId).map(workflowRunDto);
-    return { items, total: items.length };
-  });
-
   app.get(
-    '/workflow-runs/:runId/trace',
-    { schema: { params: Type.Object({ runId: id }) } },
-    async (request, reply) => {
-      const { runId } = request.params as { runId: string };
-      try {
-        const trace = ctx.workspaceData.getWorkflowRunTrace(runId);
-        return { run: workflowRunDto(trace.run), events: trace.events.map(workflowEventDto) };
-      } catch {
-        return reply.code(404).send({ error: 'Workflow run 不存在' });
-      }
-    },
-  );
-
-  app.post(
-    '/workflow-runs/:runId/events',
+    '/automation-runs',
     {
       schema: {
-        params: Type.Object({ runId: id }),
-        body: Type.Object({
-          type: Type.String({ minLength: 1, maxLength: 120 }),
-          payload: Type.Optional(Type.Unknown()),
+        querystring: Type.Object({
+          wakerId: id,
+          automationId: Type.Optional(id),
+          limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })),
+          offset: Type.Optional(Type.Integer({ minimum: 0 })),
         }),
       },
     },
+    async (request) => {
+      const query = request.query as {
+        wakerId: string;
+        automationId?: string;
+        limit?: number;
+        offset?: number;
+      };
+      const items = ctx.workspaceData
+        .listAutomationRuns(query.wakerId, query.automationId, {
+          limit: query.limit,
+          offset: query.offset,
+        })
+        .map(automationRunDto);
+      return {
+        items,
+        total: ctx.workspaceData.countAutomationRuns(query.wakerId, query.automationId),
+      };
+    },
+  );
+
+  app.post(
+    '/automation-runs/:runId/cancel',
+    { schema: { params: Type.Object({ runId: id }), body: wakerBody } },
     async (request, reply) => {
       const { runId } = request.params as { runId: string };
-      const body = request.body as { type: string; payload?: unknown };
+      const { wakerId } = request.body as { wakerId: string };
       try {
-        return reply
-          .code(201)
-          .send(
-            workflowEventDto(
-              ctx.workspaceData.appendWorkflowRunEvent(runId, body.type, body.payload),
-            ),
-          );
+        return automationRunDto(await ctx.automationExecutor.cancel(wakerId, runId));
       } catch (error) {
         return badRequest(reply, error);
       }
@@ -616,114 +661,22 @@ export function registerWorkspaceRoutes(app: FastifyInstance, ctx: AppContext): 
   );
 
   app.post(
-    '/workflow-runs/:runId/wait',
-    {
-      schema: {
-        params: Type.Object({ runId: id }),
-        body: Type.Optional(Type.Object({ prompt: Type.Optional(Type.Unknown()) })),
-      },
-    },
+    '/automation-runs/:runId/retry',
+    { schema: { params: Type.Object({ runId: id }), body: wakerBody } },
     async (request, reply) => {
       const { runId } = request.params as { runId: string };
+      const { wakerId } = request.body as { wakerId: string };
+      if (!agentOr404(ctx, wakerId, reply)) return;
+      if (rejectDeletingAgent(reply, wakerId)) return;
+      if (!ctx.config.CODEX_AGENT_ENABLED)
+        return reply.code(503).send({ error: 'Codex 模型未启用，无法重试自动任务' });
       try {
-        return workflowRunDto(
-          ctx.workspaceData.waitForWorkflowInput(
-            runId,
-            (request.body as { prompt?: unknown } | undefined)?.prompt,
-          ),
-        );
-      } catch (error) {
-        return badRequest(reply, error);
-      }
-    },
-  );
-
-  app.post(
-    '/workflow-runs/:runId/resume',
-    {
-      schema: {
-        params: Type.Object({ runId: id }),
-        body: Type.Optional(Type.Object({ input: Type.Optional(Type.Unknown()) })),
-      },
-    },
-    async (request, reply) => {
-      const { runId } = request.params as { runId: string };
-      try {
-        return workflowRunDto(
-          ctx.workspaceData.resumeWorkflowRun(
-            runId,
-            (request.body as { input?: unknown } | undefined)?.input,
-          ),
-        );
-      } catch (error) {
-        return badRequest(reply, error);
-      }
-    },
-  );
-
-  app.post(
-    '/workflow-runs/:runId/start',
-    { schema: { params: Type.Object({ runId: id }) } },
-    async (request, reply) => {
-      const { runId } = request.params as { runId: string };
-      try {
-        return workflowRunDto(ctx.workspaceData.startWorkflowRun(runId));
-      } catch (error) {
-        return badRequest(reply, error);
-      }
-    },
-  );
-
-  app.post(
-    '/workflow-runs/:runId/complete',
-    {
-      schema: {
-        params: Type.Object({ runId: id }),
-        body: Type.Optional(Type.Object({ output: Type.Optional(Type.Unknown()) })),
-      },
-    },
-    async (request, reply) => {
-      const { runId } = request.params as { runId: string };
-      try {
-        return workflowRunDto(
-          ctx.workspaceData.completeWorkflowRun(
-            runId,
-            (request.body as { output?: unknown } | undefined)?.output,
-          ),
-        );
-      } catch (error) {
-        return badRequest(reply, error);
-      }
-    },
-  );
-
-  app.post(
-    '/workflow-runs/:runId/fail',
-    {
-      schema: {
-        params: Type.Object({ runId: id }),
-        body: Type.Object({ error: Type.String({ minLength: 1, maxLength: 10_000 }) }),
-      },
-    },
-    async (request, reply) => {
-      const { runId } = request.params as { runId: string };
-      try {
-        return workflowRunDto(
-          ctx.workspaceData.failWorkflowRun(runId, (request.body as { error: string }).error),
-        );
-      } catch (error) {
-        return badRequest(reply, error);
-      }
-    },
-  );
-
-  app.post(
-    '/workflow-runs/:runId/cancel',
-    { schema: { params: Type.Object({ runId: id }) } },
-    async (request, reply) => {
-      const { runId } = request.params as { runId: string };
-      try {
-        return workflowRunDto(ctx.workspaceData.cancelWorkflowRun(runId));
+        const source = ctx.workspaceData.getAutomationRun(wakerId, runId);
+        if (!source) return reply.code(404).send({ error: '自动任务运行不存在' });
+        validateAutomationSelection(ctx, wakerId, source);
+        const retry = ctx.workspaceData.retryAutomationRun(wakerId, runId);
+        ctx.automationExecutor.enqueue(wakerId, retry.id);
+        return reply.code(202).send(automationRunDto(retry));
       } catch (error) {
         return badRequest(reply, error);
       }
@@ -818,106 +771,6 @@ export function registerWorkspaceRoutes(app: FastifyInstance, ctx: AppContext): 
       return ctx.workspaceData.deleteChannel(channelId)
         ? reply.code(204).send()
         : reply.code(404).send({ error: 'Channel 不存在' });
-    },
-  );
-
-  app.post(
-    '/tasks',
-    {
-      schema: {
-        body: Type.Object({
-          wakerId: id,
-          title: Type.String({ minLength: 1, maxLength: 240 }),
-          type: Type.Union([
-            Type.Literal('conversation'),
-            Type.Literal('automation'),
-            Type.Literal('workflow'),
-          ]),
-          projectId: Type.Optional(id),
-          source: Type.Optional(Type.String({ maxLength: 240 })),
-        }),
-      },
-    },
-    async (request, reply) => {
-      const body = request.body as {
-        wakerId: string;
-        title: string;
-        type: 'conversation' | 'automation' | 'workflow';
-        projectId?: string;
-        source?: string;
-      };
-      try {
-        return reply.code(201).send(
-          taskDto(
-            ctx.workspaceData.createTask({
-              ...body,
-              projectId: body.projectId ?? null,
-              source: body.source ?? 'manual',
-              status: 'queued',
-            }),
-          ),
-        );
-      } catch (error) {
-        return badRequest(reply, error);
-      }
-    },
-  );
-
-  app.patch(
-    '/tasks/:taskId',
-    {
-      schema: {
-        params: Type.Object({ taskId: id }),
-        body: Type.Object({
-          wakerId: id,
-          status: Type.Optional(
-            Type.Union([
-              Type.Literal('queued'),
-              Type.Literal('running'),
-              Type.Literal('completed'),
-              Type.Literal('failed'),
-              Type.Literal('cancelled'),
-            ]),
-          ),
-          result: Type.Optional(Type.String({ maxLength: 100_000 })),
-          error: Type.Optional(Type.String({ maxLength: 10_000 })),
-        }),
-      },
-    },
-    async (request, reply) => {
-      const { taskId } = request.params as { taskId: string };
-      const { wakerId, ...patch } = request.body as {
-        wakerId: string;
-        status?: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
-        result?: string;
-        error?: string;
-      };
-      if (patch.status === 'failed' && !patch.error)
-        return reply.code(400).send({ error: '失败任务必须包含 error' });
-      const now = Date.now();
-      try {
-        const updated = ctx.workspaceData.updateTask(wakerId, taskId, {
-          ...patch,
-          ...(patch.status === 'completed' || patch.status === 'failed'
-            ? { completedAt: now }
-            : {}),
-        });
-        return updated ? taskDto(updated) : reply.code(404).send({ error: '任务不存在' });
-      } catch (error) {
-        return badRequest(reply, error);
-      }
-    },
-  );
-
-  app.delete(
-    '/tasks/:taskId',
-    { schema: { params: Type.Object({ taskId: id }), querystring: Type.Object({ wakerId: id }) } },
-    async (request, reply) => {
-      const { taskId } = request.params as { taskId: string };
-      const { wakerId } = request.query as { wakerId: string };
-      return ctx.workspaceData.deleteTask(wakerId, taskId)
-        ? reply.code(204).send()
-        : reply.code(404).send({ error: '任务不存在' });
     },
   );
 }

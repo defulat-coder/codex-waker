@@ -1,8 +1,9 @@
-# 项目技能目录
+# Codex host 技能目录
 
-本目录放置项目级技能，每个技能是一个子目录，内含 `<name>/SKILL.md`。
+`.codex/skills/.system` 由 Codex 管理。不要把普通项目技能直接写入本目录；
+`.codex/skills/<name>` 只作为旧版 host source 被 Waker 标记为不可运行。
 
-第三方技能请用 Skills CLI 安装到 `.agents/skills/`：
+项目技能必须通过 Skills CLI 安装到 `.agents/skills/`：
 
 ```bash
 npx skills add <owner/repo> --skill <name>

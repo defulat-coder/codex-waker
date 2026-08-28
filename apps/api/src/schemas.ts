@@ -129,12 +129,17 @@ export const SkillNameSchema = Type.String({
   pattern: '^(?!\\.*$)(?!.*\\.\\.)[a-z0-9_.-]+$',
   maxLength: 100,
 });
+export const RuntimeSkillNameSchema = Type.String({ pattern: '^[a-z0-9-]{1,80}$' });
 export const SkillInstallSchema = Type.Object({
   source: SkillSourceSchema,
-  skillId: SkillNameSchema,
+  skillId: RuntimeSkillNameSchema,
 });
 export const SkillRemoveSchema = Type.Object({
   name: SkillNameSchema,
+  locator: Type.String({
+    pattern: '^(agents:\\.agents|codex:\\.codex)/skills/[a-z0-9_.-]+/SKILL\\.md$',
+    maxLength: 240,
+  }),
   // 'codex' = .codex/skills 直接删目录；'agents' = .agents/skills 走 npx skills remove。
   scope: Type.Optional(Type.Union([Type.Literal('codex'), Type.Literal('agents')])),
 });
@@ -147,6 +152,12 @@ export const SkillLibraryQuerySchema = Type.Object({
 export const SkillContentQuerySchema = Type.Object({
   scope: Type.Union([Type.Literal('codex'), Type.Literal('agents')]),
   name: SkillNameSchema,
+  locator: Type.Optional(
+    Type.String({
+      pattern: '^(agents:\\.agents|codex:\\.codex)/skills/[a-z0-9_.-]+/SKILL\\.md$',
+      maxLength: 240,
+    }),
+  ),
 });
 // skills.sh 详情：source/skillId 与 install 同一 pattern。
 export const SkillDetailQuerySchema = Type.Object({
@@ -162,7 +173,7 @@ export const FileContentQuerySchema = Type.Object({
   path: Type.String({ minLength: 1, maxLength: 1000 }),
 });
 
-// 手工上传：maxLength 计的是 UTF-16 code units；uploadSkill 再按 128KB 字节上限复核。
+// 手工上传：maxLength 计 UTF-16 code units；staging 再复核 UTF-8 字节和严格 frontmatter。
 export const SkillUploadSchema = Type.Object({
   name: Type.String({ pattern: '^[a-z0-9-]{1,80}$' }),
   content: Type.String({ minLength: 1, maxLength: 128 * 1024 }),

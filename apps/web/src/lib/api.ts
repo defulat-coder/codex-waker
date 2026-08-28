@@ -1,5 +1,6 @@
 import type {
   AgentDetail,
+  AgentDeleteImpact,
   AgentResources,
   AgentTemplate,
   AgentTemplatesResponse,
@@ -25,8 +26,6 @@ import type {
   MemoryTimelineEntry,
   MemoryVersion,
   AutomationRunRecord,
-  WorkflowRunEventRecord,
-  WorkflowRunRecord,
   SessionAttachment,
   SessionArtifact,
   SessionFileChange,
@@ -84,13 +83,19 @@ async function readJson<T>(response: Response, fallback: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export async function fetchWorkspace(): Promise<WorkspaceResponse> {
-  return readJson(await fetch('/api/v1/workspace'), '工作区信息暂时无法读取');
+export async function fetchWorkspace(signal?: AbortSignal): Promise<WorkspaceResponse> {
+  return readJson(await fetch('/api/v1/workspace', { signal }), '工作区信息暂时无法读取');
 }
 
-export async function fetchLocalResources(wakerId: string): Promise<LocalResourcesResponse> {
+export async function fetchLocalResources(
+  wakerId: string,
+  signal?: AbortSignal,
+): Promise<LocalResourcesResponse> {
   const query = new URLSearchParams({ wakerId });
-  return readJson(await fetch(`/api/v1/local-resources?${query}`), '本地资源暂时无法读取');
+  return readJson(
+    await fetch(`/api/v1/local-resources?${query}`, { signal }),
+    '本地资源暂时无法读取',
+  );
 }
 
 type LocalResource = WakerProject | WakerAutomation | WakerWorkflow | WakerChannel | WakerTask;
@@ -110,7 +115,7 @@ export async function createLocalResource<T extends LocalResource>(
   );
 }
 
-export async function runAutomation(id: string, wakerId: string): Promise<WakerTask> {
+export async function runAutomation(id: string, wakerId: string): Promise<AutomationRunRecord> {
   return readJson(
     await fetch(`/api/v1/automations/${encodeURIComponent(id)}/run`, {
       method: 'POST',
@@ -119,6 +124,57 @@ export async function runAutomation(id: string, wakerId: string): Promise<WakerT
     }),
     '自动任务暂时无法运行',
   );
+}
+
+export async function updateAutomation(
+  id: string,
+  wakerId: string,
+  patch: Pick<
+    Partial<WakerAutomation>,
+    'name' | 'schedule' | 'prompt' | 'enabled' | 'timezone' | 'misfirePolicy'
+  > & {
+    startAt?: string | null;
+    endAt?: string | null;
+    maxRuns?: number | null;
+    projectId?: string | null;
+    model?: string | null;
+    thinking?: AgentThinkingLevel | null;
+  },
+): Promise<WakerAutomation> {
+  return readJson(
+    await fetch(`/api/v1/automations/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ wakerId, ...patch }),
+    }),
+    '自动任务暂时无法保存',
+  );
+}
+
+export interface AutomationDeleteImpact {
+  automationId: string;
+  runs: number;
+  tasks: number;
+  sessions: number;
+}
+
+export async function fetchAutomationDeleteImpact(
+  id: string,
+  wakerId: string,
+): Promise<AutomationDeleteImpact> {
+  const query = new URLSearchParams({ wakerId });
+  return readJson(
+    await fetch(`/api/v1/automations/${encodeURIComponent(id)}/delete-impact?${query}`),
+    '删除影响暂时无法读取',
+  );
+}
+
+export async function deleteAutomation(id: string, wakerId: string): Promise<void> {
+  const query = new URLSearchParams({ wakerId });
+  const response = await fetch(`/api/v1/automations/${encodeURIComponent(id)}?${query}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) await readJson(response, '自动任务暂时无法删除');
 }
 
 export async function fetchKnowledgeNotebooks(
@@ -417,72 +473,34 @@ export async function automationAction(
     '自动任务状态暂时无法更新',
   );
 }
-export async function fetchAutomationRuns(wakerId: string): Promise<AutomationRunRecord[]> {
+export async function fetchAutomationRuns(
+  wakerId: string,
+  automationId?: string,
+  limit = 50,
+  signal?: AbortSignal,
+): Promise<{ items: AutomationRunRecord[]; total: number }> {
   const query = new URLSearchParams({ wakerId });
-  return (
-    await readJson<{ items: AutomationRunRecord[] }>(
-      await fetch(`/api/v1/automation-runs?${query}`),
-      '运行历史暂时无法读取',
-    )
-  ).items;
-}
-export async function runWorkflow(id: string, input?: unknown): Promise<WorkflowRunRecord> {
+  if (automationId) query.set('automationId', automationId);
+  query.set('limit', String(limit));
   return readJson(
-    await fetch(`/api/v1/workflows/${encodeURIComponent(id)}/run`, {
+    await fetch(`/api/v1/automation-runs?${query}`, { signal }),
+    '运行历史暂时无法读取',
+  );
+}
+export async function automationRunAction(
+  runId: string,
+  action: 'cancel' | 'retry',
+  wakerId: string,
+): Promise<AutomationRunRecord> {
+  return readJson(
+    await fetch(`/api/v1/automation-runs/${encodeURIComponent(runId)}/${action}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ input }),
+      body: JSON.stringify({ wakerId }),
     }),
-    '工作流暂时无法运行',
+    '运行状态暂时无法更新',
   );
 }
-export async function fetchWorkflowRuns(workflowId?: string): Promise<WorkflowRunRecord[]> {
-  const query = new URLSearchParams();
-  if (workflowId) query.set('workflowId', workflowId);
-  return (
-    await readJson<{ items: WorkflowRunRecord[] }>(
-      await fetch(`/api/v1/workflow-runs?${query}`),
-      '工作流运行记录暂时无法读取',
-    )
-  ).items;
-}
-export async function workflowRunAction(
-  id: string,
-  action: 'start' | 'wait' | 'resume' | 'complete' | 'cancel',
-  body?: Record<string, unknown>,
-): Promise<WorkflowRunRecord> {
-  return readJson(
-    await fetch(`/api/v1/workflow-runs/${encodeURIComponent(id)}/${action}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body ?? {}),
-    }),
-    '工作流状态暂时无法更新',
-  );
-}
-export async function appendWorkflowEvent(
-  id: string,
-  type: string,
-  payload?: unknown,
-): Promise<WorkflowRunEventRecord> {
-  return readJson(
-    await fetch(`/api/v1/workflow-runs/${encodeURIComponent(id)}/events`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ type, payload }),
-    }),
-    '工作流事件暂时无法追加',
-  );
-}
-export async function fetchWorkflowTrace(
-  id: string,
-): Promise<{ run: WorkflowRunRecord; events: WorkflowRunEventRecord[] }> {
-  return readJson(
-    await fetch(`/api/v1/workflow-runs/${encodeURIComponent(id)}/trace`),
-    '工作流轨迹暂时无法读取',
-  );
-}
-
 export async function fetchSessionOutputs(
   agentId: string,
   sessionId: string,
@@ -654,47 +672,6 @@ export async function fetchHumanActions(
     )
   ).items;
 }
-export async function createDemoHumanAction(wakerId: string): Promise<HumanActionRecord> {
-  return readJson(
-    await fetch('/api/v1/human-actions', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        wakerId,
-        source: 'workflow',
-        sourceId: 'local-demo',
-        title: '本地演示：确认工作流继续',
-        prompt: '这是本地演示，不会触发外部系统。',
-      }),
-    }),
-    '演示操作暂时无法创建',
-  );
-}
-export async function resolveHumanAction(
-  id: string,
-  wakerId: string,
-  result: unknown,
-): Promise<HumanActionRecord> {
-  return readJson(
-    await fetch(`/api/v1/human-actions/${encodeURIComponent(id)}/resolve`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ wakerId, result }),
-    }),
-    '人工操作暂时无法处理',
-  );
-}
-export async function ignoreHumanAction(id: string, wakerId: string): Promise<HumanActionRecord> {
-  return readJson(
-    await fetch(`/api/v1/human-actions/${encodeURIComponent(id)}/ignore`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ wakerId }),
-    }),
-    '人工操作暂时无法忽略',
-  );
-}
-
 export async function fetchAgent(agentId: string): Promise<AgentDetail> {
   return readJson(
     await fetch(`/api/v1/agents/${encodeURIComponent(agentId)}`),
@@ -844,8 +821,10 @@ export async function fetchInstalledSkills(): Promise<InstalledSkillListResponse
 export async function fetchInstalledSkillContent(
   scope: 'codex' | 'agents',
   name: string,
+  locator?: string,
 ): Promise<InstalledSkillContent> {
   const params = new URLSearchParams({ scope, name });
+  if (locator) params.set('locator', locator);
   return readJson(
     await fetch(`/api/v1/skills/installed/content?${params.toString()}`),
     '技能内容暂时无法读取',
@@ -992,6 +971,13 @@ export async function deleteAgent(agentId: string): Promise<void> {
     method: 'DELETE',
   });
   if (!response.ok && response.status !== 404) throw new Error('Agent 暂时无法删除');
+}
+
+export async function fetchAgentDeleteImpact(agentId: string): Promise<AgentDeleteImpact> {
+  return readJson(
+    await fetch(`/api/v1/agents/${encodeURIComponent(agentId)}/delete-impact`),
+    'Waker 删除影响暂时无法读取',
+  );
 }
 
 /** PATCHes one agent definition file; server errors (400/404) surface their message. */

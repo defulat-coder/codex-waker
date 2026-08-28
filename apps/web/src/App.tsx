@@ -69,13 +69,15 @@ import { SkillsView } from './components/SkillsView.js';
 import { UsageView } from './components/UsageView.js';
 import { SettingsView } from './components/SettingsView.js';
 import { MemoryView } from './components/MemoryView.js';
-import { AutomationManager, WorkflowManager } from './components/RunManagementViews.js';
+import { WorkflowManager } from './components/WorkflowManager.js';
+import { AutomationManager } from './components/AutomationManager.js';
+import { BoardView } from './components/BoardView.js';
 import { SessionOutputsPanel } from './components/SessionOutputsPanel.js';
 import { StopTurnButton } from './components/StopTurnButton.js';
 import { WakerOnboardingPanel } from './components/WakerOnboardingPanel.js';
 import { ProjectManagementView } from './components/ProjectManagementView.js';
 import { KnowledgeManagementView } from './components/KnowledgeManagementView.js';
-import { TaskHumanActions, WakerCapabilitiesView } from './components/WakerCapabilitiesView.js';
+import { WakerCapabilitiesView } from './components/WakerCapabilitiesView.js';
 import {
   LegacyRail,
   ResourcesView,
@@ -137,6 +139,9 @@ export default function App() {
   /** 主区域互斥视图：chat / inbox / explore / system 由 union 类型保证同一时刻只有一个。 */
   const [view, setView] = useState<ViewState>({ kind: 'chat' });
   const [legacyView, setLegacyView] = useState<LegacyView>('chat');
+  const [taskSurface, setTaskSurface] = useState<'board' | 'automations'>('board');
+  const [boardAutomationId, setBoardAutomationId] = useState<string | undefined>();
+  const [boardWorkflowId, setBoardWorkflowId] = useState<string | undefined>();
   const [memoryAgentId, setMemoryAgentId] = useState<string | null>(null);
   const [capabilitiesAgentId, setCapabilitiesAgentId] = useState<string | null>(null);
   const [onboardingAgentId, setOnboardingAgentId] = useState<string | null>(null);
@@ -379,6 +384,11 @@ export default function App() {
 
   const openExplore = (target: ExploreView) => {
     setConfigAgentId(null);
+    if (target === 'skills') {
+      setLegacyView('skills');
+      setView({ kind: 'chat' });
+      return;
+    }
     setView({ kind: 'explore', view: target });
   };
 
@@ -391,9 +401,14 @@ export default function App() {
 
   const openLegacy = (target: LegacyView) => {
     setLegacyView(target);
+    setView({ kind: 'chat' });
+    if (target === 'tasks') {
+      setTaskSurface('board');
+      setBoardAutomationId(undefined);
+    }
+    if (target === 'workflows') setBoardWorkflowId(undefined);
     setConfigAgentId(null);
     setFilesOpen(false);
-    if (target === 'chat') setView({ kind: 'chat' });
     if (target === 'settings') void settings.reload();
   };
 
@@ -645,6 +660,11 @@ export default function App() {
                     setCapabilitiesAgentId(agentId);
                     setLegacyView('capabilities');
                   }}
+                  onAutomation={(agentId) => {
+                    selectAgent(agentId);
+                    setTaskSurface('automations');
+                    setLegacyView('tasks');
+                  }}
                   onCreated={(agentId) => void handleAgentCreated(agentId)}
                   onDeleted={(agentId) => void handleAgentDeleted(agentId)}
                   notify={notify}
@@ -663,6 +683,8 @@ export default function App() {
                 />
               ) : legacyView === 'knowledge' ? (
                 <KnowledgeManagementView wakerId={currentAgentId} notify={notify} />
+              ) : legacyView === 'skills' ? (
+                <SkillsView />
               ) : legacyView === 'projects' ? (
                 currentAgentId ? (
                   <ProjectManagementView
@@ -677,18 +699,57 @@ export default function App() {
                 )
               ) : legacyView === 'workflows' ? (
                 currentAgentId ? (
-                  <WorkflowManager wakerId={currentAgentId} notify={notify} />
+                  <WorkflowManager
+                    wakerId={currentAgentId}
+                    notify={notify}
+                    onOpenSession={selectSession}
+                    initialWorkflowId={boardWorkflowId}
+                  />
                 ) : (
                   <div className="legacy-page">
                     <p>请先创建一个 Waker。</p>
                   </div>
                 )
               ) : legacyView === 'tasks' ? (
-                <div className="legacy-page">
-                  <ResourcesView kind="tasks" wakerId={currentAgentId} notify={notify} />
-                  {currentAgentId && <AutomationManager wakerId={currentAgentId} notify={notify} />}
-                  {currentAgentId && <TaskHumanActions wakerId={currentAgentId} notify={notify} />}
-                </div>
+                currentAgentId ? (
+                  taskSurface === 'automations' ? (
+                    <div className="legacy-page">
+                      <div className="page-actions">
+                        <button
+                          className="legacy-button"
+                          type="button"
+                          onClick={() => setTaskSurface('board')}
+                        >
+                          返回任务看板
+                        </button>
+                      </div>
+                      <AutomationManager
+                        wakerId={currentAgentId}
+                        notify={notify}
+                        onOpenSession={selectSession}
+                        initialAutomationId={boardAutomationId}
+                      />
+                    </div>
+                  ) : (
+                    <BoardView
+                      wakerId={currentAgentId}
+                      notify={notify}
+                      onOpenSession={selectSession}
+                      onOpenAutomation={(automationId) => {
+                        setBoardAutomationId(automationId);
+                        setTaskSurface('automations');
+                      }}
+                      onOpenWorkflow={(workflowId) => {
+                        setBoardWorkflowId(workflowId);
+                        setLegacyView('workflows');
+                      }}
+                    />
+                  )
+                ) : (
+                  <div className="legacy-page">
+                    <p>请先创建一个 Waker。</p>
+                  </div>
+                )
               ) : legacyView === 'im' ? (
                 <ResourcesView kind="im" wakerId={currentAgentId} notify={notify} />
               ) : legacyView === 'settings' ? (

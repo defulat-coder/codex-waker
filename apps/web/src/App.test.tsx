@@ -83,6 +83,14 @@ function stubFetch(): FetchCall[] {
       });
     }
     if (url.includes('/api/v1/preferences')) return jsonResponse({ items: {} });
+    if (url.includes('/api/v1/local-resources'))
+      return jsonResponse({
+        projects: [],
+        automations: [],
+        workflows: [],
+        channels: [],
+        tasks: [],
+      });
     return jsonResponse({});
   }) as typeof fetch;
   return calls;
@@ -157,6 +165,19 @@ describe('App 会话视图', () => {
         calls.some((call) => call.url.includes('/sessions/s2/messages')),
         '切换会话应拉取对应历史',
       ),
+    );
+  });
+
+  it('Waker 卡片的自动任务入口只导航，不直接创建调度', async () => {
+    const calls = stubFetch();
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Waker 管理' }));
+    fireEvent.click(await screen.findByRole('button', { name: '管理自动任务' }));
+
+    assert.ok(await screen.findByRole('heading', { name: '自动任务' }));
+    assert.equal(
+      calls.some((call) => call.method === 'POST' && call.url.endsWith('/api/v1/automations')),
+      false,
     );
   });
 

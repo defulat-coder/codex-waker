@@ -67,6 +67,26 @@ export interface AgentDetail extends AgentSummary {
   path: string;
 }
 
+export interface AgentDeleteImpact {
+  agentId: string;
+  sessions: number;
+  projects: number;
+  automations: number;
+  workflows: number;
+  tasks: number;
+  humanActions: number;
+  connectors: number;
+  sharedSkills: number;
+  behavior: {
+    definition: 'delete';
+    sessions: 'delete';
+    projects: 'delete-record-only';
+    board: 'soft-delete-history';
+    connectors: 'delete';
+    skills: 'shared-preserve';
+  };
+}
+
 export interface SessionSummary {
   id: string;
   agentId: string;
@@ -234,7 +254,7 @@ export type ChatStreamEvent =
 export interface AgentResources {
   /** .codex/prompts templates merged into the project context. */
   prompts: PromptSummary[];
-  /** .codex/skills entries available to the project. */
+  /** Runtime-available repo `.agents/skills` entries shared by every Waker. */
   skills: SkillSummary[];
   /** True when .codex/APPEND_SYSTEM.md exists and is appended to every agent's context. */
   appendSystem: boolean;
@@ -255,7 +275,7 @@ export interface PromptSummary {
   preview?: string;
 }
 
-/** One .codex/skills/<dir>/SKILL.md entry. */
+/** One runtime-available repo `.agents/skills/<dir>/SKILL.md` entry. */
 export interface SkillSummary {
   name: string;
   /** Project-relative path, e.g. .codex/skills/research/SKILL.md */
@@ -288,7 +308,7 @@ export interface UpdateAppendSystemRequest {
   content: string;
 }
 
-/** Payload of GET /api/v1/skills; items come from listSkills over .codex/skills. */
+/** Payload of GET /api/v1/skills; items are the compact repo-skill projection. */
 export interface SkillListResponse {
   items: SkillSummary[];
   total: number;
@@ -320,18 +340,56 @@ export interface SkillLibraryResponse {
   mode: 'top' | 'search';
 }
 
-/** 一个本地已安装技能：.agents/skills（skills CLI 装的第三方）或 .codex/skills（项目自带）。 */
+/** Repo runtime skill or an explicitly marked legacy host source. */
 export interface InstalledSkillSummary {
+  /** Stable inventory identity; names are not unique across skill scopes. */
+  locator: string;
   name: string;
   description?: string;
+  /** Optional skill-authored version from SKILL.md frontmatter. */
+  version?: string;
   /** 正文预览（frontmatter 剥离后的前 200 字符）。 */
   preview?: string;
   /** skills-lock.json 里的 "owner/repo"；.codex/skills 条目无此字段。 */
   source?: string;
-  /** 安装范围：'agents' = .agents/skills（universal），'codex' = .codex/skills。 */
+  /** 'agents' is repo scope; 'codex' is the project CODEX_HOME host scope. */
   scope: 'codex' | 'agents';
   /** 项目相对路径，e.g. .agents/skills/research/SKILL.md */
   path: string;
+  /** Both supported scopes are discovered by this Waker runtime when valid. */
+  availability: 'available';
+  /** True only when the Skills CLI lockfile owns this repo skill. */
+  managed: boolean;
+  valid: boolean;
+  errors: string[];
+  allowImplicitInvocation: boolean;
+  dependencies: SkillDependencySummary[];
+  files: SkillFileSummary[];
+  lock?: SkillLockMetadata;
+  /** Lock hashes are informative until the Skills CLI exposes a compatible verifier. */
+  integrity: 'ok' | 'drift' | 'unverified' | 'unmanaged';
+}
+
+export interface SkillDependencySummary {
+  type: string;
+  value: string;
+  description?: string;
+}
+
+export interface SkillFileSummary {
+  path: string;
+  size: number;
+  executable: boolean;
+  symlink: boolean;
+}
+
+export interface SkillLockMetadata {
+  version: number;
+  source?: string;
+  sourceType?: string;
+  skillPath?: string;
+  computedHash?: string;
+  commit?: string;
 }
 
 /** Payload of GET /api/v1/skills/installed。 */
@@ -352,32 +410,42 @@ export interface SkillInstallRequest {
 export interface SkillRemoveRequest {
   /** `^[a-z0-9_.-]+$`。 */
   name: string;
+  /** Required stable target because names may repeat across scopes. */
+  locator: string;
   /**
-   * 删除范围：'codex' = .codex/skills/<name>/ 直接删目录（手工上传的技能），
+   * 删除范围：'codex' = legacy .codex/skills/<name>/ 直接删目录，
    * 'agents' = .agents/skills 走 npx skills remove；省略时按已安装列表查找。
    */
   scope?: 'codex' | 'agents';
 }
 
-/** Payload of POST /api/v1/skills/upload：手工上传一个 SKILL.md 到 .codex/skills/<name>/。 */
+/** Payload of POST /api/v1/skills/upload：stage source, then install via Skills CLI. */
 export interface UploadSkillRequest {
   /** 目录名/技能名：`^[a-z0-9-]{1,80}$`。 */
   name: string;
-  /** SKILL.md 全文；无 YAML frontmatter 时服务端按 name/description 合成一个（≤ 128KB）。 */
+  /** Complete instruction-only SKILL.md; name + description frontmatter is required (≤128KB). */
   content: string;
   description?: string;
 }
 
 /** Payload of GET /api/v1/skills/installed/content：一个已安装技能的完整定义。 */
 export interface InstalledSkillContent {
+  locator: string;
   name: string;
   description?: string;
+  version?: string;
   source?: string;
   scope: 'codex' | 'agents';
   /** SKILL.md 正文（frontmatter 已剥离，trim 后）。 */
   content: string;
   /** 原始 frontmatter 文本（不含 --- 分隔线）；无 frontmatter 时省略。 */
   frontmatter?: string;
+  valid: boolean;
+  errors: string[];
+  allowImplicitInvocation: boolean;
+  dependencies: SkillDependencySummary[];
+  files: SkillFileSummary[];
+  integrity: InstalledSkillSummary['integrity'];
 }
 
 /** Payload of GET /api/v1/skills/library/detail：skills.sh 详情页解析结果。 */
@@ -390,6 +458,11 @@ export interface LibrarySkillDetail {
   description?: string;
   /** 详情页侧栏的总安装量（紧凑字符串解析；缺失时省略）。 */
   installs?: number;
+  /** skills.sh is a third-party discovery source, not an OpenAI trust decision. */
+  thirdParty: true;
+  /** The current endpoint cannot review the repository files before explicit install. */
+  contentReviewed: false;
+  riskNotice: string;
 }
 
 /** One entry of GET /api/v1/files; 目录排前、按名称排序。 */
@@ -607,7 +680,7 @@ export type ProjectStatus = 'ready' | 'initializing' | 'error';
 
 export interface WakerProject {
   id: string;
-  wakerId?: string;
+  wakerId: string;
   name: string;
   description?: string;
   visibility: ProjectVisibility;
@@ -623,9 +696,19 @@ export interface ProjectDeleteImpact {
   projectId: string;
   sessionContexts: number;
   tasks: number;
+  tasksPreserved: number;
+  automationDefinitions: number;
+  automationRuns: number;
+  automationTasksPreserved: number;
+  workflowDefinitions: number;
+  workflowRuns: number;
   behavior: {
     sessionContexts: 'delete';
-    tasks: 'cascade-delete';
+    tasks: 'detach-and-preserve';
+    automationDefinitions: 'detach-and-pause';
+    automationTasks: 'preserve';
+    workflowDefinitions: 'detach-and-pause';
+    workflowRuns: 'preserve';
   };
 }
 
@@ -636,21 +719,150 @@ export interface WakerAutomation {
   kind: 'schedule' | 'api' | 'event';
   schedule?: string;
   prompt: string;
+  projectId?: string;
+  model?: string;
+  thinking?: AgentThinkingLevel;
   enabled: boolean;
+  lifecycle: 'active' | 'paused' | 'completed';
+  timezone: string;
+  startAt?: string;
+  endAt?: string;
+  maxRuns?: number;
+  runCount: number;
+  misfirePolicy: 'run_once' | 'skip';
   lastRunAt?: string;
+  lastScheduledAt?: string;
   nextRunAt?: string;
+  completedAt?: string;
   createdAt: string;
   updatedAt: string;
 }
 
-export interface WakerWorkflow {
+export type WorkflowJsonValue =
+  null | boolean | number | string | WorkflowJsonValue[] | { [key: string]: WorkflowJsonValue };
+
+export interface WorkflowNodeBase {
   id: string;
+  name?: string;
+}
+
+export type WorkflowNode =
+  | (WorkflowNodeBase & {
+      kind: 'action';
+      action: 'set';
+      key: string;
+      value: WorkflowJsonValue;
+      next: string;
+    })
+  | (WorkflowNodeBase & {
+      kind: 'codex';
+      prompt: string;
+      wakerId?: string;
+      projectId?: string;
+      model?: string;
+      thinking?: AgentThinkingLevel;
+      outputKey?: string;
+      next: string;
+    })
+  | (WorkflowNodeBase & {
+      kind: 'decision';
+      key: string;
+      branches: { equals: null | boolean | number | string; next: string }[];
+      defaultNext: string;
+    })
+  | (WorkflowNodeBase & { kind: 'wait'; durationMs: number; next: string })
+  | (WorkflowNodeBase & { kind: 'ask_user'; prompt: string; inputKey: string; next: string })
+  | (WorkflowNodeBase & {
+      kind: 'call_workflow';
+      workflowId: string;
+      input?: WorkflowJsonValue;
+      outputKey?: string;
+      next: string;
+    })
+  | (WorkflowNodeBase & {
+      kind: 'terminal';
+      status: 'succeeded' | 'failed';
+      output?: WorkflowJsonValue;
+    });
+
+export interface WorkflowDefinition {
+  schemaVersion: 1;
+  start: string;
+  nodes: WorkflowNode[];
+}
+
+export interface WakerWorkflowSummary {
+  id: string;
+  wakerId: string;
+  projectId?: string;
+  model?: string;
+  thinking?: AgentThinkingLevel;
   name: string;
   description?: string;
-  script: string;
-  status: 'draft' | 'ready' | 'error';
+  status: 'draft' | 'active' | 'paused' | 'error';
+  version: number;
+  nodeCount: number;
+  validationErrors: string[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface WakerWorkflow extends WakerWorkflowSummary {
+  script: string;
+  definition?: WorkflowDefinition;
+}
+
+export interface WorkflowVersionRecord {
+  workflowId: string;
+  version: number;
+  wakerId: string;
+  projectId?: string;
+  model?: string;
+  thinking?: AgentThinkingLevel;
+  name: string;
+  description?: string;
+  definition?: WorkflowDefinition;
+  status: 'draft' | 'active' | 'paused' | 'error';
+  validationErrors: string[];
+  operation: 'create' | 'update' | 'rollback' | 'legacy';
+  createdAt: string;
+}
+
+export interface WorkflowVersionListResponse {
+  items: WorkflowVersionRecord[];
+  total: number;
+}
+
+export interface WorkflowValidationResponse {
+  valid: boolean;
+  definition?: WorkflowDefinition;
+  script?: string;
+  errors: string[];
+}
+
+export interface WorkflowValidationRequest {
+  wakerId: string;
+  workflowId?: string;
+  script: string;
+}
+
+export interface WorkflowMutationResponse {
+  applied: boolean;
+  workflow: WakerWorkflow;
+  diff: string;
+}
+
+export interface WorkflowDeleteImpactRecord {
+  workflowId: string;
+  versions: number;
+  runs: number;
+  activeRuns: number;
+  referencedBy: string[];
+  behavior: {
+    definition: 'soft-delete';
+    versions: 'preserve';
+    runs: 'preserve';
+  };
 }
 
 export interface WakerChannel {
@@ -664,24 +876,76 @@ export interface WakerChannel {
   updatedAt: string;
 }
 
+export type BoardTaskStatus =
+  'queued' | 'waiting' | 'running' | 'completed' | 'failed' | 'cancelled';
+export type BoardTaskType = 'manual' | 'conversation' | 'automation' | 'workflow';
+export type BoardTaskSourceType = 'manual' | 'conversation' | 'automation' | 'workflow';
+export type BoardTaskPriority = 'low' | 'normal' | 'high' | 'urgent';
+
 export interface WakerTask {
   id: string;
+  wakerId: string;
   title: string;
-  type: 'conversation' | 'automation' | 'workflow';
-  status: 'pending' | 'running' | 'waiting' | 'completed' | 'failed';
-  wakerId?: string;
+  description: string;
+  type: BoardTaskType;
+  origin: 'manual' | 'derived';
+  managed: boolean;
+  status: BoardTaskStatus;
+  priority: BoardTaskPriority;
+  position: number;
+  version: number;
   projectId?: string;
-  source?: string;
+  sourceType: BoardTaskSourceType;
+  sourceId: string;
+  source: string;
+  runId?: string;
+  sessionId?: string;
+  parentTaskId?: string;
   result?: string;
   error?: string;
   createdAt: string;
   updatedAt: string;
+  lastActiveAt: string;
+  startedAt?: string;
+  completedAt?: string;
+}
+
+export interface BoardTaskEventRecord {
+  id: number;
+  taskId: string;
+  sequence: number;
+  type: string;
+  status?: BoardTaskStatus;
+  payload?: unknown;
+  createdAt: string;
+}
+
+export interface BoardTaskListResponse {
+  items: WakerTask[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface BoardTaskDetailResponse {
+  task: WakerTask;
+  events: BoardTaskEventRecord[];
+  children: WakerTask[];
+  humanActions: HumanActionRecord[];
+}
+
+export interface BoardTaskDeleteImpactRecord {
+  taskId: string;
+  children: number;
+  events: number;
+  humanActions: number;
+  behavior: 'soft-delete';
 }
 
 export interface LocalResourcesResponse {
   projects: WakerProject[];
   automations: WakerAutomation[];
-  workflows: WakerWorkflow[];
+  workflows: WakerWorkflowSummary[];
   channels: WakerChannel[];
   tasks: WakerTask[];
 }
@@ -740,10 +1004,22 @@ export interface AutomationRunRecord {
   automationId: string;
   taskId: string;
   wakerId: string;
-  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'skipped';
+  trigger: 'manual' | 'scheduled';
+  scheduledFor?: string;
+  nameSnapshot: string;
+  promptSnapshot: string;
+  projectId?: string;
+  sessionId?: string;
+  model?: string;
+  thinking?: AgentThinkingLevel;
   input?: unknown;
   output?: unknown;
+  result?: string;
+  usage?: ChatUsage;
   error?: string;
+  attempt: number;
+  retryOfRunId?: string;
   createdAt: string;
   updatedAt: string;
   startedAt?: string;
@@ -752,19 +1028,51 @@ export interface AutomationRunRecord {
 
 export interface WorkflowRunRecord {
   id: string;
+  taskId: string;
   workflowId: string;
   workflowVersion: number;
   nameSnapshot: string;
   descriptionSnapshot: string;
   scriptSnapshot: string;
-  status: 'queued' | 'running' | 'waiting_input' | 'succeeded' | 'failed' | 'cancelled';
+  definitionSnapshot?: WorkflowDefinition;
+  wakerId: string;
+  projectId?: string;
+  model?: string;
+  thinking?: AgentThinkingLevel;
+  sessionId?: string;
+  parentRunId?: string;
+  parentNodeId?: string;
+  childRunId?: string;
+  depth: number;
+  attempt: number;
+  retryOfRunId?: string;
+  currentNodeId?: string;
+  context: Record<string, unknown>;
+  wakeAt?: string;
+  waitingActionId?: string;
+  status:
+    | 'queued'
+    | 'running'
+    | 'paused'
+    | 'waiting_input'
+    | 'waiting_child'
+    | 'succeeded'
+    | 'failed'
+    | 'cancelled';
   input?: unknown;
   output?: unknown;
+  result?: unknown;
+  usage?: ChatUsage;
   error?: string;
   createdAt: string;
   updatedAt: string;
   startedAt?: string;
   completedAt?: string;
+}
+
+export interface WorkflowRunListResponse {
+  items: WorkflowRunRecord[];
+  total: number;
 }
 
 export interface WorkflowRunEventRecord {
@@ -841,13 +1149,24 @@ export interface HumanActionRecord {
   wakerId: string;
   source: 'workflow' | 'codex';
   sourceId: string;
+  taskId?: string;
+  sessionId?: string;
+  kind: 'confirm' | 'input';
   title: string;
   prompt: string;
   status: 'pending' | 'handled' | 'ignored';
   result?: unknown;
+  version: number;
   createdAt: string;
   updatedAt: string;
   resolvedAt?: string;
+}
+
+export interface BoardHumanActionListResponse {
+  items: HumanActionRecord[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export interface SessionContextRecord {

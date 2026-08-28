@@ -11,6 +11,10 @@ describe('rollout user message visibility', () => {
       '',
       '<developer-instructions data-waker-host="knowledge-v1">knowledge JSON</developer-instructions>',
       '',
+      '<developer-instructions data-waker-host="automation-v1">automation run</developer-instructions>',
+      '',
+      '<developer-instructions data-waker-host="workflow-v1">workflow node</developer-instructions>',
+      '',
       '<user-query encoding="xml">',
       '用户原始问题 &amp; &lt;literal&gt;',
       '</user-query>',
@@ -185,6 +189,48 @@ describe('rollout user message visibility', () => {
 });
 
 describe('rollout process history', () => {
+  it('redacts workspace and project roots from replayed assistant text, reasoning and errors', () => {
+    const workspace = '/Users/private/codex-waker';
+    const project = `${workspace}/projects/secret`;
+    const records = [
+      { type: 'session_meta', payload: { cwd: project } },
+      {
+        type: 'response_item',
+        payload: {
+          type: 'message',
+          role: 'user',
+          content: [{ type: 'input_text', text: '检查路径' }],
+        },
+      },
+      {
+        type: 'response_item',
+        payload: {
+          type: 'reasoning',
+          summary: [{ type: 'summary_text', text: `读取 ${project}/private.txt` }],
+        },
+      },
+      {
+        type: 'response_item',
+        payload: {
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: `答案 ${workspace}/README.md` }],
+        },
+      },
+      {
+        type: 'event_msg',
+        payload: { type: 'error', message: `失败于 ${project}/private.txt` },
+      },
+    ];
+    const messages = parseRolloutMessages(
+      records.map((record) => JSON.stringify(record)).join('\n'),
+      [workspace],
+    );
+    assert.equal(messages[1]?.content, '答案 ./README.md');
+    assert.equal(messages[1]?.thinking, '读取 ./private.txt');
+    assert.equal(messages[1]?.errorMessage, '失败于 ./private.txt');
+  });
+
   it('restores and deduplicates completed tools and plans without exposing host paths', () => {
     const root = '/Users/private/codex-waker';
     const records = [

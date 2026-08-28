@@ -72,12 +72,26 @@ try {
       prompt: '读取项目变化并生成一份简短摘要。',
     });
   }
-  if (!workspace.getWorkflow('review-flow')) {
+  if (!workspace.getWorkflow(waker.id, 'review-flow')) {
     workspace.createWorkflow({
       id: 'review-flow',
+      wakerId: waker.id,
       name: '本地评审流',
       description: '分析 → 检查 → 总结的本地 WakerFlow 示例。',
-      script: 'analyze(project) -> review(changes) -> summarize(findings)',
+      definition: {
+        schemaVersion: 1,
+        start: 'review',
+        nodes: [
+          {
+            id: 'review',
+            kind: 'codex',
+            prompt: '分析当前项目变化，检查风险并给出简短总结。',
+            outputKey: 'summary',
+            next: 'done',
+          },
+          { id: 'done', kind: 'terminal', status: 'succeeded', output: '{{summary}}' },
+        ],
+      },
       status: 'active',
     });
   }

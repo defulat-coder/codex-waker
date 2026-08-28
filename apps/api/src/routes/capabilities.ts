@@ -192,63 +192,6 @@ export function registerCapabilityRoutes(app: FastifyInstance, ctx: AppContext):
     return { items, total: items.length };
   });
 
-  app.post(
-    '/human-actions',
-    {
-      schema: {
-        body: Type.Object({
-          wakerId: id,
-          source: Type.Union([Type.Literal('workflow'), Type.Literal('codex')]),
-          sourceId: id,
-          title: Type.String({ minLength: 1, maxLength: 240 }),
-          prompt: Type.String({ maxLength: 10_000 }),
-        }),
-      },
-    },
-    async (request, reply) => {
-      try {
-        return reply
-          .code(201)
-          .send(actionDto(ctx.workspaceData.createHumanAction(request.body as never)));
-      } catch (error) {
-        return badRequest(reply, error);
-      }
-    },
-  );
-
-  app.post(
-    '/human-actions/:actionId/resolve',
-    {
-      schema: {
-        params: Type.Object({ actionId: id }),
-        body: Type.Object({ wakerId: id, result: Type.Unknown() }),
-      },
-    },
-    async (request, reply) => {
-      const { actionId } = request.params as { actionId: string };
-      const body = request.body as { wakerId: string; result: unknown };
-      try {
-        return actionDto(ctx.workspaceData.resolveHumanAction(body.wakerId, actionId, body.result));
-      } catch (error) {
-        return badRequest(reply, error);
-      }
-    },
-  );
-
-  app.post(
-    '/human-actions/:actionId/ignore',
-    { schema: { params: Type.Object({ actionId: id }), body: Type.Object({ wakerId: id }) } },
-    async (request, reply) => {
-      const { actionId } = request.params as { actionId: string };
-      const { wakerId } = request.body as { wakerId: string };
-      try {
-        return actionDto(ctx.workspaceData.ignoreHumanAction(wakerId, actionId));
-      } catch (error) {
-        return badRequest(reply, error);
-      }
-    },
-  );
-
   app.get(
     '/sessions/:sessionId/context',
     {

@@ -8,13 +8,13 @@ import {
   type ReactNode,
 } from 'react';
 import type {
+  AgentDeleteImpact,
   AgentSummary,
   KnowledgeDocument,
   KnowledgeNotebook,
   KnowledgeSearchMode,
   KnowledgeSearchResponse,
   LocalResourcesResponse,
-  WakerAutomation,
   WakerProject,
   WakerTask,
   WakerWorkflow,
@@ -28,7 +28,7 @@ import { Robot } from '@phosphor-icons/react/dist/icons/Robot';
 import { BookOpenText } from '@phosphor-icons/react/dist/icons/BookOpenText';
 import { Plus } from '@phosphor-icons/react/dist/icons/Plus';
 import { Plugs } from '@phosphor-icons/react/dist/icons/Plugs';
-import { Play } from '@phosphor-icons/react/dist/icons/Play';
+import { PuzzlePiece } from '@phosphor-icons/react/dist/icons/PuzzlePiece';
 import { MagnifyingGlass } from '@phosphor-icons/react/dist/icons/MagnifyingGlass';
 import { UploadSimple } from '@phosphor-icons/react/dist/icons/UploadSimple';
 import {
@@ -43,10 +43,10 @@ import {
   fetchKnowledgeDocuments,
   fetchKnowledgeNotebooks,
   fetchLocalResources,
-  runAutomation,
   searchKnowledge,
   upsertKnowledgeDocument,
   deleteAgent,
+  fetchAgentDeleteImpact,
   importAgentDefinition,
 } from '../lib/api.js';
 import { cx } from '../lib/cx.js';
@@ -62,6 +62,7 @@ export type LegacyView =
   | 'tasks'
   | 'projects'
   | 'knowledge'
+  | 'skills'
   | 'memory'
   | 'capabilities'
   | 'settings';
@@ -74,6 +75,7 @@ const NAV: { id: LegacyView; label: string; icon: ReactNode }[] = [
   { id: 'tasks', label: '任务看板', icon: <CheckSquare size={22} /> },
   { id: 'projects', label: '项目', icon: <Globe size={22} /> },
   { id: 'knowledge', label: '知识库', icon: <BookOpenText size={22} /> },
+  { id: 'skills', label: 'Skills', icon: <PuzzlePiece size={22} /> },
   { id: 'settings', label: '设置', icon: <GearSix size={22} /> },
 ];
 
@@ -127,6 +129,7 @@ export function WakersView({
   onConfigure,
   onMemory,
   onCapabilities,
+  onAutomation,
   onCreated,
   onDeleted,
   notify,
@@ -137,6 +140,7 @@ export function WakersView({
   onConfigure: (id: string) => void;
   onMemory: (id: string) => void;
   onCapabilities: (id: string) => void;
+  onAutomation: (id: string) => void;
   onCreated: (id: string) => void;
   onDeleted: (id: string) => void;
   notify: (message: string) => void;
@@ -145,14 +149,21 @@ export function WakersView({
   const [creating, setCreating] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<AgentSummary | null>(null);
   const [deleteConfirmation, setDeleteConfirmation] = useState('');
+  const [deleteImpact, setDeleteImpact] = useState<AgentDeleteImpact | null>(null);
+  const [deleteImpactError, setDeleteImpactError] = useState('');
+  const deleteImpactGenerationRef = useRef(0);
+  const deleteTargetIdRef = useRef<string | null>(null);
   const deleteTriggerRef = useRef<HTMLButtonElement>(null);
   const deleteWasOpen = useRef(false);
   const importRef = useRef<HTMLInputElement>(null);
-  const [running, setRunning] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const closeDeleteDialog = useCallback(() => {
+    deleteImpactGenerationRef.current += 1;
+    deleteTargetIdRef.current = null;
     setDeleteTarget(null);
     setDeleteConfirmation('');
+    setDeleteImpact(null);
+    setDeleteImpactError('');
   }, []);
   const deleteDialogRef = useDialogFocus<HTMLFormElement>(Boolean(deleteTarget), closeDeleteDialog);
   useEffect(() => {
@@ -162,6 +173,28 @@ export function WakersView({
       deleteTriggerRef.current?.focus();
     }
   }, [deleteTarget]);
+  const loadDeleteImpact = useCallback(async (agent: AgentSummary) => {
+    const generation = ++deleteImpactGenerationRef.current;
+    deleteTargetIdRef.current = agent.id;
+    setDeleteImpact(null);
+    setDeleteImpactError('');
+    try {
+      const impact = await fetchAgentDeleteImpact(agent.id);
+      if (
+        generation !== deleteImpactGenerationRef.current ||
+        deleteTargetIdRef.current !== agent.id
+      )
+        return;
+      setDeleteImpact(impact);
+    } catch (cause) {
+      if (
+        generation !== deleteImpactGenerationRef.current ||
+        deleteTargetIdRef.current !== agent.id
+      )
+        return;
+      setDeleteImpactError(cause instanceof Error ? cause.message : 'Waker 删除影响暂时无法读取');
+    }
+  }, []);
   const visibleAgents = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
     if (!normalized) return agents;
@@ -171,23 +204,6 @@ export function WakersView({
       ),
     );
   }, [agents, query]);
-  const addAutomation = async (agent: AgentSummary) => {
-    setRunning(agent.id);
-    try {
-      await createLocalResource<WakerAutomation>('automations', {
-        wakerId: agent.id,
-        name: `${agent.name} 自动任务`,
-        kind: 'schedule',
-        schedule: '0 9 * * *',
-        prompt: agent.suggestions[0] ?? '检查当前工作区并汇报需要处理的事项',
-      });
-      notify('已创建自动任务，可在任务看板中继续配置');
-    } catch (error) {
-      notify(error instanceof Error ? error.message : '自动任务暂时无法创建');
-    } finally {
-      setRunning(null);
-    }
-  };
   return (
     <section className="legacy-page" aria-labelledby="wakers-title">
       <PageHeader title="Waker" detail="创建并管理运行在本机的 Codex 智能体。">
@@ -256,10 +272,9 @@ export function WakersView({
                 <button
                   type="button"
                   className="legacy-button"
-                  disabled={running === agent.id}
-                  onClick={() => void addAutomation(agent)}
+                  onClick={() => onAutomation(agent.id)}
                 >
-                  <FlowArrow size={15} /> {running === agent.id ? '创建中…' : '自动任务'}
+                  <FlowArrow size={15} /> 管理自动任务
                 </button>
                 <button
                   type="button"
@@ -296,6 +311,7 @@ export function WakersView({
                     event.currentTarget.focus();
                     deleteTriggerRef.current = event.currentTarget;
                     setDeleteTarget(agent);
+                    void loadDeleteImpact(agent);
                   }}
                 >
                   删除
@@ -351,7 +367,34 @@ export function WakersView({
             }}
           >
             <h2 id="delete-waker-title">删除 {deleteTarget.name}</h2>
-            <p>此操作会删除定义与关联会话。请输入 Waker 名称确认。</p>
+            {deleteImpact ? (
+              <div className="modal-hint">
+                <p>
+                  将删除定义、{deleteImpact.sessions} 个会话、{deleteImpact.projects} 个项目和{' '}
+                  {deleteImpact.connectors} 个连接器。
+                </p>
+                <p>
+                  {deleteImpact.automations} 个 Automation、{deleteImpact.workflows} 个 Workflow、
+                  {deleteImpact.tasks} 条 Task 与 {deleteImpact.humanActions} 条 Human Action
+                  将保留审计数据但不再对同 ID Waker 可见。
+                </p>
+                <p>{deleteImpact.sharedSkills} 个工作区共享 Skill 不受影响。</p>
+              </div>
+            ) : deleteImpactError ? (
+              <div className="legacy-error" role="alert">
+                <p>{deleteImpactError}</p>
+                <button
+                  className="legacy-button"
+                  type="button"
+                  onClick={() => void loadDeleteImpact(deleteTarget)}
+                >
+                  重新检查
+                </button>
+              </div>
+            ) : (
+              <p role="status">正在检查 Waker 删除影响…</p>
+            )}
+            <p>请输入 Waker 名称确认。</p>
             <label>
               Waker 名称
               <input
@@ -372,7 +415,7 @@ export function WakersView({
               </button>
               <button
                 className="legacy-button primary"
-                disabled={deleteConfirmation !== deleteTarget.name}
+                disabled={!deleteImpact || deleteConfirmation !== deleteTarget.name}
               >
                 确认删除
               </button>
@@ -531,83 +574,6 @@ export function ResourcesView({
           title={`还没有${title}`}
           detail={kind === 'im' ? '连接器配置后会显示在这里。' : '使用上方表单创建第一条本地记录。'}
         />
-      )}
-    </section>
-  );
-}
-
-export function AutomationsPanel({
-  wakerId,
-  notify,
-}: {
-  wakerId?: string;
-  notify: (message: string) => void;
-}) {
-  const [items, setItems] = useState<WakerAutomation[] | null>(null);
-  const [error, setError] = useState('');
-  const [running, setRunning] = useState<string | null>(null);
-  const load = useCallback(async () => {
-    if (!wakerId) {
-      setItems([]);
-      return;
-    }
-    await fetchLocalResources(wakerId)
-      .then((data) => setItems(data.automations))
-      .catch((cause) => setError(cause instanceof Error ? cause.message : '自动任务加载失败'));
-  }, [wakerId]);
-  useEffect(() => {
-    void load();
-  }, [load]);
-  return (
-    <section className="legacy-subsection">
-      <div className="section-heading">
-        <div>
-          <h2>自动任务</h2>
-          <p>按需运行已保存的本地自动化。</p>
-        </div>
-      </div>
-      {error ? (
-        <ErrorState message={error} onRetry={() => void load()} />
-      ) : !items ? (
-        <LoadingRows />
-      ) : items.length ? (
-        <div className="resource-table">
-          {items.map((item) => (
-            <div className="resource-row" key={item.id}>
-              <div>
-                <strong>{item.name}</strong>
-                <small>
-                  {item.kind}
-                  {item.schedule ? ` · ${item.schedule}` : ''}
-                </small>
-              </div>
-              <button
-                type="button"
-                className="legacy-button"
-                disabled={running === item.id}
-                onClick={async () => {
-                  if (!wakerId) return;
-                  setRunning(item.id);
-                  try {
-                    await runAutomation(item.id, wakerId);
-                    notify('自动任务已提交到本地任务队列');
-                    window.dispatchEvent(new Event('waker:resources-changed'));
-                    void load();
-                  } catch (cause) {
-                    notify(cause instanceof Error ? cause.message : '运行失败');
-                  } finally {
-                    setRunning(null);
-                  }
-                }}
-              >
-                <Play size={14} />
-                {running === item.id ? '运行中…' : '运行'}
-              </button>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <EmptyState title="还没有自动任务" detail="在 Waker 卡片上创建一条自动任务。" />
       )}
     </section>
   );

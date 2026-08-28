@@ -1366,6 +1366,17 @@ describe('Explore endpoints', () => {
     assert.equal(created.statusCode, 201);
     const session = await app.inject({ method: 'POST', url: '/api/v1/agents/delete-me/sessions' });
     assert.equal(session.statusCode, 200);
+    const automation = await app.inject({
+      method: 'POST',
+      url: '/api/v1/automations',
+      payload: {
+        wakerId: 'delete-me',
+        name: 'Delete with agent',
+        kind: 'api',
+        prompt: 'test',
+      },
+    });
+    assert.equal(automation.statusCode, 201);
 
     const removed = await app.inject({ method: 'DELETE', url: '/api/v1/agents/delete-me' });
     assert.equal(removed.statusCode, 204);
@@ -1374,6 +1385,70 @@ describe('Explore endpoints', () => {
       false,
     );
     assert.deepEqual(await agentSessionStoreFor({ cwd: root }).listSessions('delete-me'), []);
+    const resources = await app.inject({
+      method: 'GET',
+      url: '/api/v1/local-resources?wakerId=delete-me',
+    });
+    assert.equal(resources.json().automations.length, 0);
+  });
+
+  it('rejects automation writes while an agent deletion is awaiting session cleanup', async () => {
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/v1/agents',
+      payload: { ...templateBody, id: 'delete-race' },
+    });
+    assert.equal(created.statusCode, 201);
+
+    const sessionStore = agentSessionStoreFor({ cwd: root });
+    const originalListSessions = sessionStore.listSessions.bind(sessionStore);
+    let release!: () => void;
+    let entered!: () => void;
+    const enteredGate = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const releaseGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    sessionStore.listSessions = async (agentId?: string) => {
+      if (agentId === 'delete-race') {
+        entered();
+        await releaseGate;
+      }
+      return originalListSessions(agentId);
+    };
+    try {
+      const deleting = app.inject({ method: 'DELETE', url: '/api/v1/agents/delete-race' });
+      await enteredGate;
+      const concurrent = await app.inject({
+        method: 'POST',
+        url: '/api/v1/automations',
+        payload: {
+          wakerId: 'delete-race',
+          name: 'Must not survive',
+          kind: 'api',
+          prompt: 'test',
+        },
+      });
+      assert.equal(concurrent.statusCode, 409);
+      const concurrentSession = await app.inject({
+        method: 'POST',
+        url: '/api/v1/agents/delete-race/sessions',
+      });
+      assert.equal(concurrentSession.statusCode, 409);
+      const concurrentChat = await app.inject({
+        method: 'POST',
+        url: '/api/v1/chat',
+        payload: { agentId: 'delete-race', message: 'must not create a session' },
+      });
+      assert.equal(concurrentChat.statusCode, 409);
+      release();
+      assert.equal((await deleting).statusCode, 204);
+      assert.deepEqual(await sessionStore.listSessions('delete-race'), []);
+    } finally {
+      sessionStore.listSessions = originalListSessions;
+      release?.();
+    }
   });
 
   it('PATCH maps missing agents to 404 and invalid patches to 400', async () => {
@@ -1426,10 +1501,10 @@ describe('Explore endpoints', () => {
     assert.equal(empty.statusCode, 200);
     assert.deepEqual(empty.json(), { items: [], total: 0 });
 
-    mkdirSync(join(root, '.codex', 'skills', 'research'), { recursive: true });
+    mkdirSync(join(root, '.agents', 'skills', 'research'), { recursive: true });
     writeFileSync(
-      join(root, '.codex', 'skills', 'research', 'SKILL.md'),
-      '---\nname: 调研助手\ndescription: 桌面调研。\n---\n\n先搜一手来源。\n',
+      join(root, '.agents', 'skills', 'research', 'SKILL.md'),
+      '---\nname: research\ndescription: 桌面调研。\n---\n\n先搜一手来源。\n',
     );
     const filled = await app.inject({ method: 'GET', url: '/api/v1/skills' });
     assert.equal(filled.statusCode, 200);
@@ -1440,8 +1515,8 @@ describe('Explore endpoints', () => {
       preview?: string;
     }>;
     assert.equal(filled.json().total, 1);
-    assert.equal(items[0]?.name, '调研助手');
-    assert.equal(items[0]?.path, '.codex/skills/research/SKILL.md');
+    assert.equal(items[0]?.name, 'research');
+    assert.equal(items[0]?.path, '.agents/skills/research/SKILL.md');
     assert.equal(items[0]?.description, '桌面调研。');
     assert.equal(items[0]?.preview, '先搜一手来源。');
   });

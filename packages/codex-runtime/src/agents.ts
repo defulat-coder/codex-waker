@@ -7,24 +7,22 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import {
   AGENT_ID_PATTERN,
   type AgentDetail,
   type AgentResources,
   type AgentSummary,
   type CreateAgentRequest,
-  type InstalledSkillContent,
-  type InstalledSkillSummary,
   type ImportAgentRequest,
   type PromptDocument,
   type PromptSummary,
   type SkillSummary,
   type UpdateAgentRequest,
   type UpdatePromptRequest,
-  type UploadSkillRequest,
 } from '@waker/contracts';
 import { parseFrontmatter, stripFrontmatter } from './frontmatter.js';
+import { listInstalledSkills } from './skills.js';
 
 const AGENT_ID_REGEX = new RegExp(AGENT_ID_PATTERN);
 const PROMPT_NAME_REGEX = /^[a-z0-9-]{1,80}$/;
@@ -315,205 +313,18 @@ export function listPrompts(cwd: string): PromptSummary[] {
 }
 
 /**
- * Lists .codex/skills/<dir>/SKILL.md entries; an absent or empty directory yields [].
- * Skills are third-party content: entries without readable frontmatter fall back
- * to the directory name instead of failing the whole list.
+ * Lists runtime-available repo skills. The richer inventory is exposed by
+ * listInstalledSkills; this projection keeps AgentResources compact.
  */
 export function listSkills(cwd: string): SkillSummary[] {
-  const directory = join(cwd, '.codex', 'skills');
-  if (!existsSync(directory)) return [];
-  return readdirSync(directory, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && existsSync(join(directory, entry.name, 'SKILL.md')))
-    .sort((left, right) => left.name.localeCompare(right.name))
-    .map((entry) => {
-      const path = `.codex/skills/${entry.name}/SKILL.md`;
-      const raw = readFileSync(join(cwd, path), 'utf8');
-      const { frontmatter } = parseFrontmatter(raw);
-      const name =
-        typeof frontmatter.name === 'string' && frontmatter.name.trim()
-          ? frontmatter.name.trim()
-          : entry.name;
-      const description =
-        typeof frontmatter.description === 'string' && frontmatter.description.trim()
-          ? frontmatter.description.trim()
-          : undefined;
-      const preview = previewOf(raw);
-      return {
-        name,
-        path,
-        ...(description ? { description } : {}),
-        ...(preview ? { preview } : {}),
-      };
-    });
-}
-
-/**
- * Reads the skills CLI lockfile (skills-lock.json, version 1) as name → "owner/repo".
- * A missing or malformed lockfile yields an empty map — sources are informational only.
- */
-function readSkillsLockSources(cwd: string): Map<string, string> {
-  const target = join(cwd, 'skills-lock.json');
-  const sources = new Map<string, string>();
-  if (!existsSync(target)) return sources;
-  try {
-    const parsed = JSON.parse(readFileSync(target, 'utf8')) as {
-      skills?: Record<string, { source?: unknown }>;
-    };
-    for (const [name, entry] of Object.entries(parsed.skills ?? {})) {
-      if (typeof entry?.source === 'string' && entry.source.trim())
-        sources.set(name, entry.source.trim());
-    }
-  } catch {
-    // 坏 lockfile 不应拖垮技能列表。
-  }
-  return sources;
-}
-
-/**
- * Lists every locally installed skill: .agents/skills (skills CLI, scope 'agents')
- * plus .codex/skills (project-provided or manually uploaded, scope 'codex').
- * Sources come from skills-lock.json by directory name. Absent directories yield [].
- */
-export function listInstalledSkills(cwd: string): InstalledSkillSummary[] {
-  const sources = readSkillsLockSources(cwd);
-  const items: InstalledSkillSummary[] = [];
-  for (const scope of ['agents', 'codex'] as const) {
-    const base = scope === 'agents' ? '.agents/skills' : '.codex/skills';
-    const directory = join(cwd, base);
-    if (!existsSync(directory)) continue;
-    for (const entry of readdirSync(directory, { withFileTypes: true })
-      .filter((item) => item.isDirectory() && existsSync(join(directory, item.name, 'SKILL.md')))
-      .sort((left, right) => left.name.localeCompare(right.name))) {
-      const path = `${base}/${entry.name}/SKILL.md`;
-      const raw = readFileSync(join(cwd, path), 'utf8');
-      const { frontmatter } = parseFrontmatter(raw);
-      const name =
-        typeof frontmatter.name === 'string' && frontmatter.name.trim()
-          ? frontmatter.name.trim()
-          : entry.name;
-      const description =
-        typeof frontmatter.description === 'string' && frontmatter.description.trim()
-          ? frontmatter.description.trim()
-          : undefined;
-      const preview = previewOf(raw);
-      const source = scope === 'agents' ? sources.get(entry.name) : undefined;
-      items.push({
-        name,
-        path,
-        scope,
-        ...(description ? { description } : {}),
-        ...(preview ? { preview } : {}),
-        ...(source ? { source } : {}),
-      });
-    }
-  }
-  return items;
-}
-
-/** 匹配 SKILL.md 顶部的 YAML frontmatter 块（捕获组为不含 --- 的原文）。 */
-const FRONTMATTER_BLOCK = /^---\r?\n([\s\S]*?)\r?\n---/;
-
-/**
- * Reads one installed skill's full SKILL.md. The entry is located through the same
- * scan as listInstalledSkills (name = frontmatter name or directory name), and the
- * path it yields is built from directory entries only — no traversal is possible.
- * Returns undefined when no entry matches scope + name.
- */
-export function readInstalledSkillContent(
-  cwd: string,
-  scope: 'codex' | 'agents',
-  name: string,
-): InstalledSkillContent | undefined {
-  const item = listInstalledSkills(cwd).find(
-    (entry) => entry.scope === scope && entry.name === name,
-  );
-  if (!item) return undefined;
-  const raw = readFileSync(join(cwd, item.path), 'utf8');
-  const frontmatter = FRONTMATTER_BLOCK.exec(raw)?.[1]?.trim();
-  return {
-    name: item.name,
-    scope: item.scope,
-    ...(item.description ? { description: item.description } : {}),
-    ...(item.source ? { source: item.source } : {}),
-    content: stripFrontmatter(raw).trim(),
-    ...(frontmatter ? { frontmatter } : {}),
-  };
-}
-
-/**
- * Removes one project skill (.codex/skills/<dir>) installed by hand or by uploadSkill.
- * Skills CLI entries (.agents/skills) must go through `npx skills remove` instead.
- * Returns false when no .codex/skills entry matches the name.
- */
-export function removeProjectSkill(cwd: string, name: string): boolean {
-  const item = listInstalledSkills(cwd).find(
-    (entry) => entry.scope === 'codex' && entry.name === name,
-  );
-  if (!item) return false;
-  rmSync(join(cwd, dirname(item.path)), { recursive: true, force: true });
-  return true;
-}
-
-export type SkillUploadErrorCode = 'INVALID_NAME' | 'CONFLICT' | 'TOO_LARGE';
-
-/** Validation failure while uploading a SKILL.md; the API maps `code` onto HTTP statuses. */
-export class SkillUploadError extends Error {
-  readonly code: SkillUploadErrorCode;
-  constructor(code: SkillUploadErrorCode, message: string) {
-    super(message);
-    this.code = code;
-  }
-}
-
-/** Hard cap for one uploaded SKILL.md; enforced again at the API schema. */
-export const SKILL_CONTENT_MAX_BYTES = 128 * 1024;
-const SKILL_NAME_REGEX = /^[a-z0-9-]{1,80}$/;
-
-/**
- * Writes .codex/skills/<name>/SKILL.md from a manual upload. When the content has no
- * YAML frontmatter block, one is synthesized from name/description (JSON-quoted
- * scalars are valid YAML). 'wx' makes the write fail on conflicts, mirroring createAgent.
- */
-export function uploadSkill(cwd: string, input: UploadSkillRequest): InstalledSkillSummary {
-  const name = input.name.trim();
-  if (!SKILL_NAME_REGEX.test(name))
-    throw new SkillUploadError('INVALID_NAME', '技能名称需匹配 [a-z0-9-]{1,80}');
-  const content = input.content.trim();
-  if (!content) throw new SkillUploadError('INVALID_NAME', '技能内容不能为空');
-  if (Buffer.byteLength(content, 'utf8') > SKILL_CONTENT_MAX_BYTES)
-    throw new SkillUploadError('TOO_LARGE', `技能内容超过 ${SKILL_CONTENT_MAX_BYTES} 字节上限`);
-
-  const file = FRONTMATTER_BLOCK.test(content)
-    ? `${content}\n`
-    : [
-        '---',
-        `name: ${yamlScalar(name)}`,
-        ...(input.description?.trim()
-          ? [`description: ${yamlScalar(input.description.trim())}`]
-          : []),
-        '---',
-        '',
-        content,
-        '',
-      ].join('\n');
-
-  const directory = join(cwd, '.codex', 'skills', name);
-  const target = join(directory, 'SKILL.md');
-  if (existsSync(target)) throw new SkillUploadError('CONFLICT', `技能已存在：${name}`);
-  mkdirSync(directory, { recursive: true });
-  try {
-    writeFileSync(target, file, { encoding: 'utf8', flag: 'wx' });
-  } catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 'EEXIST')
-      throw new SkillUploadError('CONFLICT', `技能已存在：${name}`);
-    throw error;
-  }
-  // Roundtrip through the real scanner so the response matches the installed list.
-  const summary = listInstalledSkills(cwd).find(
-    (entry) => entry.scope === 'codex' && entry.path === `.codex/skills/${name}/SKILL.md`,
-  );
-  if (!summary) throw new Error(`技能写入后无法回读：${name}`);
-  return summary;
+  return listInstalledSkills(cwd)
+    .filter((skill) => skill.availability === 'available' && skill.valid)
+    .map(({ name, path, description, preview }) => ({
+      name,
+      path,
+      ...(description ? { description } : {}),
+      ...(preview ? { preview } : {}),
+    }));
 }
 
 /** Reads one prompt template body; the name pattern blocks path traversal by construction. */

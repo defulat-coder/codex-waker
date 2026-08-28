@@ -10,18 +10,13 @@ import {
   deriveAgentId,
   getAgent,
   importAgent,
-  listInstalledSkills,
   listPrompts,
   listSkills,
   loadAgents,
   readAppendSystem,
   readAgentSource,
-  readInstalledSkillContent,
   readPrompt,
-  removeProjectSkill,
-  SkillUploadError,
   updateAgent,
-  uploadSkill,
   writeAppendSystem,
   writePrompt,
 } from './agents.js';
@@ -369,7 +364,7 @@ describe('updateAgent', () => {
 });
 
 describe('listSkills', () => {
-  it('returns an empty list when .codex/skills is absent or empty', () => {
+  it('returns an empty list when repo .agents/skills is absent', () => {
     const root = mkdtempSync(join(tmpdir(), 'codex-skills-empty-'));
     roots.push(root);
     assert.deepEqual(listSkills(root), []);
@@ -380,212 +375,19 @@ describe('listSkills', () => {
   it('lists SKILL.md entries with frontmatter metadata and body preview', () => {
     const root = mkdtempSync(join(tmpdir(), 'codex-skills-'));
     roots.push(root);
-    mkdirSync(join(root, '.codex', 'skills', 'research'), { recursive: true });
+    mkdirSync(join(root, '.agents', 'skills', 'research'), { recursive: true });
     writeFileSync(
-      join(root, '.codex', 'skills', 'research', 'SKILL.md'),
-      `---\nname: 调研助手\ndescription: 按来源做桌面调研。\n---\n\n先搜一手来源，再写结论。\n`,
+      join(root, '.agents', 'skills', 'research', 'SKILL.md'),
+      `---\nname: research\ndescription: 按来源做桌面调研。\n---\n\n先搜一手来源，再写结论。\n`,
     );
-    mkdirSync(join(root, '.codex', 'skills', 'no-frontmatter'), { recursive: true });
-    writeFileSync(join(root, '.codex', 'skills', 'no-frontmatter', 'SKILL.md'), '只有正文。');
     const skills = listSkills(root);
     assert.deepEqual(
       skills.map((skill) => skill.name),
-      ['no-frontmatter', '调研助手'],
+      ['research'],
     );
-    const research = skills.find((skill) => skill.name === '调研助手');
-    assert.equal(research?.path, '.codex/skills/research/SKILL.md');
+    const research = skills[0];
+    assert.equal(research?.path, '.agents/skills/research/SKILL.md');
     assert.equal(research?.description, '按来源做桌面调研。');
     assert.equal(research?.preview, '先搜一手来源，再写结论。');
-    const plain = skills.find((skill) => skill.path.includes('no-frontmatter'));
-    assert.equal(plain?.name, 'no-frontmatter');
-    assert.equal(plain?.preview, '只有正文。');
-  });
-});
-
-describe('listInstalledSkills', () => {
-  it('returns an empty list when both skill directories are absent', () => {
-    const root = mkdtempSync(join(tmpdir(), 'codex-installed-skills-empty-'));
-    roots.push(root);
-    assert.deepEqual(listInstalledSkills(root), []);
-  });
-
-  it('lists .agents/skills and .codex/skills with scope and lockfile source', () => {
-    const root = mkdtempSync(join(tmpdir(), 'codex-installed-skills-'));
-    roots.push(root);
-    mkdirSync(join(root, '.agents', 'skills', 'web-research'), { recursive: true });
-    writeFileSync(
-      join(root, '.agents', 'skills', 'web-research', 'SKILL.md'),
-      `---\nname: web-research\ndescription: 联网调研。\n---\n\n先搜索再总结。\n`,
-    );
-    mkdirSync(join(root, '.codex', 'skills', 'local-skill'), { recursive: true });
-    writeFileSync(join(root, '.codex', 'skills', 'local-skill', 'SKILL.md'), '只有正文。');
-    writeFileSync(
-      join(root, 'skills-lock.json'),
-      JSON.stringify({
-        version: 1,
-        skills: {
-          'web-research': {
-            source: 'acme/skills',
-            sourceType: 'github',
-            skillPath: 'skills/web-research/SKILL.md',
-            computedHash: 'abc',
-          },
-        },
-      }),
-    );
-    const items = listInstalledSkills(root);
-    assert.deepEqual(
-      items.map((item) => item.name),
-      ['web-research', 'local-skill'],
-    );
-    const agents = items.find((item) => item.scope === 'agents');
-    assert.equal(agents?.path, '.agents/skills/web-research/SKILL.md');
-    assert.equal(agents?.source, 'acme/skills');
-    assert.equal(agents?.description, '联网调研。');
-    assert.equal(agents?.preview, '先搜索再总结。');
-    const codex = items.find((item) => item.scope === 'codex');
-    assert.equal(codex?.path, '.codex/skills/local-skill/SKILL.md');
-    assert.equal(codex?.source, undefined);
-    assert.equal(codex?.preview, '只有正文。');
-  });
-
-  it('survives a missing or malformed lockfile', () => {
-    const root = mkdtempSync(join(tmpdir(), 'codex-installed-skills-lock-'));
-    roots.push(root);
-    mkdirSync(join(root, '.agents', 'skills', 'solo'), { recursive: true });
-    writeFileSync(
-      join(root, '.agents', 'skills', 'solo', 'SKILL.md'),
-      '---\nname: solo\n---\n\n正文。\n',
-    );
-    assert.deepEqual(
-      listInstalledSkills(root).map((item) => item.source),
-      [undefined],
-    );
-    writeFileSync(join(root, 'skills-lock.json'), '{ not json');
-    assert.deepEqual(
-      listInstalledSkills(root).map((item) => item.source),
-      [undefined],
-    );
-  });
-});
-
-describe('readInstalledSkillContent', () => {
-  function contentRoot(): string {
-    const root = mkdtempSync(join(tmpdir(), 'codex-skill-content-'));
-    roots.push(root);
-    mkdirSync(join(root, '.agents', 'skills', 'web-research'), { recursive: true });
-    writeFileSync(
-      join(root, '.agents', 'skills', 'web-research', 'SKILL.md'),
-      `---\nname: web-research\ndescription: 联网调研。\n---\n\n## 步骤\n\n1. 先搜索。\n2. 再总结。\n`,
-    );
-    mkdirSync(join(root, '.codex', 'skills', 'plain'), { recursive: true });
-    writeFileSync(
-      join(root, '.codex', 'skills', 'plain', 'SKILL.md'),
-      '没有 frontmatter 的正文。\n',
-    );
-    return root;
-  }
-
-  it('returns the full body with frontmatter stripped plus the raw frontmatter text', () => {
-    const root = contentRoot();
-    const doc = readInstalledSkillContent(root, 'agents', 'web-research');
-    assert.ok(doc);
-    assert.equal(doc.name, 'web-research');
-    assert.equal(doc.scope, 'agents');
-    assert.equal(doc.description, '联网调研。');
-    assert.equal(doc.content, '## 步骤\n\n1. 先搜索。\n2. 再总结。');
-    assert.equal(doc.frontmatter, 'name: web-research\ndescription: 联网调研。');
-  });
-
-  it('omits frontmatter for files without one and rejects unknown or traversal names', () => {
-    const root = contentRoot();
-    const plain = readInstalledSkillContent(root, 'codex', 'plain');
-    assert.ok(plain);
-    assert.equal(plain.content, '没有 frontmatter 的正文。');
-    assert.equal(plain.frontmatter, undefined);
-    assert.equal(readInstalledSkillContent(root, 'agents', 'missing'), undefined);
-    assert.equal(readInstalledSkillContent(root, 'agents', '../settings'), undefined);
-    // name 匹配 scope：同名不同 scope 不串。
-    assert.equal(readInstalledSkillContent(root, 'codex', 'web-research'), undefined);
-  });
-});
-
-describe('uploadSkill', () => {
-  it('writes .codex/skills/<name>/SKILL.md and returns the installed summary', () => {
-    const root = mkdtempSync(join(tmpdir(), 'codex-skill-upload-'));
-    roots.push(root);
-    const summary = uploadSkill(root, {
-      name: 'my-skill',
-      content: '---\nname: my-skill\ndescription: 手工上传。\n---\n\n## 用法\n\n照做。\n',
-    });
-    assert.equal(summary.name, 'my-skill');
-    assert.equal(summary.scope, 'codex');
-    assert.equal(summary.path, '.codex/skills/my-skill/SKILL.md');
-    assert.equal(summary.description, '手工上传。');
-    assert.equal(summary.preview, '## 用法 照做。');
-    const written = readFileSync(join(root, '.codex', 'skills', 'my-skill', 'SKILL.md'), 'utf8');
-    assert.match(written, /^---\nname: my-skill/);
-  });
-
-  it('synthesizes a frontmatter block from name/description when absent', () => {
-    const root = mkdtempSync(join(tmpdir(), 'codex-skill-upload-fm-'));
-    roots.push(root);
-    const summary = uploadSkill(root, {
-      name: 'plain-skill',
-      content: '没有 frontmatter 的正文。',
-      description: '纯正文上传。',
-    });
-    const written = readFileSync(join(root, '.codex', 'skills', 'plain-skill', 'SKILL.md'), 'utf8');
-    assert.match(written, /^---\nname: "plain-skill"\ndescription: "纯正文上传。"\n---\n\n/);
-    assert.equal(summary.description, '纯正文上传。');
-    assert.equal(summary.preview, '没有 frontmatter 的正文。');
-    // 无 description 时 frontmatter 只有 name，也不影响解析。
-    const bare = uploadSkill(root, { name: 'bare-skill', content: '只有正文。' });
-    assert.equal(bare.name, 'bare-skill');
-    assert.equal(bare.description, undefined);
-  });
-
-  it('rejects conflicts with CONFLICT and never overwrites', () => {
-    const root = mkdtempSync(join(tmpdir(), 'codex-skill-upload-conflict-'));
-    roots.push(root);
-    uploadSkill(root, { name: 'dup-skill', content: '旧内容。' });
-    assert.throws(
-      () => uploadSkill(root, { name: 'dup-skill', content: '新内容。' }),
-      (error: unknown) => error instanceof SkillUploadError && error.code === 'CONFLICT',
-    );
-    assert.match(
-      readFileSync(join(root, '.codex', 'skills', 'dup-skill', 'SKILL.md'), 'utf8'),
-      /旧内容。/,
-    );
-  });
-
-  it('rejects invalid names with INVALID_NAME and writes nothing', () => {
-    const root = mkdtempSync(join(tmpdir(), 'codex-skill-upload-name-'));
-    roots.push(root);
-    for (const name of ['Bad Name', 'a/b', '..', '中文名', '']) {
-      assert.throws(
-        () => uploadSkill(root, { name, content: '正文。' }),
-        (error: unknown) => error instanceof SkillUploadError && error.code === 'INVALID_NAME',
-      );
-    }
-    assert.deepEqual(listInstalledSkills(root), []);
-  });
-
-  it('rejects oversized content with TOO_LARGE', () => {
-    const root = mkdtempSync(join(tmpdir(), 'codex-skill-upload-large-'));
-    roots.push(root);
-    assert.throws(
-      () => uploadSkill(root, { name: 'big-skill', content: '长'.repeat(128 * 1024) }),
-      (error: unknown) => error instanceof SkillUploadError && error.code === 'TOO_LARGE',
-    );
-  });
-
-  it('removes an uploaded skill through removeProjectSkill', () => {
-    const root = mkdtempSync(join(tmpdir(), 'codex-skill-remove-'));
-    roots.push(root);
-    uploadSkill(root, { name: 'gone-skill', content: '正文。' });
-    assert.equal(removeProjectSkill(root, 'gone-skill'), true);
-    assert.deepEqual(listInstalledSkills(root), []);
-    assert.equal(removeProjectSkill(root, 'gone-skill'), false);
   });
 });

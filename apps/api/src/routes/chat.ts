@@ -10,6 +10,7 @@ import type {
 } from '@waker/contracts';
 import {
   codexThreadRegistry,
+  getAgent,
   getCodexModelConfig,
   getCodexReasoningEffort,
   listCodexModels,
@@ -19,7 +20,7 @@ import {
   type AgentInput,
 } from '@waker/codex-runtime';
 import { ChatRequestSchema } from '../schemas.js';
-import { agentOr404, type AppContext } from '../context.js';
+import { agentOr404, isAgentDeleting, rejectDeletingAgent, type AppContext } from '../context.js';
 import { startSse } from '../plugins/sse.js';
 import { resolveProjectDirectory } from '../project-path.js';
 import { decodeBase64, handleArtifactError } from './session-outputs.js';
@@ -31,6 +32,7 @@ export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void 
     async (request, reply) => {
       const agent = agentOr404(ctx, request.body.agentId, reply);
       if (!agent) return;
+      if (rejectDeletingAgent(reply, agent.id)) return;
 
       if (request.body.model) {
         const available = listCodexModels(ctx.cwd);
@@ -145,6 +147,20 @@ export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void 
           type: 'error',
           error: mismatch ? '该会话属于另一个 Agent' : '会话暂时无法创建',
         });
+        sse.close();
+        return;
+      }
+      // A turn can pass the HTTP guard just before Waker deletion begins. Recheck after the
+      // durable session write and compensate a newly created session before starting Codex.
+      let agentStillExists = true;
+      try {
+        getAgent(ctx.cwd, agent.id);
+      } catch {
+        agentStillExists = false;
+      }
+      if (isAgentDeleting(agent.id) || !agentStillExists) {
+        if (createdSession) await ctx.sessions.deleteSession(session.id, agent.id);
+        sse.send({ type: 'error', error: 'Waker 正在删除，无法开始会话' });
         sse.close();
         return;
       }

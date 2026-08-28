@@ -16,7 +16,13 @@ import {
   SessionParamsSchema,
   UpdateInboxStateSchema,
 } from '../schemas.js';
-import { agentOr404, withOwnedSession, type AppContext } from '../context.js';
+import {
+  agentOr404,
+  isAgentDeleting,
+  rejectDeletingAgent,
+  withOwnedSession,
+  type AppContext,
+} from '../context.js';
 
 /** SessionRecord 已携带 sessions 表里的 read/completedAt，形状与 InboxItem 一致。 */
 function toInboxItem(session: SessionRecord): InboxItem {
@@ -82,7 +88,18 @@ export function registerSessionRoutes(app: FastifyInstance, ctx: AppContext): vo
     { schema: { params: AgentParamsSchema } },
     async (request, reply) => {
       if (!agentOr404(ctx, request.params.agentId, reply)) return;
-      return ctx.sessions.createSession(request.params.agentId);
+      if (rejectDeletingAgent(reply, request.params.agentId)) return;
+      const session = await ctx.sessions.createSession(request.params.agentId);
+      // Cover a request that passed the guard immediately before Agent deletion began.
+      if (isAgentDeleting(request.params.agentId)) {
+        await ctx.sessions.deleteSession(session.id, request.params.agentId);
+        return reply.code(409).send({ error: `Agent 正在删除：${request.params.agentId}` });
+      }
+      if (!agentOr404(ctx, request.params.agentId, reply)) {
+        await ctx.sessions.deleteSession(session.id, request.params.agentId);
+        return;
+      }
+      return session;
     },
   );
 
@@ -93,6 +110,7 @@ export function registerSessionRoutes(app: FastifyInstance, ctx: AppContext): vo
     },
     async (request, reply) => {
       if (!agentOr404(ctx, request.params.agentId, reply)) return;
+      if (rejectDeletingAgent(reply, request.params.agentId)) return;
       const session = await withOwnedSession(reply, () =>
         ctx.sessions.getSession(request.params.sessionId, request.params.agentId),
       );
@@ -109,6 +127,7 @@ export function registerSessionRoutes(app: FastifyInstance, ctx: AppContext): vo
     },
     async (request, reply) => {
       if (!agentOr404(ctx, request.params.agentId, reply)) return;
+      if (rejectDeletingAgent(reply, request.params.agentId)) return;
       const items = await withOwnedSession(reply, () =>
         ctx.sessions.listMessages(request.params.sessionId, request.params.agentId),
       );
@@ -124,6 +143,7 @@ export function registerSessionRoutes(app: FastifyInstance, ctx: AppContext): vo
     },
     async (request, reply) => {
       if (!agentOr404(ctx, request.params.agentId, reply)) return;
+      if (rejectDeletingAgent(reply, request.params.agentId)) return;
       // rename 必须与进行中的 turn 共用一个 per-key 串行队列，排在 in-flight turn 之后执行，
       // 避免与 registry 持有的 Codex thread 并发操作同一会话。
       const session = await withOwnedSession(reply, () =>
@@ -148,6 +168,7 @@ export function registerSessionRoutes(app: FastifyInstance, ctx: AppContext): vo
     },
     async (request, reply) => {
       if (!agentOr404(ctx, request.params.agentId, reply)) return;
+      if (rejectDeletingAgent(reply, request.params.agentId)) return;
       // 只写 sessions 表的 inbox 字段，不触碰 rollout JSONL，无需进入 per-session 串行队列。
       const session = await withOwnedSession(reply, () =>
         ctx.sessions.getSession(request.params.sessionId, request.params.agentId),
@@ -172,6 +193,7 @@ export function registerSessionRoutes(app: FastifyInstance, ctx: AppContext): vo
     },
     async (request, reply) => {
       if (!agentOr404(ctx, request.params.agentId, reply)) return;
+      if (rejectDeletingAgent(reply, request.params.agentId)) return;
       const removed = await withOwnedSession(reply, async () => {
         // 先取消排队中的 turn：它们出队即 reject，不会在 getOrCreate 里重建绑定；
         // close 再 abort 进行中的 turn 并等该 key 的队列全部落定，最后才删绑定与 rollout 文件。

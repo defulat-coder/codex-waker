@@ -73,7 +73,20 @@ describe('ProjectManagementView', () => {
           projectId: 'project-two',
           sessionContexts: 2,
           tasks: 3,
-          behavior: { sessionContexts: 'delete', tasks: 'cascade-delete' },
+          tasksPreserved: 3,
+          automationDefinitions: 1,
+          automationRuns: 4,
+          automationTasksPreserved: 4,
+          workflowDefinitions: 2,
+          workflowRuns: 5,
+          behavior: {
+            sessionContexts: 'delete',
+            tasks: 'detach-and-preserve',
+            automationDefinitions: 'detach-and-pause',
+            automationTasks: 'preserve',
+            workflowDefinitions: 'detach-and-pause',
+            workflowRuns: 'preserve',
+          },
         });
       if (method === 'DELETE') {
         projects = projects.filter((project) => project.id !== 'project-two');
@@ -124,7 +137,12 @@ describe('ProjectManagementView', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '删除' }));
     assert.ok(await screen.findByText(/2 条会话项目关联/));
-    assert.ok(screen.getByText(/3 条项目任务/));
+    const deleteDialog = screen.getByRole('dialog', { name: '删除项目：知识仓库' });
+    assert.match(deleteDialog.textContent ?? '', /3 条任务会解除项目关联并保留历史与时间线/);
+    assert.ok(screen.getByText(/1 个自动任务会解除项目关联并暂停/));
+    assert.ok(screen.getByText(/4 条运行历史/));
+    assert.ok(screen.getByText(/2 个工作流会解除项目关联并暂停/));
+    assert.ok(screen.getByText(/5 条工作流运行历史会保留/));
     const deleteButton = screen.getByRole('button', { name: '删除项目' });
     assert.equal(deleteButton.hasAttribute('disabled'), true);
     fireEvent.change(screen.getByLabelText('输入项目名称以确认'), {
@@ -166,7 +184,19 @@ describe('ProjectManagementView', () => {
               projectId: PROJECT.id,
               sessionContexts: 0,
               tasks: 0,
-              behavior: { sessionContexts: 'delete', tasks: 'cascade-delete' },
+              automationDefinitions: 0,
+              automationRuns: 0,
+              automationTasksPreserved: 0,
+              workflowDefinitions: 0,
+              workflowRuns: 0,
+              behavior: {
+                sessionContexts: 'delete',
+                tasks: 'cascade-delete',
+                automationDefinitions: 'detach-and-pause',
+                automationTasks: 'preserve',
+                workflowDefinitions: 'detach-and-pause',
+                workflowRuns: 'preserve',
+              },
             });
       }
       return json({});

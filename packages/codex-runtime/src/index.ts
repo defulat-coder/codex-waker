@@ -44,6 +44,7 @@ export type {
 } from './model-config.js';
 export { parseRolloutMessages } from './rollout.js';
 export * from './session-store.js';
+export * from './skills.js';
 export * from './templates.js';
 export * from './usage.js';
 

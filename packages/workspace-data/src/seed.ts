@@ -22,9 +22,23 @@ export function seedWorkspace(store: WorkspaceStore): void {
   });
   store.createWorkflow({
     id: 'demo-workflow',
+    wakerId: 'demo-waker',
+    projectId: 'demo-project',
     name: '项目摘要',
     description: '读取项目并生成摘要',
-    script: 'summarize(project)',
+    definition: {
+      schemaVersion: 1,
+      start: 'summarize',
+      nodes: [
+        {
+          id: 'summarize',
+          kind: 'codex',
+          prompt: '总结项目的最新进展。',
+          next: 'done',
+        },
+        { id: 'done', kind: 'terminal', status: 'succeeded' },
+      ],
+    },
     status: 'active',
   });
   store.createChannel({

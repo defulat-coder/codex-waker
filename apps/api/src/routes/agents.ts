@@ -1,5 +1,10 @@
 import type { FastifyInstance } from 'fastify';
-import type { CreateAgentRequest, ImportAgentRequest, UpdateAgentRequest } from '@waker/contracts';
+import type {
+  AgentDeleteImpact,
+  CreateAgentRequest,
+  ImportAgentRequest,
+  UpdateAgentRequest,
+} from '@waker/contracts';
 import {
   AgentCreateError,
   codexThreadRegistry,
@@ -16,7 +21,7 @@ import {
   ImportAgentSchema,
   UpdateAgentSchema,
 } from '../schemas.js';
-import { agentOr404, type AppContext } from '../context.js';
+import { agentOr404, beginAgentDeletion, endAgentDeletion, type AppContext } from '../context.js';
 
 export function registerAgentRoutes(app: FastifyInstance, ctx: AppContext): void {
   app.post<{ Body: CreateAgentRequest }>(
@@ -87,19 +92,91 @@ export function registerAgentRoutes(app: FastifyInstance, ctx: AppContext): void
     },
   );
 
+  app.get<{ Params: { agentId: string } }>(
+    '/agents/:agentId/delete-impact',
+    { schema: { params: AgentParamsSchema } },
+    async (request, reply): Promise<AgentDeleteImpact | void> => {
+      const agentId = request.params.agentId;
+      if (!agentOr404(ctx, agentId, reply)) return;
+      const sessions = await ctx.sessions.listSessions(agentId);
+      const resources = listAgentResources(ctx.cwd);
+      return {
+        agentId,
+        sessions: sessions.length,
+        projects: ctx.workspaceData
+          .listProjects(agentId)
+          .filter((project) => project.wakerId === agentId).length,
+        automations: ctx.workspaceData.listAutomations(agentId).length,
+        workflows: ctx.workspaceData.listWorkflows(agentId).length,
+        tasks: ctx.workspaceData.queryTasks(agentId).total,
+        humanActions: ctx.workspaceData.queryHumanActions(agentId).total,
+        connectors: ctx.workspaceData.listConnectors(agentId).length,
+        sharedSkills: resources.skills.length,
+        behavior: {
+          definition: 'delete',
+          sessions: 'delete',
+          projects: 'delete-record-only',
+          board: 'soft-delete-history',
+          connectors: 'delete',
+          skills: 'shared-preserve',
+        },
+      };
+    },
+  );
+
   app.delete<{ Params: { agentId: string } }>(
     '/agents/:agentId',
     { schema: { params: AgentParamsSchema } },
     async (request, reply) => {
       if (!agentOr404(ctx, request.params.agentId, reply)) return;
-      const sessions = await ctx.sessions.listSessions(request.params.agentId);
-      for (const session of sessions) {
-        codexThreadRegistry.cancelQueued(request.params.agentId, session.id);
-        await codexThreadRegistry.close(request.params.agentId, session.id);
-        await ctx.sessions.deleteSession(session.id, request.params.agentId);
+      const agentId = request.params.agentId;
+      if (!beginAgentDeletion(agentId))
+        return reply.code(409).send({ error: `Agent 正在删除：${agentId}` });
+      try {
+        const activeAutomationRuns = ctx.workspaceData.listRecoverableAutomationRuns(agentId);
+        if (activeAutomationRuns.length)
+          return reply.code(409).send({ error: '请先取消当前 Waker 的自动任务运行' });
+        const activeWorkflowRuns = ctx.workspaceData.listRecoverableWorkflowRuns(agentId);
+        if (activeWorkflowRuns.length)
+          return reply.code(409).send({ error: '请先取消当前 Waker 的 Workflow 运行' });
+        ctx.workspaceData.deleteAutomationsForWaker(agentId);
+        ctx.workspaceData.deleteWorkflowsForWaker(agentId);
+        const deleteSessions = async () => {
+          while (true) {
+            const sessions = await ctx.sessions.listSessions(agentId);
+            if (!sessions.length) return;
+            for (const session of sessions) {
+              codexThreadRegistry.cancelQueued(agentId, session.id);
+              await codexThreadRegistry.close(agentId, session.id);
+              await ctx.sessions.deleteSession(session.id, agentId);
+              ctx.workspaceData.deleteSessionContext(agentId, session.id);
+            }
+          }
+        };
+        await deleteSessions();
+        // Session Store and workspace context can drift after interrupted older builds. The
+        // Waker owner is authoritative, so remove every orphan context as a final sweep.
+        ctx.workspaceData.deleteSessionContextsForWaker(agentId);
+        // Recheck after the asynchronous cleanup so a request that began before the deletion
+        // guard cannot leave a live definition behind.
+        ctx.workspaceData.deleteAutomationsForWaker(agentId);
+        ctx.workspaceData.deleteWorkflowsForWaker(agentId);
+        ctx.workspaceData.softDeleteBoardDataForWaker(agentId);
+        for (const connector of ctx.workspaceData.listConnectors(agentId))
+          ctx.workspaceData.deleteConnector(agentId, connector.id);
+        ctx.workspaceData.deletePermissionPolicy(agentId);
+        for (const project of ctx.workspaceData
+          .listProjects(agentId)
+          .filter((value) => value.wakerId === agentId)) {
+          ctx.workspaceData.deleteProject(agentId, project.id);
+        }
+        // Catch requests that passed their first guard immediately before deletion began.
+        await deleteSessions();
+        deleteAgent(ctx.cwd, agentId);
+        return reply.code(204).send();
+      } finally {
+        endAgentDeletion(agentId);
       }
-      deleteAgent(ctx.cwd, request.params.agentId);
-      return reply.code(204).send();
     },
   );
 

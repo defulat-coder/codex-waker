@@ -54,7 +54,7 @@ function visibleUserText(text: string): string {
   // copy, and must never leak into session titles, previews, or replayed messages.
   let visible = text.replace(/<image\b[^>]*>\s*<\/image>/gi, '').trim();
   const hostWrapper =
-    /^<developer-instructions(?: data-waker-host="(?:project|attachment|knowledge)-v1")?>/;
+    /^<developer-instructions(?: data-waker-host="(?:project|attachment|knowledge|automation|workflow)-v1")?>/;
   while (hostWrapper.test(visible)) {
     const end = visible.indexOf('</developer-instructions>');
     if (end < 0) break;
@@ -192,11 +192,14 @@ export function sanitizeCitationSources(value: unknown): ChatCitationSource[] {
 
 const PROCESS_PAYLOAD_LIMIT = 4 * 1024;
 
-function visibleProcessText(text: string, privateRoots: readonly string[]): string {
-  const visible = privateRoots
-    .filter(Boolean)
+function redactPrivateText(text: string, privateRoots: readonly string[]): string {
+  return [...new Set(privateRoots.filter(Boolean))]
     .sort((left, right) => right.length - left.length)
     .reduce((result, root) => result.split(root).join('.'), text);
+}
+
+function visibleProcessText(text: string, privateRoots: readonly string[]): string {
+  const visible = redactPrivateText(text, privateRoots);
   return visible.length > PROCESS_PAYLOAD_LIMIT
     ? `${visible.slice(0, PROCESS_PAYLOAD_LIMIT)}…[truncated]`
     : visible;
@@ -293,12 +296,15 @@ function usageFromTokenCount(info: unknown): ChatUsage | undefined {
  * message of the same turn; a trailing `error` / `turn_aborted` event marks the
  * current turn's assistant message (or synthesizes an empty one) with the stopReason.
  */
-export function parseRolloutMessages(content: string): SessionMessage[] {
+export function parseRolloutMessages(
+  content: string,
+  additionalPrivateRoots: readonly string[] = [],
+): SessionMessage[] {
   const messages: SessionMessage[] = [];
   let pendingThinking = '';
   let pendingUsage: ChatUsage | undefined;
   let pendingTools: ChatProcess[] = [];
-  let privateRoots: string[] = [];
+  let privateRoots = [...additionalPrivateRoots];
   let counter = 0;
 
   const timestampOf = (record: RolloutRecord): string =>
@@ -340,7 +346,7 @@ export function parseRolloutMessages(content: string): SessionMessage[] {
     pendingThinking = '';
     pendingUsage = undefined;
     target.stopReason = stopReason;
-    if (errorMessage) target.errorMessage = errorMessage;
+    if (errorMessage) target.errorMessage = redactPrivateText(errorMessage, privateRoots);
   };
 
   for (const line of content.split('\n')) {
@@ -356,7 +362,7 @@ export function parseRolloutMessages(content: string): SessionMessage[] {
     if (!payload) continue;
 
     if (record.type === 'session_meta') {
-      if (typeof payload.cwd === 'string') privateRoots = [payload.cwd];
+      if (typeof payload.cwd === 'string') privateRoots = [...privateRoots, payload.cwd];
       continue;
     }
 
@@ -383,7 +389,10 @@ export function parseRolloutMessages(content: string): SessionMessage[] {
         const message: SessionMessage = {
           id: nextId(),
           role: 'assistant',
-          content: textFromContent(payload.content, ['output_text', 'text']),
+          content: redactPrivateText(
+            textFromContent(payload.content, ['output_text', 'text']),
+            privateRoots,
+          ),
           timestamp: timestampOf(record),
         };
         if (pendingThinking) message.thinking = pendingThinking;
@@ -397,7 +406,7 @@ export function parseRolloutMessages(content: string): SessionMessage[] {
     }
 
     if (record.type === 'response_item' && payload.type === 'reasoning') {
-      const text = reasoningText(payload);
+      const text = redactPrivateText(reasoningText(payload), privateRoots);
       if (text) pendingThinking = pendingThinking ? `${pendingThinking}\n${text}` : text;
       continue;
     }

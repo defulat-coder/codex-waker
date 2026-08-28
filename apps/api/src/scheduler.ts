@@ -1,17 +1,27 @@
-import type { Task, WorkspaceStore } from '@waker/workspace-data';
+import type { AutomationRun, Task, WorkspaceStore } from '@waker/workspace-data';
 
 export function runDueAutomations(
   store: WorkspaceStore,
   wakerIds: readonly string[],
   now = Date.now(),
-): { tasks: Task[]; errors: Array<{ automationId: string; message: string }> } {
+): {
+  runs: AutomationRun[];
+  tasks: Task[];
+  errors: Array<{ automationId: string; message: string }>;
+} {
+  const runs: AutomationRun[] = [];
   const tasks: Task[] = [];
   const errors: Array<{ automationId: string; message: string }> = [];
   for (const wakerId of wakerIds) {
     for (const automation of store.listAutomations(wakerId)) {
       if (!automation.enabled || automation.nextRun === null || automation.nextRun > now) continue;
       try {
-        tasks.push(store.runAutomation(wakerId, automation.id, { source: 'scheduler' }));
+        const run = store.claimDueAutomation(wakerId, automation.id, now, {
+          source: 'scheduler',
+        });
+        if (!run) continue;
+        runs.push(run);
+        if (run.status === 'queued') tasks.push(store.getTask(wakerId, run.taskId)!);
       } catch (error) {
         errors.push({
           automationId: automation.id,
@@ -20,5 +30,5 @@ export function runDueAutomations(
       }
     }
   }
-  return { tasks, errors };
+  return { runs, tasks, errors };
 }
