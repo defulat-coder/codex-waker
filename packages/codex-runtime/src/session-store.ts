@@ -1,0 +1,695 @@
+import { randomUUID } from 'node:crypto';
+import Database from 'better-sqlite3';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+} from 'node:fs';
+import { join, resolve } from 'node:path';
+import {
+  AGENT_ID_PATTERN,
+  type ChatCitationSource,
+  type SessionMessage,
+  type SessionSummary,
+} from '@waker/contracts';
+import { readCodexSettings } from './model-config.js';
+import { parseRolloutMessages, sanitizeCitationSources } from './rollout.js';
+
+const AGENT_ID_REGEX = new RegExp(AGENT_ID_PATTERN);
+
+/** Session/binding contract violations; `code` doubles as the message so existing callers keep working. */
+export type SessionBindingErrorCode =
+  | 'AGENT_BINDING_CONFLICT'
+  | 'AGENT_BINDING_MISSING'
+  | 'AGENT_BINDING_INVALID'
+  | 'AGENT_SESSION_MISMATCH'
+  | 'AGENT_SESSION_NOT_FOUND';
+
+export class SessionBindingError extends Error {
+  readonly code: SessionBindingErrorCode;
+  constructor(code: SessionBindingErrorCode) {
+    super(code);
+    this.name = 'SessionBindingError';
+    this.code = code;
+  }
+}
+
+/** One row of the sessions table: the immutable agent binding plus UI state. */
+export interface WorkbenchSessionEntry {
+  agentId: string;
+  /** Codex thread id once the first turn reported thread.started; null before that. */
+  threadId: string | null;
+  title?: string;
+  createdAt: string;
+  updatedAt: string;
+  /** 收件箱已读 = 用户已查看且此后没有新的出错/中断。 */
+  read?: boolean;
+  /** 被标记完成的时间；未完成为 undefined。 */
+  completedAt?: string;
+}
+
+/** 旧版 .codex/workbench.json 的形状，仅用于一次性迁移。 */
+interface WorkbenchFileData {
+  sessions: Record<string, WorkbenchSessionEntry>;
+  preferences: Record<string, unknown>;
+}
+
+interface SessionRow {
+  id: string;
+  agent_id: string;
+  thread_id: string | null;
+  title: string | null;
+  created_at: string;
+  updated_at: string;
+  read: number | null;
+  completed_at: string | null;
+}
+
+function entryFromRow(row: SessionRow): WorkbenchSessionEntry {
+  return {
+    agentId: row.agent_id,
+    threadId: row.thread_id,
+    ...(row.title !== null ? { title: row.title } : {}),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    read: row.read === 1,
+    ...(row.completed_at !== null ? { completedAt: row.completed_at } : {}),
+  };
+}
+
+function rowParams(id: string, entry: WorkbenchSessionEntry): unknown[] {
+  return [
+    id,
+    entry.agentId,
+    entry.threadId ?? null,
+    entry.title ?? null,
+    entry.createdAt,
+    entry.updatedAt,
+    entry.read ? 1 : 0,
+    entry.completedAt ?? null,
+  ];
+}
+
+/**
+ * SQLite projection (better-sqlite3) for everything the Codex CLI does NOT own:
+ * session ↔ agent bindings, inbox read/completed state, UI preferences. The CLI
+ * owns the rollout JSONL files; this store never writes into them.
+ * 数据库落在 .codex/workbench.sqlite（同步 API，单进程本地场景无需连接池）。
+ * 首次打开时若存在旧的 .codex/workbench.json 且 sessions/preferences 均为空，事务导入后把旧文件
+ * 改名为 workbench.json.bak；旧文件损坏则跳过迁移，保持此前的容错语义。
+ */
+export class WorkbenchStore {
+  readonly cwd: string;
+  readonly file: string;
+  private readonly db: Database.Database;
+
+  constructor(cwd: string) {
+    this.cwd = resolve(cwd);
+    this.file = join(this.cwd, '.codex', 'workbench.sqlite');
+    mkdirSync(join(this.cwd, '.codex'), { recursive: true });
+    this.db = new Database(this.file);
+    this.db.pragma('foreign_keys = ON');
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS sessions (
+        id TEXT PRIMARY KEY,
+        agent_id TEXT NOT NULL,
+        thread_id TEXT,
+        title TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        read INTEGER,
+        completed_at TEXT
+      );
+      CREATE TABLE IF NOT EXISTS preferences (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS session_turn_sources (
+        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        turn_index INTEGER NOT NULL CHECK(turn_index >= 1),
+        sources_json TEXT NOT NULL,
+        PRIMARY KEY (session_id, turn_index)
+      );
+    `);
+    this.migrateLegacyJson();
+  }
+
+  /** 从旧 workbench.json 一次性迁移；仅在数据库为空且旧文件可读时发生。 */
+  private migrateLegacyJson(): void {
+    const legacy = join(this.cwd, '.codex', 'workbench.json');
+    if (!existsSync(legacy)) return;
+    const { n } = this.db
+      .prepare('SELECT (SELECT COUNT(*) FROM sessions) + (SELECT COUNT(*) FROM preferences) AS n')
+      .get() as { n: number };
+    if (n > 0) return;
+    let parsed: Partial<WorkbenchFileData>;
+    try {
+      parsed = JSON.parse(readFileSync(legacy, 'utf8')) as Partial<WorkbenchFileData>;
+    } catch {
+      return;
+    }
+    const sessions = parsed.sessions && typeof parsed.sessions === 'object' ? parsed.sessions : {};
+    const preferences =
+      parsed.preferences && typeof parsed.preferences === 'object' ? parsed.preferences : {};
+    const insertSession = this.db.prepare(
+      `INSERT INTO sessions (id, agent_id, thread_id, title, created_at, updated_at, read, completed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         agent_id=excluded.agent_id,
+         thread_id=excluded.thread_id,
+         title=excluded.title,
+         created_at=excluded.created_at,
+         updated_at=excluded.updated_at,
+         read=excluded.read,
+         completed_at=excluded.completed_at`,
+    );
+    const insertPreference = this.db.prepare(
+      'INSERT OR REPLACE INTO preferences (key, value) VALUES (?, ?)',
+    );
+    this.db.transaction(() => {
+      for (const [id, entry] of Object.entries(sessions)) {
+        insertSession.run(...rowParams(id, entry));
+      }
+      for (const [key, value] of Object.entries(preferences)) {
+        insertPreference.run(key, JSON.stringify(value));
+      }
+    })();
+    renameSync(legacy, `${legacy}.bak`);
+  }
+
+  listEntries(): Record<string, WorkbenchSessionEntry> {
+    const rows = this.db.prepare('SELECT * FROM sessions').all() as SessionRow[];
+    return Object.fromEntries(rows.map((row) => [row.id, entryFromRow(row)]));
+  }
+
+  getEntry(id: string): WorkbenchSessionEntry | undefined {
+    const row = this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(id) as
+      SessionRow | undefined;
+    return row ? entryFromRow(row) : undefined;
+  }
+
+  putEntry(id: string, entry: WorkbenchSessionEntry): void {
+    this.db
+      .prepare(
+        `INSERT INTO sessions (id, agent_id, thread_id, title, created_at, updated_at, read, completed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           agent_id=excluded.agent_id,
+           thread_id=excluded.thread_id,
+           title=excluded.title,
+           created_at=excluded.created_at,
+           updated_at=excluded.updated_at,
+           read=excluded.read,
+           completed_at=excluded.completed_at`,
+      )
+      .run(...rowParams(id, entry));
+  }
+
+  patchEntry(id: string, patch: Partial<WorkbenchSessionEntry>): WorkbenchSessionEntry | undefined {
+    const current = this.getEntry(id);
+    if (!current) return undefined;
+    const next = { ...current, ...patch };
+    this.putEntry(id, next);
+    return next;
+  }
+
+  deleteEntry(id: string): boolean {
+    return this.db.prepare('DELETE FROM sessions WHERE id = ?').run(id).changes > 0;
+  }
+
+  setTurnSources(sessionId: string, turnIndex: number, sources: ChatCitationSource[]): void {
+    if (!Number.isSafeInteger(turnIndex) || turnIndex < 1) throw new Error('Invalid turn index');
+    if (!sources.length) {
+      this.db
+        .prepare('DELETE FROM session_turn_sources WHERE session_id = ? AND turn_index = ?')
+        .run(sessionId, turnIndex);
+      return;
+    }
+    this.db
+      .prepare(
+        `INSERT INTO session_turn_sources(session_id, turn_index, sources_json) VALUES (?, ?, ?)
+         ON CONFLICT(session_id, turn_index) DO UPDATE SET sources_json=excluded.sources_json`,
+      )
+      .run(sessionId, turnIndex, JSON.stringify(sources));
+  }
+
+  listTurnSources(sessionId: string): Map<number, ChatCitationSource[]> {
+    const rows = this.db
+      .prepare(
+        'SELECT turn_index, sources_json FROM session_turn_sources WHERE session_id = ? ORDER BY turn_index',
+      )
+      .all(sessionId) as Array<{ turn_index: number; sources_json: string }>;
+    const sources = new Map<number, ChatCitationSource[]>();
+    for (const row of rows) {
+      try {
+        const clean = sanitizeCitationSources(JSON.parse(row.sources_json) as unknown);
+        if (clean.length) sources.set(row.turn_index, clean);
+      } catch {
+        // A corrupt sidecar row cannot make session history unavailable.
+      }
+    }
+    return sources;
+  }
+
+  getPreferences(): Record<string, unknown> {
+    const rows = this.db.prepare('SELECT key, value FROM preferences').all() as Array<{
+      key: string;
+      value: string;
+    }>;
+    const preferences: Record<string, unknown> = {};
+    for (const row of rows) {
+      try {
+        preferences[row.key] = JSON.parse(row.value) as unknown;
+      } catch {
+        // 单行坏 JSON 跳过即可，不应拖垮整个 preferences 读取。
+      }
+    }
+    return preferences;
+  }
+
+  setPreference(key: string, value: unknown): void {
+    this.db
+      .prepare('INSERT OR REPLACE INTO preferences (key, value) VALUES (?, ?)')
+      .run(key, JSON.stringify(value));
+  }
+
+  deletePreference(key: string): void {
+    this.db.prepare('DELETE FROM preferences WHERE key = ?').run(key);
+  }
+
+  /**
+   * 关闭底层 sqlite 连接。共享缓存实例（workbenchStoreFor）的生命周期跟随进程，
+   * 只有直接 new 出来的实例（如测试）需要调用。
+   */
+  close(): void {
+    this.db.close();
+  }
+}
+
+/** One WorkbenchStore per project root; the file itself stays the source of truth. */
+const workbenchStores = new Map<string, WorkbenchStore>();
+
+/**
+ * 按项目根目录共享 WorkbenchStore：每 new 一次 WorkbenchStore 就多开一条 sqlite
+ * 连接，逐会话创建会让连接数随会话数无界增长。共享实例不随 registry 淘汰关闭。
+ */
+export function workbenchStoreFor(cwd: string): WorkbenchStore {
+  const root = resolve(cwd);
+  let store = workbenchStores.get(root);
+  if (!store) {
+    store = new WorkbenchStore(root);
+    workbenchStores.set(root, store);
+  }
+  return store;
+}
+
+/**
+ * Every persisted Web session carries exactly one immutable agent binding in the
+ * workbench sessions table. Sessions without a binding are invalid and are never
+ * migrated or inferred; a mismatched binding is rejected.
+ */
+export function assertSessionAgentBinding(
+  entry: WorkbenchSessionEntry | undefined,
+  expectedAgentId?: string,
+): string {
+  if (!entry) throw new SessionBindingError('AGENT_BINDING_MISSING');
+  if (typeof entry.agentId !== 'string' || !AGENT_ID_REGEX.test(entry.agentId))
+    throw new SessionBindingError('AGENT_BINDING_INVALID');
+  if (expectedAgentId && entry.agentId !== expectedAgentId)
+    throw new SessionBindingError('AGENT_SESSION_MISMATCH');
+  return entry.agentId;
+}
+
+export function getCodexSessionDir(cwd: string): string {
+  const configured = process.env.CODEX_SESSION_DIR?.trim();
+  if (configured) return resolve(cwd, configured);
+  const settings = readCodexSettings(cwd) as { sessionDir?: unknown };
+  if (typeof settings.sessionDir === 'string' && settings.sessionDir.trim())
+    return resolve(cwd, settings.sessionDir.trim());
+  return resolve(cwd, '.codex/sessions');
+}
+
+/** SessionSummary plus the inbox read/completed state stored on the workbench entry. */
+export interface SessionRecord extends SessionSummary {
+  read: boolean;
+  completedAt?: string;
+}
+
+export interface AgentSessionStoreOptions {
+  cwd: string;
+  sessionDir?: string;
+}
+
+type SessionAttention = Pick<
+  SessionSummary,
+  'needsAttention' | 'attentionReason' | 'attentionDetail'
+>;
+
+/**
+ * Attention is derived from the last assistant message parsed from the rollout:
+ * a turn that failed or was interrupted carries stopReason "error" / "aborted".
+ * A later successful run clears the flag.
+ */
+function attentionFromMessages(messages: SessionMessage[]): SessionAttention {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]!;
+    if (message.role !== 'assistant') continue;
+    if (message.stopReason === 'error' || message.stopReason === 'aborted') {
+      return {
+        needsAttention: true,
+        attentionReason: message.stopReason,
+        ...(message.errorMessage ? { attentionDetail: message.errorMessage } : {}),
+      };
+    }
+    return { needsAttention: false };
+  }
+  return { needsAttention: false };
+}
+
+function lastText(messages: SessionMessage[], role: 'user' | 'assistant'): string {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]!;
+    if (message.role === role && message.content) return message.content;
+  }
+  return '';
+}
+
+/** 收件箱预览：最后一条 assistant 文本，为空退回最后一条 user 文本；压缩成单行截 120 字符。 */
+function previewFromMessages(messages: SessionMessage[]): string | undefined {
+  const collapsed = (lastText(messages, 'assistant') || lastText(messages, 'user'))
+    .replace(/\s+/g, ' ')
+    .trim();
+  return collapsed ? collapsed.slice(0, 120) : undefined;
+}
+
+/**
+ * Web session projection. The workbench database (better-sqlite3) holds the
+ * binding and UI state; message content is replayed on demand from the CLI-owned
+ * rollout JSONL located by the bound threadId. This store never appends entries
+ * to the rollout files themselves.
+ */
+export class AgentSessionStore {
+  readonly cwd: string;
+  readonly sessionDir: string;
+  readonly workbench: WorkbenchStore;
+  /**
+   * rollout 解析结果按 path+mtimeMs 缓存：listSessions 不再为每个会话文件重复
+   * 读盘+解析。进行中的会话会让文件 mtime 变化，天然触发重解析；无 watch 需求。
+   */
+  private readonly rolloutCache = new Map<
+    string,
+    { mtimeMs: number; messages: SessionMessage[] }
+  >();
+  /** threadId → rollout 文件路径；文件消失时作废重扫。 */
+  private readonly threadFileCache = new Map<string, string>();
+
+  constructor(options: AgentSessionStoreOptions) {
+    this.cwd = resolve(options.cwd);
+    this.sessionDir = resolve(this.cwd, options.sessionDir ?? getCodexSessionDir(this.cwd));
+    // 同一项目根共享一条 sqlite 连接（workbenchStoreFor 按 cwd 缓存）。
+    this.workbench = workbenchStoreFor(this.cwd);
+  }
+
+  /** 透传 WorkbenchStore.close()；共享实例随进程生命周期，一般只在测试里调用。 */
+  close(): void {
+    this.workbench.close();
+  }
+
+  async listSessions(agentId?: string): Promise<SessionRecord[]> {
+    const entries = Object.entries(this.workbench.listEntries()).sort(
+      (left, right) =>
+        left[1].createdAt.localeCompare(right[1].createdAt) || left[0].localeCompare(right[0]),
+    );
+    // 清掉已删除会话的缓存条目，避免 map 随删除操作无限增长。
+    const liveThreadIds = new Set(
+      entries
+        .map(([, entry]) => entry.threadId)
+        .filter((id): id is string => typeof id === 'string'),
+    );
+    for (const [threadId, path] of this.threadFileCache) {
+      if (!liveThreadIds.has(threadId)) {
+        this.threadFileCache.delete(threadId);
+        this.rolloutCache.delete(path);
+      }
+    }
+    const records = entries.map(([id, entry]) => {
+      try {
+        assertSessionAgentBinding(entry);
+      } catch {
+        return undefined; // 绑定缺失/非法的会话不迁移、不展示。
+      }
+      return this.recordFromEntry(id, entry);
+    });
+    const defined = records.filter((record): record is SessionRecord => Boolean(record));
+    return agentId ? defined.filter((record) => record.agentId === agentId) : defined;
+  }
+
+  async createSession(
+    agentId: string,
+    id = `session_${randomUUID().slice(0, 8)}`,
+  ): Promise<SessionRecord> {
+    if (!AGENT_ID_REGEX.test(agentId)) throw new SessionBindingError('AGENT_BINDING_INVALID');
+    const existing = this.workbench.getEntry(id);
+    if (existing) {
+      assertSessionAgentBinding(existing, agentId);
+      return this.recordFromEntry(id, existing);
+    }
+    const now = new Date().toISOString();
+    const entry: WorkbenchSessionEntry = {
+      agentId,
+      threadId: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.workbench.putEntry(id, entry);
+    return this.recordFromEntry(id, entry);
+  }
+
+  /** Creates the session when absent; rejects reuse through another agent. */
+  async ensureSession(id: string, agentId: string): Promise<SessionRecord> {
+    const existing = await this.getSession(id);
+    if (existing && existing.agentId !== agentId)
+      throw new SessionBindingError('AGENT_SESSION_MISMATCH');
+    return existing ?? this.createSession(agentId, id);
+  }
+
+  async getSession(id: string, expectedAgentId?: string): Promise<SessionRecord | undefined> {
+    const entry = this.workbench.getEntry(id);
+    if (!entry) return undefined;
+    try {
+      assertSessionAgentBinding(entry);
+    } catch {
+      return undefined; // 绑定缺失/非法的会话按不存在处理，不抛给列表调用方。
+    }
+    if (expectedAgentId && entry.agentId !== expectedAgentId)
+      throw new SessionBindingError('AGENT_SESSION_MISMATCH');
+    return this.recordFromEntry(id, entry);
+  }
+
+  /** Raw binding entry for the runtime (threadId resume); binding rules still apply. */
+  getEntry(id: string, expectedAgentId?: string): WorkbenchSessionEntry | undefined {
+    const entry = this.workbench.getEntry(id);
+    if (!entry) return undefined;
+    assertSessionAgentBinding(entry, expectedAgentId);
+    return entry;
+  }
+
+  /** Persists the thread id reported by thread.started onto the session binding. */
+  async bindThread(id: string, agentId: string, threadId: string): Promise<SessionRecord> {
+    const entry = this.requireEntry(id, agentId);
+    if (entry.threadId === threadId) return this.recordFromEntry(id, entry);
+    const next = this.workbench.patchEntry(id, { threadId, updatedAt: new Date().toISOString() })!;
+    return this.recordFromEntry(id, next);
+  }
+
+  async renameSession(
+    id: string,
+    agentId: string,
+    title: string,
+  ): Promise<SessionRecord | undefined> {
+    this.requireEntry(id, agentId);
+    const next = this.workbench.patchEntry(id, {
+      title: title.trim(),
+      updatedAt: new Date().toISOString(),
+    });
+    return next ? this.recordFromEntry(id, next) : undefined;
+  }
+
+  /** 收件箱已读/完成状态直接落在 sessions 表的会话行上。 */
+  async updateInboxState(
+    id: string,
+    agentId: string,
+    patch: { read?: boolean; completed?: boolean },
+  ): Promise<SessionRecord | undefined> {
+    this.requireEntry(id, agentId);
+    const update: Partial<WorkbenchSessionEntry> = {};
+    if (patch.read !== undefined) update.read = patch.read;
+    if (patch.completed !== undefined)
+      update.completedAt = patch.completed ? new Date().toISOString() : undefined;
+    const next = this.workbench.patchEntry(id, update);
+    return next ? this.recordFromEntry(id, next) : undefined;
+  }
+
+  /** Replays the persisted messages of one session; the rollout JSONL stays the source of truth. */
+  async listMessages(id: string, agentId: string): Promise<SessionMessage[]> {
+    const entry = this.requireEntry(id, agentId);
+    const messages = entry.threadId ? this.messagesForThread(entry.threadId) : [];
+    return this.withTurnSources(id, messages);
+  }
+
+  /** Stores host-owned provenance for one serialized user turn; browser text never owns it. */
+  setTurnSources(
+    id: string,
+    agentId: string,
+    turnIndex: number,
+    sources: ChatCitationSource[],
+  ): void {
+    this.requireEntry(id, agentId);
+    this.workbench.setTurnSources(id, turnIndex, sanitizeCitationSources(sources));
+  }
+
+  async deleteSession(id: string, agentId: string): Promise<boolean> {
+    const entry = this.workbench.getEntry(id);
+    if (!entry) return false;
+    assertSessionAgentBinding(entry, agentId);
+    if (entry.threadId) {
+      const file = this.findRolloutFile(entry.threadId);
+      if (file) {
+        rmSync(file, { force: true });
+        this.rolloutCache.delete(file);
+        this.threadFileCache.delete(entry.threadId);
+      }
+    }
+    this.workbench.deleteEntry(id);
+    return true;
+  }
+
+  private requireEntry(id: string, agentId: string): WorkbenchSessionEntry {
+    const entry = this.workbench.getEntry(id);
+    if (!entry) throw new SessionBindingError('AGENT_SESSION_NOT_FOUND');
+    assertSessionAgentBinding(entry, agentId);
+    return entry;
+  }
+
+  /** Recursively scans sessionDir for the rollout file of one thread (rollout-<ts>-<threadId>.jsonl). */
+  private findRolloutFile(threadId: string): string | undefined {
+    const cached = this.threadFileCache.get(threadId);
+    if (cached && existsSync(cached)) return cached;
+    let found: string | undefined;
+    const visit = (directory: string): void => {
+      if (found) return;
+      let children;
+      try {
+        children = readdirSync(directory, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const child of children) {
+        if (found) return;
+        const path = join(directory, child.name);
+        if (child.isDirectory()) visit(path);
+        else if (
+          child.isFile() &&
+          child.name.startsWith('rollout-') &&
+          child.name.endsWith('.jsonl') &&
+          child.name.includes(threadId)
+        ) {
+          // 重名取最新：同一 thread 理论上只有一个 rollout，防御性处理。
+          if (!found || statSync(path).mtimeMs > statSync(found).mtimeMs) found = path;
+        }
+      }
+    };
+    visit(this.sessionDir);
+    if (found) this.threadFileCache.set(threadId, found);
+    else this.threadFileCache.delete(threadId);
+    return found;
+  }
+
+  /** Parses one rollout JSONL once per file version; mtime changes force a re-parse. */
+  private messagesForThread(threadId: string): SessionMessage[] {
+    const file = this.findRolloutFile(threadId);
+    if (!file) return [];
+    const mtimeMs = statSync(file).mtimeMs;
+    const cached = this.rolloutCache.get(file);
+    if (cached && cached.mtimeMs === mtimeMs) return cached.messages;
+    const messages = parseRolloutMessages(readFileSync(file, 'utf8'));
+    this.rolloutCache.set(file, { mtimeMs, messages });
+    return messages;
+  }
+
+  /** Overlays each turn's provenance onto its final assistant message without mutating rollout cache. */
+  private withTurnSources(id: string, cached: SessionMessage[]): SessionMessage[] {
+    const messages = cached.map((message) => ({ ...message }));
+    const sourcesByTurn = this.workbench.listTurnSources(id);
+    let turnIndex = 0;
+    let lastAssistant = -1;
+    const attach = () => {
+      const sources = sourcesByTurn.get(turnIndex);
+      if (sources?.length && lastAssistant >= 0) messages[lastAssistant]!.sources = sources;
+    };
+    for (const [index, message] of messages.entries()) {
+      if (message.role === 'user') {
+        attach();
+        turnIndex += 1;
+        lastAssistant = -1;
+      } else if (turnIndex > 0) {
+        lastAssistant = index;
+      }
+    }
+    attach();
+    return messages;
+  }
+
+  private recordFromEntry(id: string, entry: WorkbenchSessionEntry): SessionRecord {
+    const messages = entry.threadId ? this.messagesForThread(entry.threadId) : [];
+    const firstQuestion = messages
+      .find((message) => message.role === 'user')
+      ?.content.trim()
+      .slice(0, 40);
+    const title = entry.title?.trim() || firstQuestion || '新会话';
+    const rolloutFile = entry.threadId ? this.findRolloutFile(entry.threadId) : undefined;
+    let updatedAt = entry.updatedAt;
+    if (rolloutFile) {
+      // 进行中的 turn 只推进 rollout 文件 mtime，summary 的 updatedAt 跟随它。
+      const modified = statSync(rolloutFile).mtime.toISOString();
+      if (modified > updatedAt) updatedAt = modified;
+    }
+    const preview = previewFromMessages(messages);
+    return {
+      id,
+      agentId: entry.agentId,
+      title,
+      createdAt: entry.createdAt,
+      updatedAt,
+      questionCount: messages.filter((message) => message.role === 'user').length,
+      ...attentionFromMessages(messages),
+      ...(preview ? { preview } : {}),
+      read: entry.read ?? false,
+      ...(entry.completedAt ? { completedAt: entry.completedAt } : {}),
+    };
+  }
+}
+
+/** resolve(cwd)+sessionDir 作为缓存键（\n 分隔，避免两段路径直接拼接产生歧义）。 */
+const agentSessionStores = new Map<string, AgentSessionStore>();
+
+/**
+ * 按 cwd+sessionDir 共享 AgentSessionStore：createCodexAgentSession 每开一条会话就
+ * new 一个 store 意味着每条会话各持一条 sqlite 连接，且 registry 淘汰时不会释放。
+ * 共享实例生命周期跟随进程；测试仍可直接 new AgentSessionStore(...) 绕开缓存。
+ */
+export function agentSessionStoreFor(options: AgentSessionStoreOptions): AgentSessionStore {
+  const cwd = resolve(options.cwd);
+  const sessionDir = resolve(cwd, options.sessionDir ?? getCodexSessionDir(cwd));
+  const key = `${cwd}\n${sessionDir}`;
+  let store = agentSessionStores.get(key);
+  if (!store) {
+    store = new AgentSessionStore({ cwd, sessionDir });
+    agentSessionStores.set(key, store);
+  }
+  return store;
+}

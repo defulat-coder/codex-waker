@@ -1,0 +1,40 @@
+{
+  "name": "@waker/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "portless": {
+    "name": "api.waker",
+    "script": "dev:app",
+    "appPort": 4410
+  },
+  "scripts": {
+    "dev": "portless",
+    "dev:app": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "seed": "tsx src/seed.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test \"dist/**/*.test.js\"",
+    "lint": "tsc -p tsconfig.json --noEmit && eslint --config ../../eslint.config.js src",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@waker/contracts": "workspace:*",
+    "@waker/artifacts": "workspace:*",
+    "@waker/codex-runtime": "workspace:*",
+    "@waker/knowledge": "workspace:*",
+    "@waker/memory": "workspace:*",
+    "@waker/workspace-data": "workspace:*",
+    "@fastify/cors": "^11.3.0",
+    "@fastify/helmet": "^13.1.1",
+    "@sinclair/typebox": "^0.34.52",
+    "env-schema": "^8.0.0",
+    "fastify": "^5.12.1"
+  },
+  "devDependencies": {
+    "@waker/eslint": "workspace:*",
+    "eslint": "^10.9.0",
+    "tsx": "^4.23.12"
+  }
+}

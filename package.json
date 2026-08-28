@@ -1,0 +1,29 @@
+{
+  "name": "waker",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Local-first Waker workbench powered by the OpenAI Codex TypeScript SDK",
+  "packageManager": "pnpm@10.30.3",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "turbo run dev",
+    "dev:direct": "turbo run dev:app",
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "format": "prettier --write .",
+    "seed": "pnpm --filter @waker/api seed",
+    "clean": "turbo run clean"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "portless": "^0.15.5",
+    "prettier": "^3.9.6",
+    "turbo": "^2.10.11",
+    "typescript": "^7.0.2"
+  }
+}

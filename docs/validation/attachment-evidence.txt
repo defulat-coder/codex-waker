@@ -1,0 +1,4 @@
+EGO_ATTACHMENT_TOKEN_2026
+
+This local text attachment exists only to verify the browser upload, managed storage,
+session binding, and Codex TypeScript SDK attachment context path.

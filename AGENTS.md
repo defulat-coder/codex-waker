@@ -28,6 +28,7 @@
 - Lint runs per package as `tsc --noEmit && eslint --config ../../eslint.config.js src`; the root flat config lives in `eslint.config.js` and imports plugins through `tools/eslint/plugins.js`. Build uses TypeScript 7 (native); typescript-eslint cannot use it, so `.pnpmfile.cjs` rewrites the typescript-eslint subtree's `typescript` peer to a side-by-side `typescript@~6` — do not "fix" the resulting duplicate typescript versions in the lockfile.
 - ESLint v10 uses the process cwd as basePath; the root config computes its `files` patterns from cwd, so always run eslint from a package directory or the repo root with the commands above.
 - Web component tests run under `node:test` + `tsx` with jsdom globals registered by `apps/web/src/test-setup.ts` (wired via `tsx --test --import`); `@testing-library/react` is available, and `IS_REACT_ACT_ENVIRONMENT` is set in `test-jsdom.ts`.
+- Validate frontend behavior in the running app through Ego Lite over CDP; inspect the rendered UI, exercise key interactions, and check browser console errors before handoff.
 
 ## Codex Integration Contract
 

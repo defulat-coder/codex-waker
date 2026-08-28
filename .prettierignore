@@ -1,0 +1,7 @@
+.agents/
+.codex/
+**/dist/
+**/coverage/
+apps/api/src/lib/skills-sh-detail.fixture.html
+apps/api/src/lib/skills-sh.fixture.html
+docs/validation/*.txt

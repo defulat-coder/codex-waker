@@ -1,0 +1,24 @@
+.DS_Store
+.idea/
+node_modules/
+dist/
+.turbo/
+.data/
+.scratch/
+.codex/sessions/
+.codex/workbench.json
+.codex/workbench.json.bak
+# .codex 运行时状态（sqlite/日志/临时克隆等），只提交 agents/prompts/skills/settings 等配置
+.codex/*.sqlite
+.codex/*.sqlite-shm
+.codex/*.sqlite-wal
+.codex/installation_id
+.codex/shell_snapshots/
+.codex/thread-writer-locks/
+.codex/tmp/
+.codex/.tmp/
+.codex/artifacts/
+.env
+.env.*
+!.env.example
+.impeccable/
