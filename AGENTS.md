@@ -8,7 +8,7 @@
 
 ## Package Manager and Commands
 
-- Use **pnpm** (`packageManager: pnpm@10.30.3`); keep `pnpm-lock.yaml` in sync.
+- Use **pnpm** (`packageManager: pnpm@11.24.0`); keep `pnpm-lock.yaml` in sync.
 
 | Task            | Command                                                                                                                          |
 | --------------- | -------------------------------------------------------------------------------------------------------------------------------- |
