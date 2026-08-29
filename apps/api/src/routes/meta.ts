@@ -20,12 +20,18 @@ import {
   listPrompts,
   listSkills,
   loadAgents,
+  readAgentTemplateAvatar,
   readAppendSystem,
   readPrompt,
   writeAppendSystem,
   writePrompt,
 } from '@waker/codex-runtime';
-import { PromptNameSchema, UpdateAppendSystemSchema, UpdatePromptSchema } from '../schemas.js';
+import {
+  AgentParamsSchema,
+  PromptNameSchema,
+  UpdateAppendSystemSchema,
+  UpdatePromptSchema,
+} from '../schemas.js';
 import type { AppContext } from '../context.js';
 
 export function registerMetaRoutes(app: FastifyInstance, ctx: AppContext): void {
@@ -61,6 +67,16 @@ export function registerMetaRoutes(app: FastifyInstance, ctx: AppContext): void 
   app.get('/agent-templates', async (): Promise<AgentTemplatesResponse> => ({
     items: listAgentTemplates(ctx.cwd),
   }));
+
+  app.get<{ Params: { agentId: string } }>(
+    '/agent-templates/:agentId/avatar',
+    { schema: { params: AgentParamsSchema } },
+    async (request, reply) => {
+      const avatar = readAgentTemplateAvatar(ctx.cwd, request.params.agentId);
+      if (!avatar) return reply.code(404).send({ error: '模板头像不存在' });
+      return reply.header('cache-control', 'no-cache').type(avatar.mimeType).send(avatar.data);
+    },
+  );
 
   // 与 /agent-templates 同源；Templates 页沿用这个较早的路径。
   app.get('/templates', async (): Promise<AgentTemplatesResponse> => ({

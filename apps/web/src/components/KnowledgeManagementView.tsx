@@ -7,6 +7,7 @@ import {
   type ChangeEvent,
   type FormEvent,
 } from 'react';
+import { motion } from 'motion/react';
 import type {
   KnowledgeBinding,
   KnowledgeDocument,
@@ -37,6 +38,12 @@ import { cx } from '../lib/cx.js';
 import { useDialogFocus } from '../hooks/useDialogFocus.js';
 import { prepareKnowledgeFiles, type RejectedKnowledgeFile } from './knowledgeFileImport.js';
 import { MAX_KNOWLEDGE_IMPORT_URLS, parseKnowledgeUrls } from './knowledgeUrlImport.js';
+import { MotionLoadingRows } from './MotionFeedback.js';
+import {
+  MOTION_DIALOG_BACKDROP,
+  MOTION_DIALOG_SURFACE,
+  MOTION_TRANSITION,
+} from '../lib/motion.js';
 
 type AuditEntry = {
   id?: number;
@@ -568,11 +575,7 @@ export function KnowledgeManagementView({
           </button>
         </div>
       ) : notebooks === null ? (
-        <div className="loading-rows" aria-label="正在加载知识库">
-          <i />
-          <i />
-          <i />
-        </div>
+        <MotionLoadingRows label="正在加载知识库" />
       ) : wakerId && notebooks.length === 0 ? (
         <div className="legacy-empty">
           <h2>还没有知识库</h2>
@@ -590,12 +593,14 @@ export function KnowledgeManagementView({
                   item.scope.id === wakerId,
               );
               return (
-                <button
+                <motion.button
                   key={notebook.id}
                   type="button"
                   className={cx(selectedId === notebook.id && 'active')}
                   aria-pressed={selectedId === notebook.id}
                   onClick={() => setSelectedId(notebook.id)}
+                  layout="position"
+                  whileTap={{ scale: 0.985 }}
                 >
                   <BookOpenText size={17} />
                   <span>
@@ -605,12 +610,19 @@ export function KnowledgeManagementView({
                       · {notebook.documentCount} 篇
                     </small>
                   </span>
-                </button>
+                </motion.button>
               );
             })}
           </aside>
 
           <div className="knowledge-main">
+            <motion.div
+              className="master-detail-content"
+              key={selectedId || 'none'}
+              initial={{ opacity: 0, x: 6 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={MOTION_TRANSITION.routine}
+            >
             {selectedNotebook && (
               <section className="knowledge-connection" aria-labelledby="knowledge-selected-title">
                 <div>
@@ -671,11 +683,7 @@ export function KnowledgeManagementView({
                   </div>
                 )}
                 {detailLoading ? (
-                  <div className="loading-rows" aria-label="正在读取知识库内容" aria-busy="true">
-                    <i />
-                    <i />
-                    <i />
-                  </div>
+                  <MotionLoadingRows label="正在读取知识库内容" />
                 ) : (
                   <>
                     <form className="knowledge-url-import" onSubmit={importUrls}>
@@ -866,18 +874,20 @@ export function KnowledgeManagementView({
                 )}
               </>
             )}
+            </motion.div>
           </div>
         </div>
       ) : null}
 
       {editor && (
-        <div
+        <motion.div
           className="modal-backdrop"
+          {...MOTION_DIALOG_BACKDROP}
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) closeEditor();
           }}
         >
-          <form
+          <motion.form
             ref={editorDialogRef}
             tabIndex={-1}
             className="memory-dialog"
@@ -885,6 +895,7 @@ export function KnowledgeManagementView({
             aria-modal="true"
             aria-labelledby="knowledge-document-dialog-title"
             onSubmit={saveDocument}
+            {...MOTION_DIALOG_SURFACE}
           >
             <h2 id="knowledge-document-dialog-title">
               {editor.id ? '编辑知识文档' : '新建知识文档'}
@@ -933,23 +944,25 @@ export function KnowledgeManagementView({
                 {busy ? '保存中…' : '保存'}
               </button>
             </div>
-          </form>
-        </div>
+          </motion.form>
+        </motion.div>
       )}
       {deleteDocumentTarget && (
-        <div
+        <motion.div
           className="modal-backdrop"
+          {...MOTION_DIALOG_BACKDROP}
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) closeDeleteDocument();
           }}
         >
-          <div
+          <motion.div
             ref={deleteDocumentDialogRef}
             tabIndex={-1}
             className="modal-card"
             role="dialog"
             aria-modal="true"
             aria-labelledby="knowledge-delete-document-title"
+            {...MOTION_DIALOG_SURFACE}
           >
             <div className="modal-head">
               <strong id="knowledge-delete-document-title">
@@ -977,8 +990,8 @@ export function KnowledgeManagementView({
                 {busy ? '删除中…' : '确认删除文档'}
               </button>
             </div>
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
       )}
     </section>
   );

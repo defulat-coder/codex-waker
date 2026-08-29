@@ -12,6 +12,7 @@ import {
   type AgentSectionId,
 } from '../lib/agentSections.js';
 import { MOTION_EASE } from '../lib/motion.js';
+import { MotionSpinner } from './MotionFeedback.js';
 
 /**
  * Waker 设定的三上下文卡片（01 身份 / 02 人设 / 03 设定集），复刻 QoderWake 0.4.2 设置页。
@@ -113,7 +114,11 @@ export function AgentBodySections({
               onClick={() => void saveEdit()}
               disabled={saving}
             >
-              {saving ? <CircleNotch size={13} className="spinning" /> : null}
+              {saving ? (
+                <MotionSpinner>
+                  <CircleNotch size={13} />
+                </MotionSpinner>
+              ) : null}
               保存
             </button>
           </div>

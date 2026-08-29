@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { motion } from 'motion/react';
 import type { SessionAttachment, SessionOutputsResponse } from '@waker/contracts';
 import { DownloadSimple } from '@phosphor-icons/react/dist/icons/DownloadSimple';
 import { Eye } from '@phosphor-icons/react/dist/icons/Eye';
@@ -16,6 +17,8 @@ import {
   sessionAttachmentUrl,
   uploadSessionAttachment,
 } from '../lib/api.js';
+import { MotionLoadingRows } from './MotionFeedback.js';
+import { MOTION_TRANSITION } from '../lib/motion.js';
 
 const MAX_SELECTED_ATTACHMENTS = 8;
 const MAX_TEXT_PREVIEW_BYTES = 64 * 1024;
@@ -182,7 +185,14 @@ export function SessionOutputsPanel({
   };
 
   return (
-    <aside className="outputs-panel" aria-label="附件与结果">
+    <motion.aside
+      className="outputs-panel"
+      aria-label="附件与结果"
+      initial={{ opacity: 0, x: 20 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: 20 }}
+      transition={MOTION_TRANSITION.panel}
+    >
       <header>
         <div>
           <h2>附件与结果</h2>
@@ -238,10 +248,7 @@ export function SessionOutputsPanel({
             </button>
           </div>
         ) : !data ? (
-          <div className="loading-rows">
-            <i />
-            <i />
-          </div>
+          <MotionLoadingRows count={2} label="正在加载会话输出" />
         ) : (
           <>
             <OutputSection
@@ -556,7 +563,7 @@ export function SessionOutputsPanel({
           </div>
         </div>
       )}
-    </aside>
+    </motion.aside>
   );
 }
 

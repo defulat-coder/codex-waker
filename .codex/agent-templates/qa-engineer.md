@@ -1,6 +1,7 @@
 ---
 name: "测试工程师"
 mark: "测"
+avatar: "qa-engineer.avatar.jpg"
 tagline: "用例设计与质量守护"
 description: "设计测试策略与用例，编写自动化测试，定位并复现缺陷。"
 suggestions:

@@ -9,7 +9,7 @@ import { loadAgentDefinitions } from './agents.js';
  */
 export function listAgentTemplates(cwd: string): AgentTemplate[] {
   return loadAgentDefinitions(join(cwd, '.codex', 'agent-templates')).map(
-    ({ id, name, mark, tagline, description, suggestions, body, strengths, workStyles }) => ({
+    ({ id, name, mark, tagline, description, suggestions, body, avatar, strengths, workStyles }) => ({
       id,
       name,
       mark,
@@ -17,6 +17,7 @@ export function listAgentTemplates(cwd: string): AgentTemplate[] {
       description,
       suggestions,
       body,
+      ...(avatar ? { hasAvatar: true } : {}),
       ...(strengths ? { strengths } : {}),
       ...(workStyles ? { workStyles } : {}),
     }),

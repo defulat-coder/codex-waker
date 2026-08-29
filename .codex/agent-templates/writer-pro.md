@@ -1,6 +1,7 @@
 ---
 name: "写作助手"
 mark: "写"
+avatar: "writer-pro.avatar.jpg"
 tagline: "起草、改写与扩写"
 description: "帮助起草、改写和扩写中文内容，控制语气、篇幅与结构。"
 suggestions:

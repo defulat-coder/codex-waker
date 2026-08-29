@@ -5,6 +5,7 @@ import { ChartLine } from '@phosphor-icons/react/dist/icons/ChartLine';
 import { formatRelativeTime } from '../lib/sessions.js';
 import { MOTION_EASE } from '../lib/motion.js';
 import { AgentChip } from './AgentChip.js';
+import { MotionSpinner } from './MotionFeedback.js';
 
 export type UsageViewProps = {
   usage: UsageResponse | null;
@@ -44,7 +45,13 @@ export function UsageView({ usage, loading, onRefresh }: UsageViewProps) {
           aria-label="刷新用量"
           disabled={loading}
         >
-          <ArrowClockwise size={16} className={loading ? 'spinning' : undefined} />
+          {loading ? (
+            <MotionSpinner>
+              <ArrowClockwise size={16} />
+            </MotionSpinner>
+          ) : (
+            <ArrowClockwise size={16} />
+          )}
         </button>
       </div>
 

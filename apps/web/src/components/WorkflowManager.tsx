@@ -6,6 +6,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from 'react';
+import { motion } from 'motion/react';
 import type {
   WakerWorkflow,
   WakerWorkflowSummary,
@@ -37,6 +38,8 @@ import { fetchLocalResources } from '../lib/api.js';
 import { cx } from '../lib/cx.js';
 import { useDialogFocus } from '../hooks/useDialogFocus.js';
 import { useVisiblePolling } from '../hooks/useVisiblePolling.js';
+import { MotionLoadingRows } from './MotionFeedback.js';
+import { MOTION_TRANSITION } from '../lib/motion.js';
 
 type WorkflowStatus = WakerWorkflow['status'];
 type WorkflowTrace = { run: WorkflowRunRecord; events: WorkflowRunEventRecord[] };
@@ -1025,11 +1028,7 @@ export function WorkflowManager({
           </button>
         </div>
       ) : !items ? (
-        <div className="loading-rows" aria-label="正在加载 WakerFlow">
-          <i />
-          <i />
-          <i />
-        </div>
+        <MotionLoadingRows label="正在加载 WakerFlow" />
       ) : (
         <div className={cx('workflow-workspace', !selectedId && !editor && 'list-only')}>
           <nav
@@ -1040,7 +1039,7 @@ export function WorkflowManager({
             role="tablist"
           >
             {items.map((item, index) => (
-              <button
+              <motion.button
                 className={cx(selectedId === item.id && 'active')}
                 type="button"
                 key={item.id}
@@ -1051,6 +1050,8 @@ export function WorkflowManager({
                 tabIndex={selectedId === item.id ? 0 : -1}
                 onClick={() => selectWorkflow(item.id)}
                 onKeyDown={(event) => onWorkflowTabKeyDown(event, index)}
+                layout="position"
+                whileTap={{ scale: 0.985 }}
               >
                 <span>
                   <strong>{item.name}</strong>
@@ -1062,7 +1063,7 @@ export function WorkflowManager({
                 <span className={cx('resource-status', item.status)}>
                   {STATUS_TEXT[item.status] ?? item.status}
                 </span>
-              </button>
+              </motion.button>
             ))}
             {!items.length && <p className="outputs-empty">还没有 WakerFlow</p>}
           </nav>
@@ -1074,6 +1075,13 @@ export function WorkflowManager({
             aria-labelledby={selectedId ? workflowTabId(selectedId) : undefined}
             tabIndex={selectedId ? 0 : undefined}
           >
+            <motion.div
+              className="master-detail-content"
+              key={editor ? `editor:${editor.id ?? 'new'}` : `detail:${selectedId || 'none'}`}
+              initial={{ opacity: 0, x: 6 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={MOTION_TRANSITION.routine}
+            >
             {editor ? (
               <form className="workflow-editor" onSubmit={submitEditor}>
                 <div className="workflow-detail-header">
@@ -1453,11 +1461,7 @@ export function WorkflowManager({
                 </button>
               </div>
             ) : selectedId ? (
-              <div className="loading-rows" aria-label="正在读取流程定义">
-                <i />
-                <i />
-                <i />
-              </div>
+              <MotionLoadingRows label="正在读取流程定义" />
             ) : (
               <div className="automation-empty">
                 <h2>{items.length ? '选择一个 WakerFlow' : '创建第一个 WakerFlow'}</h2>
@@ -1476,6 +1480,7 @@ export function WorkflowManager({
                 </button>
               </div>
             )}
+            </motion.div>
           </main>
         </div>
       )}

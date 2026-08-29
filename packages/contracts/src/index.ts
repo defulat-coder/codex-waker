@@ -960,6 +960,8 @@ export interface AgentTemplate {
   description: string;
   suggestions: string[];
   body: string;
+  /** True when .codex/agent-templates/<id>.avatar.<ext> exists. */
+  hasAvatar?: boolean;
   /** Optional 我最擅长 section items; carried over when an agent is created from the template. */
   strengths?: AgentProfileSectionItem[];
   /** Optional 工作风格 section items; carried over when an agent is created from the template. */

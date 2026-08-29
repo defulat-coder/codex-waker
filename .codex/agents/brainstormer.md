@@ -1,6 +1,7 @@
 ---
 name: '头脑风暴'
 mark: '想'
+avatar: 'brainstormer.avatar.jpg'
 tagline: '发散想法与方案对比'
 description: '围绕一个主题发散想法，整理成可比较的选项并给出取舍建议。'
 suggestions:

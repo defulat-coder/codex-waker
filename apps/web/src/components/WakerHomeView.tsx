@@ -20,6 +20,7 @@ import { cx } from '../lib/cx.js';
 import { MOTION_EASE } from '../lib/motion.js';
 import { formatRelativeTime } from '../lib/sessions.js';
 import { AgentChip } from './AgentChip.js';
+import { MotionLoadingRows } from './MotionFeedback.js';
 
 type RecordsTab = 'timeline' | 'sessions' | 'automations';
 
@@ -246,11 +247,7 @@ export function WakerHomeView({ agent, onEdit }: { agent: AgentSummary; onEdit: 
             </button>
           </div>
         ) : !data || !heatmap ? (
-          <div className="loading-rows" aria-label="正在加载" aria-busy="true">
-            <i />
-            <i />
-            <i />
-          </div>
+          <MotionLoadingRows />
         ) : (
           <>
             <section className="waker-home-section" aria-labelledby="waker-home-records-title">

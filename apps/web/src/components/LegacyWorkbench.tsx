@@ -33,6 +33,7 @@ import { BookOpenText } from '@phosphor-icons/react/dist/icons/BookOpenText';
 import { Plus } from '@phosphor-icons/react/dist/icons/Plus';
 import { Plugs } from '@phosphor-icons/react/dist/icons/Plugs';
 import { MagnifyingGlass } from '@phosphor-icons/react/dist/icons/MagnifyingGlass';
+import { MotionLoadingRows } from './MotionFeedback.js';
 import {
   createKnowledgeNotebook,
   createKnowledgeBinding,
@@ -52,7 +53,7 @@ import {
   markAllInboxRead,
 } from '../lib/api.js';
 import { cx } from '../lib/cx.js';
-import { MOTION_EASE } from '../lib/motion.js';
+import { MOTION_EASE, MOTION_LAYOUT_TRANSITION, MOTION_TRANSITION } from '../lib/motion.js';
 import { AgentChip } from './AgentChip.js';
 import { NewAgentDialog } from './NewAgentDialog.js';
 import { useDialogFocus } from '../hooks/useDialogFocus.js';
@@ -118,8 +119,16 @@ export function LegacyRail({
             title={item.label}
             onClick={() => onChange(item.id)}
           >
+            {active === item.id && (
+              <motion.i
+                className="legacy-rail-active"
+                layoutId="legacy-rail-active"
+                transition={MOTION_LAYOUT_TRANSITION}
+                aria-hidden="true"
+              />
+            )}
             {item.icon}
-            <span>{item.label}</span>
+            <span className="legacy-rail-label">{item.label}</span>
             {item.id === 'chat' && unreadCount > 0 && (
               <b className="legacy-unread" aria-label={`${unreadCount} 个未读会话`}>
                 {unreadCount}
@@ -139,8 +148,16 @@ export function LegacyRail({
             title={item.label}
             onClick={() => onChange(item.id)}
           >
+            {active === item.id && (
+              <motion.i
+                className="legacy-rail-active"
+                layoutId="legacy-rail-active"
+                transition={MOTION_LAYOUT_TRANSITION}
+                aria-hidden="true"
+              />
+            )}
             {item.icon}
-            <span>{item.label}</span>
+            <span className="legacy-rail-label">{item.label}</span>
           </button>
         ))}
       </div>
@@ -441,9 +458,16 @@ export function WakersView({
             </div>
           )}
           {visibleAgents.length ? (
-            <div className="waker-grid">
+            <motion.div className="waker-grid" layout>
               {pagedAgents.map((agent) => (
-                <article className="waker-card" key={agent.id}>
+                <motion.article
+                  className="waker-card"
+                  key={agent.id}
+                  layout="position"
+                  initial={{ opacity: 0, scale: 0.985 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={MOTION_TRANSITION.routine}
+                >
                   <button
                     type="button"
                     className="waker-card-open"
@@ -584,9 +608,9 @@ export function WakersView({
                       </AnimatePresence>
                     </div>
                   </div>
-                </article>
+                </motion.article>
               ))}
-            </div>
+            </motion.div>
           ) : agents.length ? (
             <EmptyState title="没有匹配的 Waker。" detail="调整搜索词，或清空搜索查看全部 Waker。" />
           ) : (
@@ -1332,11 +1356,5 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
   );
 }
 function LoadingRows() {
-  return (
-    <div className="loading-rows" aria-label="正在加载" aria-busy="true">
-      <i />
-      <i />
-      <i />
-    </div>
-  );
+  return <MotionLoadingRows />;
 }

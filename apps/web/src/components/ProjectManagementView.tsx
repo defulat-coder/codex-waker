@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { motion } from 'motion/react';
 import type { ProjectDeleteImpact, WakerProject } from '@waker/contracts';
 import { PencilSimple } from '@phosphor-icons/react/dist/icons/PencilSimple';
 import { Plus } from '@phosphor-icons/react/dist/icons/Plus';
@@ -13,6 +14,12 @@ import {
   type ProjectInput,
 } from '../lib/projectApi.js';
 import { useDialogFocus } from '../hooks/useDialogFocus.js';
+import { MotionLoadingRows } from './MotionFeedback.js';
+import {
+  MOTION_DIALOG_BACKDROP,
+  MOTION_DIALOG_SURFACE,
+  MOTION_TRANSITION,
+} from '../lib/motion.js';
 
 type Editor = ProjectInput & { mode: 'create' | 'edit' };
 
@@ -205,20 +212,18 @@ export function ProjectManagementView({
           </button>
         </div>
       ) : items === null ? (
-        <div className="loading-rows" aria-label="正在加载项目">
-          <i />
-          <i />
-          <i />
-        </div>
+        <MotionLoadingRows label="正在加载项目" />
       ) : items.length ? (
         <div className="memory-layout">
           <aside className="memory-list" aria-label="项目列表">
             {items.map((project) => (
-              <button
+              <motion.button
                 className={cx(selectedId === project.id && 'active')}
                 key={project.id}
                 aria-pressed={selectedId === project.id}
                 onClick={() => setSelectedId(project.id)}
+                layout="position"
+                whileTap={{ scale: 0.985 }}
               >
                 <strong>{project.name}</strong>
                 <small>
@@ -226,12 +231,18 @@ export function ProjectManagementView({
                   {project.source === 'git' ? 'Git' : '文件系统'}
                   {project.wakerId !== wakerId ? ' · 只读' : ''}
                 </small>
-              </button>
+              </motion.button>
             ))}
           </aside>
           <main className="memory-detail">
             {selected && (
-              <>
+              <motion.div
+                className="master-detail-content"
+                key={selected.id}
+                initial={{ opacity: 0, x: 6 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={MOTION_TRANSITION.routine}
+              >
                 <div className="memory-title">
                   <div>
                     <h2>{selected.name}</h2>
@@ -295,7 +306,7 @@ export function ProjectManagementView({
                     </div>
                   </dl>
                 </section>
-              </>
+              </motion.div>
             )}
           </main>
         </div>
@@ -312,14 +323,15 @@ export function ProjectManagementView({
       )}
 
       {editor && (
-        <div
+        <motion.div
           className="modal-backdrop"
           role="presentation"
+          {...MOTION_DIALOG_BACKDROP}
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) closeEditor();
           }}
         >
-          <form
+          <motion.form
             ref={editorDialogRef}
             tabIndex={-1}
             className="memory-dialog"
@@ -327,6 +339,7 @@ export function ProjectManagementView({
             aria-modal="true"
             aria-labelledby="project-editor-title"
             onSubmit={submit}
+            {...MOTION_DIALOG_SURFACE}
           >
             <h2 id="project-editor-title">{editor.mode === 'edit' ? '编辑项目' : '新建项目'}</h2>
             <label>
@@ -405,25 +418,27 @@ export function ProjectManagementView({
                 {busy ? '保存中…' : '保存'}
               </button>
             </div>
-          </form>
-        </div>
+          </motion.form>
+        </motion.div>
       )}
 
       {deleteTarget && (
-        <div
+        <motion.div
           className="modal-backdrop"
           role="presentation"
+          {...MOTION_DIALOG_BACKDROP}
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) closeDelete();
           }}
         >
-          <div
+          <motion.div
             ref={deleteDialogRef}
             tabIndex={-1}
             className="modal-card"
             role="dialog"
             aria-modal="true"
             aria-labelledby="project-delete-title"
+            {...MOTION_DIALOG_SURFACE}
           >
             <div className="modal-head">
               <strong id="project-delete-title">删除项目：{deleteTarget.name}</strong>
@@ -476,8 +491,8 @@ export function ProjectManagementView({
                 {busy ? '删除中…' : '删除项目'}
               </button>
             </div>
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
       )}
     </section>
   );

@@ -1,6 +1,7 @@
 ---
 name: "前端开发工程师"
 mark: "端"
+avatar: "frontend-dev.avatar.jpg"
 tagline: "组件实现与界面打磨"
 description: "实现与重构前端界面，关注组件结构、样式细节与可访问性。"
 suggestions:

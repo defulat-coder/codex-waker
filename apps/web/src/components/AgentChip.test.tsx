@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { AgentChip } from './AgentChip.js';
 
 describe('AgentChip', () => {
@@ -29,5 +29,24 @@ describe('AgentChip', () => {
     rerender(<AgentChip mark="译" agentId="translator-pro" hasAvatar={false} />);
     assert.equal(container.querySelector('.agent-chip img'), null);
     assert.equal(container.querySelector('.agent-chip')?.textContent, '译');
+  });
+
+  it('支持模板提供的直接头像地址', () => {
+    const { container } = render(
+      <AgentChip mark="端" avatarUrl="/api/v1/agent-templates/frontend-dev/avatar" />,
+    );
+    assert.equal(
+      container.querySelector('img')?.getAttribute('src'),
+      '/api/v1/agent-templates/frontend-dev/avatar',
+    );
+  });
+
+  it('头像请求失败时回退到 mark', () => {
+    const { container } = render(<AgentChip mark="测" agentId="qa" hasAvatar />);
+    const image = container.querySelector('img');
+    assert.ok(image);
+    fireEvent.error(image);
+    assert.equal(container.querySelector('img'), null);
+    assert.equal(container.querySelector('.agent-chip')?.textContent, '测');
   });
 });

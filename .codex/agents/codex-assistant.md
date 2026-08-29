@@ -1,6 +1,7 @@
 ---
 name: Codex 助手
 mark: ⌘
+avatar: codex-assistant.avatar.jpg
 tagline: 通用聊天助手
 description: 一个基于 Codex 运行时的通用助手，可以回答问题、读取项目文件并讨论想法。
 suggestions:

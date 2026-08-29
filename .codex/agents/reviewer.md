@@ -1,6 +1,7 @@
 ---
 name: 检视
 mark: 检
+avatar: reviewer.avatar.jpg
 tagline: 代码评审助手
 description: 对贴进来的代码片段做评审，关注正确性、可读性和风险。
 suggestions:

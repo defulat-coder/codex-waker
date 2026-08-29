@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { motion } from 'motion/react';
 import {
   AGENT_THINKING_LEVELS,
   type AutomationRunRecord,
@@ -30,6 +31,8 @@ import {
 import { cx } from '../lib/cx.js';
 import { useVisiblePolling } from '../hooks/useVisiblePolling.js';
 import { useDialogFocus } from '../hooks/useDialogFocus.js';
+import { MotionLoadingRows } from './MotionFeedback.js';
+import { MOTION_TRANSITION } from '../lib/motion.js';
 
 type AutomationEditor = {
   id?: string;
@@ -472,10 +475,7 @@ export function AutomationManager({
           </button>
         </div>
       ) : items === null ? (
-        <div className="loading-rows" role="status" aria-label="正在加载自动任务">
-          <i />
-          <i />
-        </div>
+        <MotionLoadingRows count={2} label="正在加载自动任务" />
       ) : items.length === 0 && !editor ? (
         <div className="automation-empty">
           <h3>还没有自动任务</h3>
@@ -493,7 +493,7 @@ export function AutomationManager({
         <div className="automation-workspace">
           <nav className="automation-list" aria-label="自动任务列表">
             {items.map((item) => (
-              <button
+              <motion.button
                 className={cx(selectedId === item.id && 'active')}
                 type="button"
                 key={item.id}
@@ -504,6 +504,8 @@ export function AutomationManager({
                   setEditor(null);
                   setActionError('');
                 }}
+                layout="position"
+                whileTap={{ scale: 0.985 }}
               >
                 <span>
                   <strong>{item.name}</strong>
@@ -512,11 +514,18 @@ export function AutomationManager({
                 <span className={cx('resource-status', item.enabled ? 'ready' : '')}>
                   {automationState(item)}
                 </span>
-              </button>
+              </motion.button>
             ))}
           </nav>
 
           <div className="automation-detail">
+            <motion.div
+              className="master-detail-content"
+              key={editor ? `editor:${editor.id ?? 'new'}` : `detail:${selected?.id ?? 'none'}`}
+              initial={{ opacity: 0, x: 6 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={MOTION_TRANSITION.routine}
+            >
             {editor ? (
               <>
                 {actionError && (
@@ -733,6 +742,7 @@ export function AutomationManager({
                 />
               </>
             ) : null}
+            </motion.div>
           </div>
         </div>
       )}

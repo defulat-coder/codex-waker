@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { motion } from 'motion/react';
 import type {
   MemoryDocument,
   MemoryScope,
@@ -31,6 +32,12 @@ import {
 } from '../lib/api.js';
 import { cx } from '../lib/cx.js';
 import { useDialogFocus } from '../hooks/useDialogFocus.js';
+import { MotionLoadingRows } from './MotionFeedback.js';
+import {
+  MOTION_DIALOG_BACKDROP,
+  MOTION_DIALOG_SURFACE,
+  MOTION_TRANSITION,
+} from '../lib/motion.js';
 
 type Editor = {
   mode: 'create' | 'edit' | 'import';
@@ -333,26 +340,24 @@ export function MemoryView({
           </button>
         </div>
       ) : items === null ? (
-        <div className="loading-rows">
-          <i />
-          <i />
-          <i />
-        </div>
+        <MotionLoadingRows label="正在加载记忆" />
       ) : (
         <div className="memory-layout">
           <aside className="memory-list">
             {items.length ? (
               items.map((item) => (
-                <button
+                <motion.button
                   className={cx(selected?.id === item.id && 'active')}
                   key={item.id}
                   onClick={() => setSelected(item)}
+                  layout="position"
+                  whileTap={{ scale: 0.985 }}
                 >
                   <strong>{item.title}</strong>
                   <small>
                     {item.source} · v{item.version}
                   </small>
-                </button>
+                </motion.button>
               ))
             ) : (
               <div className="legacy-empty">
@@ -362,6 +367,13 @@ export function MemoryView({
             )}
           </aside>
           <main className="memory-detail">
+            <motion.div
+              className="master-detail-content"
+              key={selected?.id ?? 'none'}
+              initial={{ opacity: 0, x: 6 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={MOTION_TRANSITION.routine}
+            >
             {selected ? (
               <>
                 <div className="memory-title">
@@ -463,18 +475,20 @@ export function MemoryView({
                 <p>查看内容、版本和时间线。</p>
               </div>
             )}
+            </motion.div>
           </main>
         </div>
       )}
       {editor && (
-        <div
+        <motion.div
           className="modal-backdrop"
           role="presentation"
+          {...MOTION_DIALOG_BACKDROP}
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) closeEditorDialog();
           }}
         >
-          <form
+          <motion.form
             ref={editorDialogRef}
             tabIndex={-1}
             className="memory-dialog"
@@ -482,6 +496,7 @@ export function MemoryView({
             aria-modal="true"
             aria-labelledby="memory-form-title"
             onSubmit={submit}
+            {...MOTION_DIALOG_SURFACE}
           >
             <h2 id="memory-form-title">
               {editor.mode === 'import'
@@ -548,8 +563,8 @@ export function MemoryView({
                 {busy ? '保存中…' : '保存'}
               </button>
             </div>
-          </form>
-        </div>
+          </motion.form>
+        </motion.div>
       )}
     </section>
   );

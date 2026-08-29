@@ -26,10 +26,11 @@ import type {
   WakerTask,
 } from '@waker/contracts';
 import { cx } from '../lib/cx.js';
-import { MOTION_EASE } from '../lib/motion.js';
+import { MOTION_EASE, MOTION_LAYOUT_TRANSITION, MOTION_TRANSITION } from '../lib/motion.js';
 import { fetchLocalResources } from '../lib/api.js';
 import { useDialogFocus } from '../hooks/useDialogFocus.js';
 import { useVisiblePolling } from '../hooks/useVisiblePolling.js';
+import { MotionLoadingRows } from './MotionFeedback.js';
 
 type BoardTab = 'tasks' | 'actions';
 type BoardMode = 'list' | 'lanes';
@@ -767,9 +768,18 @@ export function BoardView({
         )}
       </AnimatePresence>
 
+      <AnimatePresence>
       {editor && (
-        <div className="modal-backdrop" onMouseDown={closeEditor}>
-          <form
+        <motion.div
+          key="board-editor"
+          className="modal-backdrop"
+          onMouseDown={closeEditor}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={MOTION_TRANSITION.exit}
+        >
+          <motion.form
             ref={editorDialogRef}
             className="board-editor-dialog"
             role="dialog"
@@ -778,6 +788,10 @@ export function BoardView({
             tabIndex={-1}
             onMouseDown={(event) => event.stopPropagation()}
             onSubmit={saveManual}
+            initial={{ opacity: 0, scale: 0.985, y: 8 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.985, y: 6 }}
+            transition={MOTION_TRANSITION.panel}
           >
             <h2 id="board-editor-title">{editor.id ? '编辑手工任务' : '新建手工任务'}</h2>
             <label>
@@ -857,13 +871,21 @@ export function BoardView({
                 {busy === 'save' ? '保存中…' : '保存'}
               </button>
             </div>
-          </form>
-        </div>
+          </motion.form>
+        </motion.div>
       )}
 
       {deleteTarget && (
-        <div className="modal-backdrop" onMouseDown={closeDelete}>
-          <div
+        <motion.div
+          key="board-delete"
+          className="modal-backdrop"
+          onMouseDown={closeDelete}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={MOTION_TRANSITION.exit}
+        >
+          <motion.div
             ref={deleteDialogRef}
             className="board-delete-dialog"
             role="dialog"
@@ -871,6 +893,10 @@ export function BoardView({
             aria-labelledby="board-delete-title"
             tabIndex={-1}
             onMouseDown={(event) => event.stopPropagation()}
+            initial={{ opacity: 0, scale: 0.985, y: 8 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.985, y: 6 }}
+            transition={MOTION_TRANSITION.panel}
           >
             <h2 id="board-delete-title">删除“{deleteTarget.title}”？</h2>
             <p>仅手工任务可删除；Automation、Workflow、Run 和 Session 记录不会被伪造或级联删除。</p>
@@ -907,13 +933,21 @@ export function BoardView({
                 确认删除
               </button>
             </div>
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
       )}
 
       {ignoreTarget && (
-        <div className="modal-backdrop" onMouseDown={closeIgnore}>
-          <div
+        <motion.div
+          key="board-ignore"
+          className="modal-backdrop"
+          onMouseDown={closeIgnore}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={MOTION_TRANSITION.exit}
+        >
+          <motion.div
             ref={ignoreDialogRef}
             className="board-delete-dialog"
             role="dialog"
@@ -921,6 +955,10 @@ export function BoardView({
             aria-labelledby="board-ignore-title"
             tabIndex={-1}
             onMouseDown={(event) => event.stopPropagation()}
+            initial={{ opacity: 0, scale: 0.985, y: 8 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.985, y: 6 }}
+            transition={MOTION_TRANSITION.panel}
           >
             <h2 id="board-ignore-title">忽略“{ignoreTarget.title}”？</h2>
             <p>
@@ -971,9 +1009,10 @@ export function BoardView({
                 确认忽略
               </button>
             </div>
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
       )}
+      </AnimatePresence>
     </section>
   );
 }
@@ -1130,11 +1169,7 @@ function BoardTaskSurface({
           </button>
         </div>
       ) : loading && !items.length ? (
-        <div className="loading-rows" role="status" aria-label="正在读取任务">
-          <i />
-          <i />
-          <i />
-        </div>
+        <MotionLoadingRows label="正在读取任务" />
       ) : items.length ? (
         mode === 'list' ? (
           <div className="board-table-wrap">
@@ -1152,7 +1187,13 @@ function BoardTaskSurface({
               </thead>
               <tbody>
                 {items.map((task) => (
-                  <tr key={task.id} className={cx(selectedId === task.id && 'active')}>
+                  <motion.tr
+                    key={task.id}
+                    className={cx(selectedId === task.id && 'active')}
+                    layout="position"
+                    layoutId={`board-task-${task.id}`}
+                    transition={{ layout: MOTION_LAYOUT_TRANSITION }}
+                  >
                     <td>
                       <button
                         className="board-task-link"
@@ -1174,7 +1215,7 @@ function BoardTaskSurface({
                     <td>{task.projectName ?? task.projectId ?? '—'}</td>
                     <td>{formatTime(task.lastActiveAt)}</td>
                     <td>{task.sourceType}</td>
-                  </tr>
+                  </motion.tr>
                 ))}
               </tbody>
             </table>
@@ -1194,20 +1235,24 @@ function BoardTaskSurface({
                   </h2>
                   <div className="board-lane-items">
                     {laneItems.map((task) => (
-                      <button
+                      <motion.button
                         key={task.id}
                         type="button"
                         className={cx('board-lane-task', selectedId === task.id && 'active')}
                         aria-expanded={selectedId === task.id}
                         aria-controls="board-task-detail"
                         onClick={(event) => onOpen(task, event.currentTarget)}
+                        layout="position"
+                        layoutId={`board-task-${task.id}`}
+                        transition={{ layout: MOTION_LAYOUT_TRANSITION }}
+                        whileTap={{ scale: 0.985 }}
                       >
                         <strong>{task.title}</strong>
                         <span>
                           {TYPE_TEXT[task.type]} · {task.projectName ?? '无项目'}
                         </span>
                         <small>{formatTime(task.lastActiveAt)}</small>
-                      </button>
+                      </motion.button>
                     ))}
                     {!laneItems.length && <p>暂无{lane.title}任务</p>}
                   </div>
@@ -1443,14 +1488,19 @@ function HumanActionSurface({
           </button>
         </div>
       ) : !loaded ? (
-        <div className="loading-rows" role="status" aria-label="正在读取人工操作">
-          <i />
-          <i />
-        </div>
+        <MotionLoadingRows count={2} label="正在读取人工操作" />
       ) : actions.length ? (
-        <div className="board-actions-list">
+        <motion.div className="board-actions-list" layout>
+          <AnimatePresence initial={false} mode="popLayout">
           {actions.map((action) => (
-            <article key={action.id}>
+            <motion.article
+              key={action.id}
+              layout="position"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={MOTION_TRANSITION.routine}
+            >
               <header>
                 <div>
                   <h2>{action.title}</h2>
@@ -1514,9 +1564,10 @@ function HumanActionSurface({
               ) : action.result !== undefined ? (
                 <pre>{JSON.stringify(action.result, null, 2)}</pre>
               ) : null}
-            </article>
+            </motion.article>
           ))}
-        </div>
+          </AnimatePresence>
+        </motion.div>
       ) : (
         <div className="board-empty">
           <h2>没有符合条件的人工操作</h2>

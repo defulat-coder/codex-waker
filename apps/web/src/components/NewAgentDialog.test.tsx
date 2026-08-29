@@ -14,6 +14,7 @@ const TEMPLATE: AgentTemplate = {
   description: '在中英文之间互译，保留语气与格式。',
   suggestions: ['把这段话译成英文'],
   body: '你是中英翻译助手，专注中英互译。',
+  hasAvatar: true,
 };
 
 function json(value: unknown, status = 200) {
@@ -34,6 +35,10 @@ function installApi(calls: Call[], options: { failAvatar?: boolean } = {}) {
       : undefined;
     calls.push({ url, method, body });
     if (url.startsWith('/avatars/high-quality-100/'))
+      return new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xd9]), {
+        headers: { 'content-type': 'image/jpeg' },
+      });
+    if (url.endsWith('/api/v1/agent-templates/translator-pro/avatar'))
       return new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xd9]), {
         headers: { 'content-type': 'image/jpeg' },
       });
@@ -84,6 +89,10 @@ describe('NewAgentDialog', () => {
     renderDialog();
     const option = await screen.findByRole('option', { name: /中英翻译助手/ });
     assert.equal(option.getAttribute('aria-selected'), 'false');
+    assert.equal(
+      option.querySelector('img')?.getAttribute('src'),
+      '/api/v1/agent-templates/translator-pro/avatar',
+    );
     // 「自定义角色」是默认选中项。
     const custom = screen.getByRole('option', { name: /自定义角色/ });
     assert.equal(custom.getAttribute('aria-selected'), 'true');
@@ -99,6 +108,24 @@ describe('NewAgentDialog', () => {
     assert.ok(calls.some((call) => call.url.endsWith('/api/v1/agent-templates')));
   });
 
+  it('supports roving keyboard selection in the role gallery', async () => {
+    installApi([]);
+    renderDialog();
+    const custom = await screen.findByRole('option', { name: /自定义角色/ });
+    const template = screen.getByRole('option', { name: /中英翻译助手/ });
+    assert.equal(custom.tabIndex, 0);
+    assert.equal(template.tabIndex, -1);
+
+    fireEvent.keyDown(custom, { key: 'ArrowRight' });
+    assert.equal(template.getAttribute('aria-selected'), 'true');
+    assert.equal(template.tabIndex, 0);
+    assert.equal(document.activeElement, template);
+
+    fireEvent.keyDown(template, { key: 'ArrowRight' });
+    assert.equal(custom.getAttribute('aria-selected'), 'true');
+    assert.equal(document.activeElement, custom);
+  });
+
   it('prefills from the selected template and submits its mark, tagline and body', async () => {
     const calls: Call[] = [];
     installApi(calls);
@@ -108,6 +135,8 @@ describe('NewAgentDialog', () => {
     assert.equal(nameInput().value, TEMPLATE.name);
     assert.ok(screen.getByDisplayValue(TEMPLATE.description));
     assert.ok(screen.getByText(TEMPLATE.body));
+    assert.ok(screen.getByAltText('模板头像预览'));
+    assert.ok(screen.getByText('已继承模板头像；可选择内置头像或上传本地头像覆盖。'));
     fireEvent.change(nameInput(), { target: { value: '我的翻译' } });
     submitDialog();
     await waitFor(() => assert.deepEqual(created, ['translator-pro']));
@@ -119,6 +148,11 @@ describe('NewAgentDialog', () => {
     assert.equal(create.body.tagline, TEMPLATE.tagline);
     assert.deepEqual(create.body.suggestions, TEMPLATE.suggestions);
     assert.equal(create.body.body, TEMPLATE.body);
+    const upload = calls.find((call) => call.url.endsWith('/avatar') && call.method === 'PUT');
+    assert.equal(upload?.body?.mimeType, 'image/jpeg');
+    assert.ok(
+      calls.some((call) => call.url.endsWith('/api/v1/agent-templates/translator-pro/avatar')),
+    );
   });
 
   it('keeps the custom-role path: blank defaults derived from name and description', async () => {

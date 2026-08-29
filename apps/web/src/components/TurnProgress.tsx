@@ -9,9 +9,15 @@ import type { LiveToolCall, LiveTurn } from '../lib/stream.js';
 import { cx } from '../lib/cx.js';
 import { MOTION_EASE } from '../lib/motion.js';
 import { toolCardTitle } from './ProcessCards.js';
+import { MotionSpinner } from './MotionFeedback.js';
 
 function RowStatusIcon({ tool }: { tool: LiveToolCall }) {
-  if (tool.status === 'running') return <ArrowsClockwise size={12} className="running" />;
+  if (tool.status === 'running')
+    return (
+      <MotionSpinner className="running">
+        <ArrowsClockwise size={12} />
+      </MotionSpinner>
+    );
   if (tool.status === 'failed') return <WarningCircle size={12} className="fail" weight="fill" />;
   if (tool.status === 'cancelled')
     return <MinusCircle size={12} className="cancelled" weight="fill" />;
@@ -44,9 +50,9 @@ export function TurnProgress({ turn }: { turn: LiveTurn }) {
           className={cx('turn-progress-chevron', open && 'open')}
           aria-hidden="true"
         />
-        <span className="turn-progress-spinner" aria-hidden="true">
+        <MotionSpinner className="turn-progress-spinner">
           <ArrowsClockwise size={14} />
-        </span>
+        </MotionSpinner>
         <span className="turn-progress-label">正在执行</span>
         {running && <span className="turn-progress-tool">{toolCardTitle(running)}</span>}
       </button>

@@ -26,7 +26,7 @@ import {
   mergeServerThinkingPreferences,
   readModelPreference,
 } from './lib/configPanel.js';
-import { MOTION_EASE } from './lib/motion.js';
+import { MOTION_LAYOUT_TRANSITION, MOTION_TRANSITION } from './lib/motion.js';
 import { MAX_TURN_ATTACHMENTS, type DraftComposerAttachment } from './lib/composerAttachments.js';
 import {
   mergeServerUiPreferences,
@@ -557,32 +557,42 @@ export default function App() {
             onChange={openLegacy}
           />
 
-          {showDetailNav && detailNavAgent && (
-            <WakerDetailNav
-              agentName={detailNavAgent.name}
-              active={detailNavActive}
-              onBack={() => setLegacyView('wakers')}
-              onNavigate={navigateWakerDetail}
-            />
-          )}
+          <AnimatePresence initial={false}>
+            {showDetailNav && detailNavAgent && (
+              <WakerDetailNav
+                key="waker-detail-nav"
+                agentName={detailNavAgent.name}
+                active={detailNavActive}
+                onBack={() => setLegacyView('wakers')}
+                onNavigate={navigateWakerDetail}
+              />
+            )}
+          </AnimatePresence>
 
-          {chatVisible && currentAgent && (
-            <QoderChatSidebar
-              agents={workspace.agents}
-              currentAgentId={currentAgent.id}
-              onSelectAgent={selectAgent}
-              onMarkAllRead={() => {
-                void markAllInboxRead()
-                  .then(() => {
-                    reloadWorkspace();
-                    return reloadInbox();
-                  })
-                  .catch(() => notify('一键已读失败'));
-              }}
-            />
-          )}
+          <AnimatePresence initial={false}>
+            {chatVisible && currentAgent && (
+              <QoderChatSidebar
+                key="chat-sidebar"
+                agents={workspace.agents}
+                currentAgentId={currentAgent.id}
+                onSelectAgent={selectAgent}
+                onMarkAllRead={() => {
+                  void markAllInboxRead()
+                    .then(() => {
+                      reloadWorkspace();
+                      return reloadInbox();
+                    })
+                    .catch(() => notify('一键已读失败'));
+                }}
+              />
+            )}
+          </AnimatePresence>
 
-          <main className="main-area">
+          <motion.main
+            className="main-area"
+            layout
+            transition={{ layout: MOTION_LAYOUT_TRANSITION }}
+          >
             {chatVisible && currentAgent && (
               <header className="qoder-chat-header">
                 <button
@@ -626,13 +636,12 @@ export default function App() {
                 </div>
               </header>
             )}
-            {/* 视图切换入场淡入：key 到视图级，切换即时（无 exit），不随 Agent/会话变化重挂载 */}
             <motion.div
               key={viewKey}
               className="view-body"
-              initial={{ opacity: 0, y: 2 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.15, ease: MOTION_EASE }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={MOTION_TRANSITION.routine}
             >
               {legacyView === 'wakers' ? (
                 <WakersView
@@ -791,46 +800,25 @@ export default function App() {
                   onRefresh={() => void usage.reload()}
                 />
               ) : (
-                <>
-                  {/* Welcome 淡出完成后再挂载会话区，避免两棵子树共存撑开布局 */}
+                <div className="chat-branch">
                   <AnimatePresence mode="wait" initial={false}>
                     {showWelcome && currentAgent ? (
                       <motion.div
                         key="welcome"
-                        className="chat-branch"
+                        className="chat-content-branch"
                         exit={{ opacity: 0 }}
-                        transition={{ duration: 0.15, ease: MOTION_EASE }}
+                        transition={MOTION_TRANSITION.exit}
                       >
                         <Welcome agent={currentAgent} onSuggestion={send} />
-                        <div className="composer-wrap welcome-composer">
-                          <label className="qoder-composer-project">
-                            <span>选择工作目录</span>
-                            <select
-                              aria-label="新会话项目"
-                              value={selectedProjectId}
-                              onChange={(event) => setSelectedProjectId(event.target.value)}
-                            >
-                              <option value="">当前仓库根（由服务端控制）</option>
-                              {projects.map((project) => (
-                                <option key={project.id} value={project.id}>
-                                  {project.name}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          <Composer
-                            disabled={Boolean(chat.liveTurn)}
-                            selectedModel={selectedModel}
-                            onSelectModel={setSelectedModel}
-                            onSend={send}
-                            attachments={draftAttachments}
-                            onAttachmentsChange={setDraftAttachments}
-                            maxAttachments={MAX_TURN_ATTACHMENTS - selectedAttachmentIds.length}
-                          />
-                        </div>
                       </motion.div>
                     ) : (
-                      <motion.div key="thread" className="chat-branch">
+                      <motion.div
+                        key="thread"
+                        className="chat-content-branch"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={MOTION_TRANSITION.routine}
+                      >
                         <ThreadView
                           messages={chat.threadMessages}
                           compact={uiPreferences.compactMessages}
@@ -844,79 +832,89 @@ export default function App() {
                               : () => setOutputsOpen(true)
                           }
                         />
-                        <div className="composer-wrap">
-                          <div className="composer-inner">
-                            {chat.liveTurn && <TurnProgress turn={chat.liveTurn} />}
-                            {chat.liveTurn && <StopTurnButton running onStop={chat.interrupt} />}
-                            <label className="qoder-composer-project">
-                              <span>选择工作目录</span>
-                              <select
-                                aria-label="对话项目"
-                                value={selectedProjectId}
-                                onChange={(event) => setSelectedProjectId(event.target.value)}
-                              >
-                                <option value="">当前仓库根（由服务端控制）</option>
-                                {projects.map((project) => (
-                                  <option key={project.id} value={project.id}>
-                                    {project.name}
-                                  </option>
-                                ))}
-                              </select>
-                            </label>
-                            <Composer
-                              disabled={Boolean(chat.liveTurn)}
-                              selectedModel={selectedModel}
-                              onSelectModel={setSelectedModel}
-                              onSend={send}
-                              attachments={draftAttachments}
-                              onAttachmentsChange={setDraftAttachments}
-                              maxAttachments={MAX_TURN_ATTACHMENTS - selectedAttachmentIds.length}
-                            />
-                          </div>
-                        </div>
                       </motion.div>
                     )}
                   </AnimatePresence>
-                </>
+                  <motion.div
+                    className={`composer-wrap${showWelcome ? ' welcome-composer' : ''}`}
+                    layout
+                    transition={{ layout: MOTION_LAYOUT_TRANSITION }}
+                  >
+                    <div className="composer-inner">
+                      {chat.liveTurn && <TurnProgress turn={chat.liveTurn} />}
+                      {chat.liveTurn && <StopTurnButton running onStop={chat.interrupt} />}
+                      <label className="qoder-composer-project">
+                        <span>选择工作目录</span>
+                        <select
+                          aria-label={showWelcome ? '新会话项目' : '对话项目'}
+                          value={selectedProjectId}
+                          onChange={(event) => setSelectedProjectId(event.target.value)}
+                        >
+                          <option value="">当前仓库根（由服务端控制）</option>
+                          {projects.map((project) => (
+                            <option key={project.id} value={project.id}>
+                              {project.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <Composer
+                        disabled={Boolean(chat.liveTurn)}
+                        selectedModel={selectedModel}
+                        onSelectModel={setSelectedModel}
+                        onSend={send}
+                        attachments={draftAttachments}
+                        onAttachmentsChange={setDraftAttachments}
+                        maxAttachments={MAX_TURN_ATTACHMENTS - selectedAttachmentIds.length}
+                      />
+                    </div>
+                  </motion.div>
+                </div>
               )}
             </motion.div>
-          </main>
+          </motion.main>
 
-          {taskListOpen && chatVisible && currentAgent && (
-            <QoderTaskPanel
-              sessions={sessions}
-              currentSessionId={chat.currentSessionId}
-              onOpenSession={(sessionId) => {
-                selectSession(sessionId);
-                setTaskListOpen(false);
-              }}
-              onOpenAutomations={() => {
-                setTaskListOpen(false);
-                setTaskSurface('automations');
-                setLegacyView('tasks');
-              }}
-            />
-          )}
+          <AnimatePresence initial={false}>
+            {taskListOpen && chatVisible && currentAgent && (
+              <QoderTaskPanel
+                key="chat-task-panel"
+                sessions={sessions}
+                currentSessionId={chat.currentSessionId}
+                onOpenSession={(sessionId) => {
+                  selectSession(sessionId);
+                  setTaskListOpen(false);
+                }}
+                onOpenAutomations={() => {
+                  setTaskListOpen(false);
+                  setTaskSurface('automations');
+                  setLegacyView('tasks');
+                }}
+              />
+            )}
+          </AnimatePresence>
 
-          {outputsOpen && currentAgentId && chat.currentSessionId && (
-            <SessionOutputsPanel
-              agentId={currentAgentId}
-              sessionId={chat.currentSessionId}
-              selectedIds={selectedAttachmentIds}
-              maxSelected={MAX_TURN_ATTACHMENTS - draftAttachments.length}
-              onToggle={(id) =>
-                setSelectedAttachmentIds((current) =>
-                  current.includes(id)
-                    ? current.filter((item) => item !== id)
-                    : current.length < MAX_TURN_ATTACHMENTS - draftAttachments.length
-                      ? [...current, id]
-                      : current,
-                )
-              }
-              onClose={() => setOutputsOpen(false)}
-              notify={notify}
-            />
-          )}
+          <AnimatePresence initial={false}>
+            {outputsOpen && currentAgentId && chat.currentSessionId && (
+              <SessionOutputsPanel
+                key="session-outputs-panel"
+                agentId={currentAgentId}
+                sessionId={chat.currentSessionId}
+                selectedIds={selectedAttachmentIds}
+                maxSelected={MAX_TURN_ATTACHMENTS - draftAttachments.length}
+                onToggle={(id) =>
+                  setSelectedAttachmentIds((current) =>
+                    current.includes(id)
+                      ? current.filter((item) => item !== id)
+                      : current.length < MAX_TURN_ATTACHMENTS - draftAttachments.length
+                        ? [...current, id]
+                        : current,
+                  )
+                }
+                onClose={() => setOutputsOpen(false)}
+                notify={notify}
+              />
+            )}
+          </AnimatePresence>
 
           <AnimatePresence>
             {configAgentId && (

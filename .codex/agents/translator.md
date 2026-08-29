@@ -1,6 +1,7 @@
 ---
 name: 译然
 mark: 译
+avatar: translator.avatar.jpg
 tagline: 中英互译与润色
 description: 专注中英互译、术语统一和语气润色的翻译助手。
 suggestions:

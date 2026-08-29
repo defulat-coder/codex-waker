@@ -32,6 +32,7 @@ import { cx } from '../lib/cx.js';
 import { MOTION_EASE } from '../lib/motion.js';
 import { useDialogFocus } from '../hooks/useDialogFocus.js';
 import { useVisiblePolling } from '../hooks/useVisiblePolling.js';
+import { MotionSpinner } from './MotionFeedback.js';
 
 type Scope = 'installed' | 'library';
 type InstalledFilter = 'all' | 'available' | 'invalid' | 'host';
@@ -739,7 +740,11 @@ function Dialog({
             disabled={Boolean(busy)}
             onClick={onConfirm}
           >
-            {busy && <CircleNotch size={13} className="spinning" />}
+            {busy && (
+              <MotionSpinner>
+                <CircleNotch size={13} />
+              </MotionSpinner>
+            )}
             {action}
           </button>
         </div>

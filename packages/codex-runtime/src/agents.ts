@@ -439,13 +439,11 @@ export function writeAgentAvatar(
   return parseAgentFile(directory, `${id}.md`);
 }
 
-/** Reads the avatar bytes and mime type; undefined when the agent has no avatar. */
-export function readAgentAvatar(
-  cwd: string,
+function readDefinitionAvatar(
+  directory: string,
   id: string,
 ): { data: Buffer; mimeType: string } | undefined {
   if (!AGENT_ID_REGEX.test(id)) return undefined;
-  const directory = join(cwd, '.codex', 'agents');
   if (!existsSync(join(directory, `${id}.md`))) return undefined;
   const { avatar } = parseAgentFile(directory, `${id}.md`);
   if (!avatar) return undefined;
@@ -455,6 +453,22 @@ export function readAgentAvatar(
     data: readFileSync(target),
     mimeType: avatar.endsWith('.png') ? 'image/png' : 'image/jpeg',
   };
+}
+
+/** Reads the avatar bytes and mime type; undefined when the agent has no avatar. */
+export function readAgentAvatar(
+  cwd: string,
+  id: string,
+): { data: Buffer; mimeType: string } | undefined {
+  return readDefinitionAvatar(join(cwd, '.codex', 'agents'), id);
+}
+
+/** Reads a read-only role-template avatar from its sidecar file. */
+export function readAgentTemplateAvatar(
+  cwd: string,
+  id: string,
+): { data: Buffer; mimeType: string } | undefined {
+  return readDefinitionAvatar(join(cwd, '.codex', 'agent-templates'), id);
 }
 
 /**

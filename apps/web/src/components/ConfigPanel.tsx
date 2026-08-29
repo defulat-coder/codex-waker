@@ -40,9 +40,10 @@ import {
   type ThinkingPreference,
 } from '../lib/configPanel.js';
 import { cx } from '../lib/cx.js';
-import { MOTION_EASE } from '../lib/motion.js';
+import { MOTION_EASE, MOTION_TRANSITION } from '../lib/motion.js';
 import { useWorkspace } from '../context/WorkspaceContext.js';
 import { AgentChip } from './AgentChip.js';
+import { MotionSpinner } from './MotionFeedback.js';
 import { AgentBodySections } from './AgentBodySections.js';
 
 /** 旧实现 configure 面板的通栏折叠节：48px 头 + 高度动画内容区。 */
@@ -287,7 +288,11 @@ function EditSection({
           onClick={onSave}
           disabled={saving || invalid}
         >
-          {saving ? <CircleNotch size={13} className="spinning" /> : null}
+          {saving ? (
+            <MotionSpinner>
+              <CircleNotch size={13} />
+            </MotionSpinner>
+          ) : null}
           保存
         </button>
       </div>
@@ -423,7 +428,11 @@ function ResourcesSection({
                   onClick={() => void savePromptEdit()}
                   disabled={promptSaving || !promptDraft.content.trim()}
                 >
-                  {promptSaving ? <CircleNotch size={13} className="spinning" /> : null}
+                  {promptSaving ? (
+                    <MotionSpinner>
+                      <CircleNotch size={13} />
+                    </MotionSpinner>
+                  ) : null}
                   保存
                 </button>
               </div>
@@ -509,7 +518,11 @@ function ResourcesSection({
                 onClick={() => void saveAppendEdit()}
                 disabled={appendSaving}
               >
-                {appendSaving ? <CircleNotch size={13} className="spinning" /> : null}
+                {appendSaving ? (
+                  <MotionSpinner>
+                    <CircleNotch size={13} />
+                  </MotionSpinner>
+                ) : null}
                 保存
               </button>
             </div>
@@ -720,10 +733,10 @@ export function ConfigPanel({
       role="complementary"
       aria-label="Agent 配置"
       className="config-panel"
-      initial={{ width: 0 }}
-      animate={{ width: 479 }}
-      exit={{ width: 0 }}
-      transition={{ duration: 0.2, ease: MOTION_EASE }}
+      initial={{ opacity: 0, x: 24 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: 24 }}
+      transition={MOTION_TRANSITION.panel}
     >
       <div className="config-panel-frame">
         <div className="config-panel-header">

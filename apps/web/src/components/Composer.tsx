@@ -25,6 +25,7 @@ import {
   type DraftComposerAttachment,
   type RejectedComposerAttachment,
 } from '../lib/composerAttachments.js';
+import { MotionSpinner } from './MotionFeedback.js';
 
 type ModelCatalog = WorkspaceResponse['models'];
 
@@ -383,7 +384,9 @@ export function Composer({
             onClick={() => fileInputRef.current?.click()}
           >
             {preparingAttachments ? (
-              <CircleNotch size={16} className="spinning" />
+              <MotionSpinner>
+                <CircleNotch size={16} />
+              </MotionSpinner>
             ) : (
               <Paperclip size={16} />
             )}

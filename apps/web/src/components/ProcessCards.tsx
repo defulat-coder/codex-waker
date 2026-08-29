@@ -12,6 +12,7 @@ import { Wrench } from '@phosphor-icons/react/dist/icons/Wrench';
 import type { LiveToolCall, ProcessStatus } from '../lib/stream.js';
 import { cx } from '../lib/cx.js';
 import { MOTION_EASE } from '../lib/motion.js';
+import { MotionSpinner } from './MotionFeedback.js';
 
 type PlanItem = { text: string; completed: boolean };
 
@@ -65,7 +66,12 @@ const STATUS_LABEL: Record<ProcessStatus, string> = {
 };
 
 function StatusIcon({ status }: { status: ProcessStatus }) {
-  if (status === 'running') return <ArrowsClockwise size={13} />;
+  if (status === 'running')
+    return (
+      <MotionSpinner>
+        <ArrowsClockwise size={13} />
+      </MotionSpinner>
+    );
   if (status === 'failed') return <WarningCircle size={13} weight="fill" />;
   if (status === 'cancelled') return <MinusCircle size={13} weight="fill" />;
   return <Check size={13} weight="bold" />;

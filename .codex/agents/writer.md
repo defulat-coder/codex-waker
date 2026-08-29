@@ -1,6 +1,7 @@
 ---
 name: 笔杆
 mark: 笔
+avatar: writer.avatar.jpg
 tagline: 写作与文案助手
 description: 帮忙起草、改写和压缩各类文案的写作助手。
 suggestions:

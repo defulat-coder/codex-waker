@@ -1,6 +1,7 @@
 ---
 name: '代码评审'
 mark: '审'
+avatar: 'code-reviewer.avatar.jpg'
 tagline: 'Review 思路与风险点'
 description: '以资深工程师视角评审代码片段，指出正确性、可维护性与风险。'
 suggestions:

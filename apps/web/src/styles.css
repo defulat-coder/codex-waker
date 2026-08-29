@@ -217,6 +217,12 @@ textarea {
   flex-direction: column;
   min-height: 0;
 }
+.chat-content-branch {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
 
 /* ===== 侧边栏 ===== */
 .sidebar {
@@ -842,18 +848,6 @@ textarea {
   height: 6px;
   border-radius: 50%;
   background: var(--brand);
-  animation: session-busy-pulse 1.2s ease-in-out infinite;
-}
-@keyframes session-busy-pulse {
-  0%,
-  100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 0.4;
-    transform: scale(0.75);
-  }
 }
 .session-row:hover .session-busy {
   display: none;
@@ -1369,6 +1363,10 @@ textarea {
   max-width: 768px;
   margin: 0 auto;
 }
+.welcome-composer .composer-inner {
+  max-width: 100%;
+  padding-inline: 0;
+}
 .agent-chip.qoder-welcome-avatar {
   width: 72px;
   height: 72px;
@@ -1539,8 +1537,7 @@ textarea {
   outline: 2px solid var(--brand);
   outline-offset: 2px;
 }
-.assistant-body.streaming::after {
-  content: '';
+.streaming-caret {
   display: inline-block;
   width: 7px;
   height: 15px;
@@ -1548,7 +1545,6 @@ textarea {
   vertical-align: -2px;
   border-radius: 1px;
   background: var(--brand);
-  animation: caret-blink 0.9s ease-in-out infinite;
 }
 .message-provenance {
   display: flex;
@@ -1679,20 +1675,6 @@ textarea {
     grid-template-columns: 1fr;
   }
 }
-@keyframes caret-blink {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.15;
-  }
-}
-@keyframes retry-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
 .message-interrupted {
   display: flex;
   align-items: center;
@@ -1801,10 +1783,6 @@ textarea {
   border-radius: 50%;
   background: var(--brand);
 }
-.thinking-dot.active {
-  animation: caret-blink 0.9s ease-in-out infinite;
-}
-
 /* 工具/委派调用卡片：对齐 旧实现 §7.4 开放结构（无卡片边框，header 26px 透明按钮） */
 /* 旧实现 实测：一条消息的多个工具调用折叠成一行通栏摘要（padding 2px 0、无 hover 底色） */
 .tool-group {
@@ -1911,9 +1889,6 @@ textarea {
   gap: var(--space-1);
   font-size: 11px;
   color: var(--text-quaternary);
-}
-.tool-card-status.running svg {
-  animation: retry-spin 1.2s linear infinite;
 }
 .tool-card-status.failed {
   color: var(--error-text);
@@ -2450,7 +2425,6 @@ textarea {
 .turn-progress-spinner {
   display: inline-flex;
   color: var(--text-quaternary);
-  animation: retry-spin 1.2s linear infinite;
 }
 .turn-progress-label {
   font-size: 14px;
@@ -2478,7 +2452,6 @@ textarea {
   color: var(--text-secondary);
 }
 .turn-progress-row .running {
-  animation: retry-spin 1.2s linear infinite;
   color: var(--text-quaternary);
 }
 .turn-progress-row .ok {
@@ -2673,10 +2646,9 @@ textarea {
 }
 
 /* ===== 配置面板 ===== */
-/* 宽度展开动画由 Motion 驱动（inline style 控制 width），aside 只负责裁剪；
-   内部 frame 固定 479px 宽，动画期间内容不被挤压。 */
 .config-panel {
   flex: none;
+  width: 479px;
   height: 100%;
   border-left: 1px solid var(--border-subtle);
   background: var(--bg-primary);
@@ -3926,6 +3898,14 @@ button.agent-card:hover,
   border-radius: var(--radius-lg);
   box-shadow: none;
 }
+.agent-create-dialog .modal-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
+  padding-top: var(--space-3);
+  background: var(--bg-primary);
+  border-top: 1px solid var(--border-subtle);
+}
 .agent-create-advanced {
   display: inline-flex;
   align-items: center;
@@ -4032,6 +4012,10 @@ button.agent-card:hover,
   border: 1px solid var(--border-subtle);
   object-fit: cover;
 }
+.agent-avatar-mark {
+  display: inline-flex;
+  flex: none;
+}
 .agent-avatar-library {
   overflow: hidden;
   border: 1px solid var(--border-subtle);
@@ -4116,7 +4100,12 @@ button.agent-card:hover,
   height: 100%;
   object-fit: cover;
 }
-.agent-avatar-grid .spinning {
+.motion-spinner {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.agent-avatar-grid .motion-spinner {
   position: absolute;
   color: var(--text-primary);
 }
@@ -4142,10 +4131,6 @@ button.agent-card:hover,
   justify-content: flex-end;
   gap: var(--space-2);
 }
-.spinning {
-  animation: retry-spin 1.2s linear infinite;
-}
-
 /* ===== 系统页面：用量 / 设置（§11.7、§11.8） ===== */
 .system-page {
   display: flex;
@@ -4545,17 +4530,6 @@ button.agent-card:hover,
   .toggle-thumb {
     transition-duration: 0.01ms !important;
   }
-  /* 循环动画降速变缓（gentler），不完全禁掉以保留状态反馈 */
-  .assistant-body.streaming::after,
-  .thinking-dot.active {
-    animation-duration: 2.4s;
-  }
-  .spinning,
-  .tool-card-status .running,
-  .turn-progress-spinner,
-  .turn-progress-row .running {
-    animation-duration: 2.4s;
-  }
 }
 
 /* Local P0/P1 management surfaces */
@@ -4585,6 +4559,9 @@ button.agent-card:hover,
   border: 1px solid var(--border-subtle);
   border-radius: 12px;
   overflow: hidden;
+}
+.master-detail-content {
+  min-width: 0;
 }
 .memory-list {
   padding: 10px;
@@ -6537,20 +6514,28 @@ button.agent-card:hover,
   place-items: center;
   color: var(--text-quaternary);
   border-radius: 4px;
-  transition:
-    color 150ms ease,
-    background 150ms ease;
+  transition: color 150ms ease;
 }
 
 .legacy-rail-button:hover {
   color: var(--text-primary);
-  background: var(--bg-secondary-hover);
 }
 .legacy-rail-button.active {
   color: #141414;
-  background: #fff;
 }
-.legacy-rail-button span {
+.legacy-rail-active {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: var(--bg-primary);
+  border-radius: 4px;
+}
+.legacy-rail-button > svg,
+.legacy-rail-button > .legacy-unread {
+  position: relative;
+  z-index: 1;
+}
+.legacy-rail-button > .legacy-rail-label {
   position: absolute;
   left: 54px;
   top: 50%;
@@ -6568,8 +6553,8 @@ button.agent-card:hover,
     opacity 120ms ease,
     transform 120ms ease;
 }
-.legacy-rail-button:hover span,
-.legacy-rail-button:focus-visible span {
+.legacy-rail-button:hover > .legacy-rail-label,
+.legacy-rail-button:focus-visible > .legacy-rail-label {
   opacity: 1;
   transform: translate(0, -50%);
 }
@@ -7919,17 +7904,18 @@ button.agent-card:hover,
   margin-top: 20px;
 }
 .loading-rows i {
+  position: relative;
   display: block;
   height: 52px;
-  background: linear-gradient(90deg, var(--bg-secondary), var(--bg-tertiary), var(--bg-secondary));
-  background-size: 220% 100%;
+  overflow: hidden;
+  background: var(--bg-secondary);
   border-radius: 8px;
-  animation: local-shimmer 1.2s linear infinite;
 }
-@keyframes local-shimmer {
-  to {
-    background-position: -120% 0;
-  }
+.loading-rows i > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 42%;
+  background: linear-gradient(90deg, transparent, var(--bg-tertiary), transparent);
 }
 
 :focus-visible {
@@ -7965,7 +7951,7 @@ button.agent-card:hover,
   .legacy-rail {
     background: #131615;
   }
-  .legacy-rail-button span {
+  .legacy-rail-button > .legacy-rail-label {
     background: #f2f4f3;
     color: #17201c;
   }
@@ -8017,7 +8003,7 @@ button.agent-card:hover,
 [data-theme='dark'] .legacy-rail {
   background: #131615;
 }
-[data-theme='dark'] .legacy-rail-button span {
+[data-theme='dark'] .legacy-rail-button > .legacy-rail-label {
   background: #f2f4f3;
   color: #17201c;
 }
@@ -8067,7 +8053,7 @@ button.agent-card:hover,
   [data-theme='light'] .legacy-rail {
     background: #f7f8f8;
   }
-  [data-theme='light'] .legacy-rail-button span {
+  [data-theme='light'] .legacy-rail-button > .legacy-rail-label {
     background: #1f2623;
     color: #fff;
   }
@@ -8136,7 +8122,7 @@ button.agent-card:hover,
     width: 42px;
     min-height: 46px;
   }
-  .legacy-rail-button span {
+  .legacy-rail-button > .legacy-rail-label {
     display: none;
   }
   .legacy-page {
@@ -8365,11 +8351,8 @@ button.agent-card:hover,
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .loading-rows i {
-    animation: none;
-  }
   .legacy-rail-button,
-  .legacy-rail-button span,
+  .legacy-rail-button > .legacy-rail-label,
   .legacy-button,
   .waker-card,
   .waker-toggle,

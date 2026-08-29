@@ -952,6 +952,11 @@ export function agentAvatarUrl(agentId: string): string {
   return `/api/v1/agents/${encodeURIComponent(agentId)}/avatar`;
 }
 
+/** Read-only sidecar avatar for a role template. */
+export function agentTemplateAvatarUrl(templateId: string): string {
+  return `/api/v1/agent-templates/${encodeURIComponent(templateId)}/avatar`;
+}
+
 /** PUTs the agent avatar (PNG/JPG ≤2MB); server errors (400/413) surface their message. */
 export async function uploadAgentAvatar(agentId: string, file: File): Promise<AgentDetail> {
   const dataBase64 = await readFileBase64(file);

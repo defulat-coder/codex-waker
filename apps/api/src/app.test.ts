@@ -1772,6 +1772,7 @@ describe('Explore endpoints', () => {
         '---',
         'name: "翻译助手"',
         'mark: "译"',
+        'avatar: "translator-pro.avatar.jpg"',
         'tagline: "中英互译与润色"',
         'description: "在中英文之间互译。"',
         'suggestions:',
@@ -1782,6 +1783,11 @@ describe('Explore endpoints', () => {
         '',
       ].join('\n'),
     );
+    const templateAvatar = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
+    writeFileSync(
+      join(root, '.codex', 'agent-templates', 'translator-pro.avatar.jpg'),
+      templateAvatar,
+    );
     for (const url of ['/api/v1/templates', '/api/v1/agent-templates']) {
       const response = await app.inject({ method: 'GET', url });
       assert.equal(response.statusCode, 200);
@@ -1790,13 +1796,31 @@ describe('Explore endpoints', () => {
         name: string;
         body: string;
         suggestions: string[];
+        hasAvatar?: boolean;
       }>;
-      assert.ok(items.some((item) => item.id === 'translator-pro' && item.name === '翻译助手'));
+      assert.ok(
+        items.some(
+          (item) =>
+            item.id === 'translator-pro' && item.name === '翻译助手' && item.hasAvatar === true,
+        ),
+      );
       for (const item of items) {
         assert.match(item.id, /^[a-z][a-z0-9-]{1,63}$/);
         assert.ok(item.body.trim().length > 0 && item.suggestions.length > 0);
       }
     }
+    const avatar = await app.inject({
+      method: 'GET',
+      url: '/api/v1/agent-templates/translator-pro/avatar',
+    });
+    assert.equal(avatar.statusCode, 200);
+    assert.equal(avatar.headers['content-type'], 'image/jpeg');
+    assert.ok(avatar.rawPayload.equals(templateAvatar));
+    assert.equal(
+      (await app.inject({ method: 'GET', url: '/api/v1/agent-templates/no-such/avatar' }))
+        .statusCode,
+      404,
+    );
   });
 
   it('uploads, serves, and deletes an agent avatar', async () => {

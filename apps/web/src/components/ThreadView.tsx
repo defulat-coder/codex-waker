@@ -25,6 +25,7 @@ import { MOTION_EASE } from '../lib/motion.js';
 import { ProcessCards } from './ProcessCards.js';
 import { citationSourceId, CitationSources } from './CitationSources.js';
 import { MermaidBlock } from './MermaidBlock.js';
+import { MotionPulseDot } from './MotionFeedback.js';
 
 const LONG_MESSAGE_CHARACTERS = 1_600;
 const LONG_MESSAGE_LINES = 24;
@@ -287,7 +288,7 @@ function ThinkingBlock({ text, streaming }: { text: string; streaming?: boolean 
     <div className="thinking-block">
       <details open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
         <summary>
-          <span className={cx('thinking-dot', streaming && 'active')} aria-hidden="true" />
+          <MotionPulseDot className="thinking-dot" active={streaming} />
           {streaming ? '正在思考…' : `思考过程 · ${text.length} 字符`}
           <CaretRight size={12} className="caret" aria-hidden="true" />
         </summary>
@@ -429,6 +430,7 @@ function MessageItem({
             </Markdown>
           </MessageStreamingContext.Provider>
         </ReadableContent>
+        {message.streaming && <MotionPulseDot className="streaming-caret" />}
         {!message.streaming && (
           <CitationSources
             sources={message.sources}

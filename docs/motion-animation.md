@@ -1,6 +1,6 @@
 # Motion 动效最佳实践
 
-项目动效统一优先使用 `motion`（motiondivision/motion，原 Framer Motion），已安装在 `apps/web`。不要引入其他 JS 动画库（GSAP、react-spring 等），除非用户明确要求。
+项目动效统一使用 `motion`（motiondivision/motion，原 Framer Motion），已安装在 `apps/web`。不要引入其他 JS 动画库（GSAP、react-spring 等），除非用户明确要求。
 
 - 官方文档：[Motion for React](https://motion.dev/docs/react)
 - 安装版本以 `apps/web/package.json` 为准；API 以所装版本为准，新特性先查官方文档再使用。
@@ -25,6 +25,7 @@
 
 - 全局用 `MotionConfig reducedMotion="user"` 尊重系统"减弱动态效果"设置；开启后 transform/layout 动画自动禁用，opacity 类动画保留。参考 [MotionConfig](https://motion.dev/docs/react-motion-config)。
 
-## 何时可以用 CSS
+## CSS 边界
 
-- 简单、自包含的效果（如 hover 变色）用 CSS transition 即可；涉及手势、布局、滚动联动、退场、编排的动效一律用 motion。
+- CSS transition 只用于简单的颜色、边框和阴影反馈，例如 hover 变色。
+- 不使用 CSS `animation` 或 `@keyframes`。持续状态、旋转、脉冲、骨架屏、手势、布局、滚动联动、进退场和编排一律使用 Motion。

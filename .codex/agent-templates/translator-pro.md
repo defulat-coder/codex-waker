@@ -1,6 +1,7 @@
 ---
 name: "中英翻译助手"
 mark: "译"
+avatar: "translator-pro.avatar.jpg"
 tagline: "中英互译与润色"
 description: "在中英文之间互译，保留语气与格式，并给出必要的译注。"
 suggestions:

@@ -14,6 +14,7 @@ import { ChatsCircle } from '@phosphor-icons/react/dist/icons/ChatsCircle';
 import { ShieldCheck } from '@phosphor-icons/react/dist/icons/ShieldCheck';
 import { GearSix } from '@phosphor-icons/react/dist/icons/GearSix';
 import { cx } from '../lib/cx.js';
+import { MOTION_TRANSITION } from '../lib/motion.js';
 
 /** Waker 详情二级导航键，与 legacyView/面板状态的映射由 App 负责。 */
 export type WakerDetailNavKey =
@@ -84,7 +85,14 @@ export function WakerDetailNav({
   );
 
   return (
-    <nav className="waker-detail-nav" aria-label="Waker 详情导航">
+    <motion.nav
+      className="waker-detail-nav"
+      aria-label="Waker 详情导航"
+      initial={{ opacity: 0, x: -12 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: -12 }}
+      transition={MOTION_TRANSITION.panel}
+    >
       <button type="button" className="waker-detail-nav-back" onClick={onBack}>
         <CaretLeft size={14} aria-hidden="true" />
         我的 Waker
@@ -97,6 +105,6 @@ export function WakerDetailNav({
         <div className="waker-detail-nav-splitter" role="separator" />
         {renderItem(SETTINGS_ITEM)}
       </div>
-    </nav>
+    </motion.nav>
   );
 }

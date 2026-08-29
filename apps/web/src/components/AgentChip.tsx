@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { cx } from '../lib/cx.js';
 import { agentAvatarUrl } from '../lib/api.js';
 
@@ -10,17 +11,22 @@ export function AgentChip({
   className,
   agentId,
   hasAvatar,
+  avatarUrl,
 }: {
   mark: string;
   className?: string;
   /** 与 hasAvatar 一起启用头像图片（src 指向 /api/v1/agents/<id>/avatar）。 */
   agentId?: string;
   hasAvatar?: boolean;
+  /** Optional direct avatar URL, used by read-only role templates. */
+  avatarUrl?: string;
 }) {
-  if (agentId && hasAvatar) {
+  const src = avatarUrl ?? (agentId && hasAvatar ? agentAvatarUrl(agentId) : undefined);
+  const [failedSrc, setFailedSrc] = useState('');
+  if (src && failedSrc !== src) {
     return (
       <span className={cx('agent-chip', className)} aria-hidden="true">
-        <img src={agentAvatarUrl(agentId)} alt="" />
+        <img src={src} alt="" onError={() => setFailedSrc(src)} />
       </span>
     );
   }

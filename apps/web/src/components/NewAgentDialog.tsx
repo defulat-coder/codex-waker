@@ -1,16 +1,22 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { CaretDown } from '@phosphor-icons/react/dist/icons/CaretDown';
 import { CircleNotch } from '@phosphor-icons/react/dist/icons/CircleNotch';
 import { X } from '@phosphor-icons/react/dist/icons/X';
 import type { AgentTemplate, CreateAgentRequest } from '@waker/contracts';
-import { createAgent, fetchAgentRoleTemplates, uploadAgentAvatar } from '../lib/api.js';
+import {
+  agentTemplateAvatarUrl,
+  createAgent,
+  fetchAgentRoleTemplates,
+  uploadAgentAvatar,
+} from '../lib/api.js';
 import { blankAgentRequest } from '../lib/explore.js';
 import { readFileBase64 } from '../lib/composerAttachments.js';
 import { cx } from '../lib/cx.js';
-import { MOTION_EASE } from '../lib/motion.js';
+import { MOTION_EASE, MOTION_TRANSITION } from '../lib/motion.js';
 import { useDialogFocus } from '../hooks/useDialogFocus.js';
 import { AgentChip } from './AgentChip.js';
+import { MotionSpinner } from './MotionFeedback.js';
 
 const AGENT_ID = /^[a-z][a-z0-9-]{1,63}$/;
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024;
@@ -38,6 +44,27 @@ interface AvatarDraft {
   previewUrl: string;
 }
 
+function navigateRoleOptions(event: KeyboardEvent<HTMLButtonElement>) {
+  if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key))
+    return;
+  const listbox = event.currentTarget.closest('[role="listbox"]');
+  if (!listbox) return;
+  const options = [...listbox.querySelectorAll<HTMLButtonElement>('[role="option"]')].filter(
+    (option) => !option.disabled,
+  );
+  const current = options.indexOf(event.currentTarget);
+  if (current < 0 || !options.length) return;
+  event.preventDefault();
+  const next =
+    event.key === 'Home'
+      ? options[0]
+      : event.key === 'End'
+        ? options.at(-1)
+        : options[(current + (event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 1) + options.length) % options.length];
+  next?.focus();
+  next?.click();
+}
+
 export function NewAgentDialog({
   open,
   onClose,
@@ -61,6 +88,7 @@ export function NewAgentDialog({
   const [avatar, setAvatar] = useState<AvatarDraft | null>(null);
   const [avatarLibraryOpen, setAvatarLibraryOpen] = useState(false);
   const [avatarPage, setAvatarPage] = useState(0);
+  const [avatarDirection, setAvatarDirection] = useState(1);
   const [selectedLibraryAvatar, setSelectedLibraryAvatar] = useState('');
   const [loadingLibraryAvatar, setLoadingLibraryAvatar] = useState('');
   const [advanced, setAdvanced] = useState(false);
@@ -97,6 +125,10 @@ export function NewAgentDialog({
   }, [open]);
 
   const selectedTemplate = templates.find((template) => template.id === templateId);
+  const inheritedAvatarUrl =
+    !avatar && selectedTemplate?.hasAvatar
+      ? agentTemplateAvatarUrl(selectedTemplate.id)
+      : undefined;
 
   const selectTemplate = (template: AgentTemplate) => {
     setTemplateId(template.id);
@@ -176,6 +208,18 @@ export function NewAgentDialog({
     setSaving(true);
     setError('');
     try {
+      let avatarFile = avatar?.file;
+      if (!avatarFile && selectedTemplate?.hasAvatar) {
+        const response = await fetch(agentTemplateAvatarUrl(selectedTemplate.id));
+        if (!response.ok) throw new Error('模板头像暂时无法读取');
+        const blob = await response.blob();
+        if (!AVATAR_MIME_TYPES.includes(blob.type)) throw new Error('模板头像格式不受支持');
+        avatarFile = new File(
+          [blob],
+          `${selectedTemplate.id}.avatar.${blob.type === 'image/png' ? 'png' : 'jpg'}`,
+          { type: blob.type },
+        );
+      }
       const request: CreateAgentRequest = selectedTemplate
         ? {
             id: effectiveId,
@@ -195,9 +239,9 @@ export function NewAgentDialog({
           }
         : blankAgentRequest(name, description, effectiveId);
       const created = await createAgent(request);
-      if (avatar) {
+      if (avatarFile) {
         try {
-          await uploadAgentAvatar(created.id, avatar.file);
+          await uploadAgentAvatar(created.id, avatarFile);
         } catch (cause) {
           // Agent 已创建成功，只报告头像失败，不回滚。
           onAvatarError?.(
@@ -261,9 +305,11 @@ export function NewAgentDialog({
                   type="button"
                   role="option"
                   aria-selected={!selectedTemplate}
+                  tabIndex={!selectedTemplate ? 0 : -1}
                   className={cx('agent-role-card', !selectedTemplate && 'selected')}
                   whileTap={{ scale: 0.97 }}
                   onClick={selectCustom}
+                  onKeyDown={navigateRoleOptions}
                   disabled={saving}
                 >
                   <AgentChip mark="＋" className="medium" />
@@ -278,12 +324,20 @@ export function NewAgentDialog({
                     type="button"
                     role="option"
                     aria-selected={templateId === template.id}
+                    tabIndex={templateId === template.id ? 0 : -1}
                     className={cx('agent-role-card', templateId === template.id && 'selected')}
                     whileTap={{ scale: 0.97 }}
                     onClick={() => selectTemplate(template)}
+                    onKeyDown={navigateRoleOptions}
                     disabled={saving}
                   >
-                    <AgentChip mark={template.mark} className="medium" />
+                    <AgentChip
+                      mark={template.mark}
+                      className="medium"
+                      avatarUrl={
+                        template.hasAvatar ? agentTemplateAvatarUrl(template.id) : undefined
+                      }
+                    />
                     <span className="agent-role-card-title">
                       <strong>{template.name}</strong>
                       <small>{template.tagline || template.description}</small>
@@ -334,11 +388,42 @@ export function NewAgentDialog({
             <div className="modal-field">
               <span>头像</span>
               <div className="agent-avatar-row">
-                {avatar ? (
-                  <img className="agent-avatar-preview" src={avatar.previewUrl} alt="头像预览" />
-                ) : (
-                  <AgentChip mark={markPreview} className="medium" />
-                )}
+                <AnimatePresence initial={false} mode="popLayout">
+                  {avatar ? (
+                    <motion.img
+                      key="chosen-avatar"
+                      className="agent-avatar-preview"
+                      src={avatar.previewUrl}
+                      alt="头像预览"
+                      initial={{ opacity: 0, scale: 0.92 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.92 }}
+                      transition={MOTION_TRANSITION.routine}
+                    />
+                  ) : inheritedAvatarUrl ? (
+                    <motion.img
+                      key={`template-avatar-${selectedTemplate?.id}`}
+                      className="agent-avatar-preview"
+                      src={inheritedAvatarUrl}
+                      alt="模板头像预览"
+                      initial={{ opacity: 0, scale: 0.92 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.92 }}
+                      transition={MOTION_TRANSITION.routine}
+                    />
+                  ) : (
+                    <motion.span
+                      key="avatar-mark"
+                      className="agent-avatar-mark"
+                      initial={{ opacity: 0, scale: 0.92 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.92 }}
+                      transition={MOTION_TRANSITION.routine}
+                    >
+                      <AgentChip mark={markPreview} className="medium" />
+                    </motion.span>
+                  )}
+                </AnimatePresence>
                 <button
                   type="button"
                   className="header-button"
@@ -368,7 +453,11 @@ export function NewAgentDialog({
                   }}
                 />
               </div>
-              <small>内置头像已优化为 160×160；本地上传支持 PNG / JPG，最大 2 MB。</small>
+              <small>
+                {inheritedAvatarUrl
+                  ? '已继承模板头像；可选择内置头像或上传本地头像覆盖。'
+                  : '内置头像已优化为 160×160；本地上传支持 PNG / JPG，最大 2 MB。'}
+              </small>
               <AnimatePresence initial={false}>
                 {avatarLibraryOpen && (
                   <motion.div
@@ -385,7 +474,10 @@ export function NewAgentDialog({
                           type="button"
                           aria-label="上一批头像"
                           disabled={avatarPage === 0 || saving}
-                          onClick={() => setAvatarPage((page) => Math.max(0, page - 1))}
+                          onClick={() => {
+                            setAvatarDirection(-1);
+                            setAvatarPage((page) => Math.max(0, page - 1));
+                          }}
                         >
                           上一批
                         </button>
@@ -396,17 +488,28 @@ export function NewAgentDialog({
                           type="button"
                           aria-label="下一批头像"
                           disabled={avatarPage === avatarPageCount - 1 || saving}
-                          onClick={() =>
-                            setAvatarPage((page) => Math.min(avatarPageCount - 1, page + 1))
-                          }
+                          onClick={() => {
+                            setAvatarDirection(1);
+                            setAvatarPage((page) => Math.min(avatarPageCount - 1, page + 1));
+                          }}
                         >
                           下一批
                         </button>
                       </div>
                     </div>
-                    <div className="agent-avatar-grid" role="listbox" aria-label="内置头像">
+                    <AnimatePresence mode="wait" initial={false}>
+                      <motion.div
+                        key={avatarPage}
+                        className="agent-avatar-grid"
+                        role="listbox"
+                        aria-label="内置头像"
+                        initial={{ opacity: 0, x: avatarDirection * 8 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: avatarDirection * -8 }}
+                        transition={MOTION_TRANSITION.routine}
+                      >
                       {visibleAvatars.map((entry) => (
-                        <button
+                        <motion.button
                           type="button"
                           role="option"
                           aria-label={`头像 ${entry.id}`}
@@ -415,14 +518,18 @@ export function NewAgentDialog({
                           disabled={saving || Boolean(loadingLibraryAvatar)}
                           onClick={() => void pickLibraryAvatar(entry)}
                           key={entry.id}
+                          whileTap={{ scale: 0.94 }}
                         >
                           <img src={entry.url} alt="" loading="lazy" />
                           {loadingLibraryAvatar === entry.id && (
-                            <CircleNotch size={16} className="spinning" aria-hidden="true" />
+                            <MotionSpinner>
+                              <CircleNotch size={16} />
+                            </MotionSpinner>
                           )}
-                        </button>
+                        </motion.button>
                       ))}
-                    </div>
+                      </motion.div>
+                    </AnimatePresence>
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -480,7 +587,11 @@ export function NewAgentDialog({
                 className="header-button primary"
                 disabled={saving || !name.trim()}
               >
-                {saving ? <CircleNotch size={13} className="spinning" /> : null}
+                {saving ? (
+                  <MotionSpinner>
+                    <CircleNotch size={13} />
+                  </MotionSpinner>
+                ) : null}
                 保存并启用
               </button>
             </div>

@@ -1,9 +1,11 @@
 import type { AgentSummary } from '@waker/contracts';
+import { motion } from 'motion/react';
 import { Check } from '@phosphor-icons/react/dist/icons/Check';
 import { MagnifyingGlass } from '@phosphor-icons/react/dist/icons/MagnifyingGlass';
 import { Plus } from '@phosphor-icons/react/dist/icons/Plus';
 import { AgentChip } from './AgentChip.js';
 import { cx } from '../lib/cx.js';
+import { MOTION_TRANSITION } from '../lib/motion.js';
 
 export function QoderChatSidebar({
   agents,
@@ -17,7 +19,14 @@ export function QoderChatSidebar({
   onMarkAllRead: () => void;
 }) {
   return (
-    <aside className="qoder-chat-sidebar" aria-label="Chat 会话">
+    <motion.aside
+      className="qoder-chat-sidebar"
+      aria-label="Chat 会话"
+      initial={{ opacity: 0, x: -12 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: -12 }}
+      transition={MOTION_TRANSITION.panel}
+    >
       <header className="qoder-chat-sidebar-header">
         <strong>Chat</strong>
         <button type="button" aria-label="一键已读" onClick={onMarkAllRead}>
@@ -64,6 +73,6 @@ export function QoderChatSidebar({
           ))}
         </div>
       </section>
-    </aside>
+    </motion.aside>
   );
 }

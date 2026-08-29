@@ -43,7 +43,14 @@ describe('agent templates', () => {
     writeFileSync(join(root, '.codex', 'agent-templates', 'beta-template.md'), VALID);
     writeFileSync(
       join(root, '.codex', 'agent-templates', 'alpha-template.md'),
-      VALID.replace('测试模板', '甲模板'),
+      VALID.replace('测试模板', '甲模板').replace(
+        'mark: 模',
+        'mark: 模\navatar: alpha-template.avatar.jpg',
+      ),
+    );
+    writeFileSync(
+      join(root, '.codex', 'agent-templates', 'alpha-template.avatar.jpg'),
+      Buffer.from([0xff, 0xd8, 0xff, 0xd9]),
     );
     writeFileSync(
       join(root, '.codex', 'agent-templates', 'broken-template.md'),
@@ -58,6 +65,7 @@ describe('agent templates', () => {
     assert.equal(alpha.name, '甲模板');
     assert.equal(alpha.mark, '模');
     assert.equal(alpha.tagline, '模板角色');
+    assert.equal(alpha.hasAvatar, true);
     assert.deepEqual(alpha.suggestions, ['你好']);
     assert.equal(alpha.body, '你是模板角色。');
     // AgentTemplate 不携带磁盘路径。
@@ -75,6 +83,7 @@ describe('agent templates', () => {
       assert.match(template.id, /^[a-z][a-z0-9-]{1,63}$/);
       assert.ok(template.body.trim().length > 0);
       assert.ok(template.suggestions.length > 0);
+      assert.equal(template.hasAvatar, true, `${template.id} 缺少头像`);
       // 仓库模板都携带真实的关于我区块（我最擅长 / 工作风格）。
       assert.ok(template.strengths && template.strengths.length > 0, `${template.id} 缺少 strengths`);
       assert.ok(

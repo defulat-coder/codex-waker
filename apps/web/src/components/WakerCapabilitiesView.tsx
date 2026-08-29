@@ -11,6 +11,7 @@ import {
   type PermissionEnvelope,
 } from '../lib/api.js';
 import { cx } from '../lib/cx.js';
+import { MotionLoadingRows } from './MotionFeedback.js';
 
 type Tab = 'connectors' | 'permissions' | 'actions';
 export function WakerCapabilitiesView({
@@ -126,10 +127,7 @@ export function WakerCapabilitiesView({
           </button>
         </div>
       ) : !connectors || !permissions || !actions ? (
-        <div className="loading-rows">
-          <i />
-          <i />
-        </div>
+        <MotionLoadingRows count={2} label="正在加载能力配置" />
       ) : tab === 'connectors' ? (
         <div>
           <div className="local-notice">
