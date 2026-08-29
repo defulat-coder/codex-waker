@@ -44,3 +44,4 @@ coverage/
 .codex/tmp/
 .codex/.tmp/
 .codex/artifacts/
+.codex/skill-versions/

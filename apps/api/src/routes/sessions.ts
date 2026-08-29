@@ -1,21 +1,30 @@
 import type { FastifyInstance } from 'fastify';
 import type {
+  CreateSessionRequest,
   InboxItem,
   InboxReadAllResponse,
   InboxResponse,
   InboxTab,
-  RenameSessionRequest,
   SessionListResponse,
   SessionMessagesResponse,
+  SidebarSectionsState,
   UpdateInboxStateRequest,
+  UpdateSessionRequest,
 } from '@waker/contracts';
-import { codexThreadRegistry, type SessionRecord } from '@waker/codex-runtime';
+import {
+  codexThreadRegistry,
+  SidebarSectionsValidationError,
+  unknownSessionSkillNames,
+  type SessionRecord,
+} from '@waker/codex-runtime';
 import {
   AgentParamsSchema,
+  CreateSessionSchema,
   InboxQuerySchema,
-  RenameSessionSchema,
   SessionParamsSchema,
+  SidebarSectionsUpdateSchema,
   UpdateInboxStateSchema,
+  UpdateSessionSchema,
 } from '../schemas.js';
 import {
   agentOr404,
@@ -95,13 +104,25 @@ export function registerSessionRoutes(app: FastifyInstance, ctx: AppContext): vo
     },
   );
 
-  app.post<{ Params: { agentId: string } }>(
+  app.post<{ Params: { agentId: string }; Body: CreateSessionRequest }>(
     '/agents/:agentId/sessions',
-    { schema: { params: AgentParamsSchema } },
+    {
+      schema: { params: AgentParamsSchema, body: CreateSessionSchema },
+      // 无 content-type 的空 body POST（既有调用方）按 {} 处理，body 校验仍在。
+      preValidation: async (request) => {
+        request.body ??= {};
+      },
+    },
     async (request, reply) => {
       if (!agentOr404(ctx, request.params.agentId, reply)) return;
       if (rejectDeletingAgent(reply, request.params.agentId)) return;
-      const session = await ctx.sessions.createSession(request.params.agentId);
+      const skills = request.body?.skills;
+      if (skills) {
+        const unknown = unknownSessionSkillNames(ctx.cwd, skills);
+        if (unknown.length)
+          return reply.code(400).send({ error: `技能不存在于项目目录：${unknown.join(', ')}` });
+      }
+      let session = await ctx.sessions.createSession(request.params.agentId);
       // Cover a request that passed the guard immediately before Agent deletion began.
       if (isAgentDeleting(request.params.agentId)) {
         await ctx.sessions.deleteSession(session.id, request.params.agentId);
@@ -111,7 +132,34 @@ export function registerSessionRoutes(app: FastifyInstance, ctx: AppContext): vo
         await ctx.sessions.deleteSession(session.id, request.params.agentId);
         return;
       }
+      if (skills) session = (await ctx.sessions.setSessionSkills(session.id, session.agentId, skills))!;
       return session;
+    },
+  );
+
+  app.get<{ Params: { agentId: string } }>(
+    '/agents/:agentId/sidebar-sections',
+    { schema: { params: AgentParamsSchema } },
+    async (request, reply): Promise<SidebarSectionsState | undefined> => {
+      if (!agentOr404(ctx, request.params.agentId, reply)) return;
+      return ctx.sessions.getSidebarSections(request.params.agentId);
+    },
+  );
+
+  app.put<{ Params: { agentId: string } }>(
+    '/agents/:agentId/sidebar-sections',
+    { schema: { params: AgentParamsSchema, body: SidebarSectionsUpdateSchema } },
+    async (request, reply): Promise<SidebarSectionsState | undefined> => {
+      if (!agentOr404(ctx, request.params.agentId, reply)) return;
+      if (rejectDeletingAgent(reply, request.params.agentId)) return;
+      try {
+        return await ctx.sessions.putSidebarSections(request.params.agentId, request.body);
+      } catch (error) {
+        // 结构非法或 sessionId 不属于该 Agent 都是 400（对齐旧版端点语义）。
+        if (error instanceof SidebarSectionsValidationError)
+          return reply.code(400).send({ error: error.message });
+        throw error;
+      }
     },
   );
 
@@ -148,27 +196,49 @@ export function registerSessionRoutes(app: FastifyInstance, ctx: AppContext): vo
     },
   );
 
-  app.patch<{ Params: { agentId: string; sessionId: string }; Body: RenameSessionRequest }>(
+  app.patch<{ Params: { agentId: string; sessionId: string }; Body: UpdateSessionRequest }>(
     '/agents/:agentId/sessions/:sessionId',
     {
-      schema: { params: SessionParamsSchema, body: RenameSessionSchema },
+      schema: { params: SessionParamsSchema, body: UpdateSessionSchema },
     },
     async (request, reply) => {
       if (!agentOr404(ctx, request.params.agentId, reply)) return;
       if (rejectDeletingAgent(reply, request.params.agentId)) return;
-      // rename 必须与进行中的 turn 共用一个 per-key 串行队列，排在 in-flight turn 之后执行，
+      const { title, skills } = request.body;
+      if (skills !== undefined && skills !== null) {
+        const unknown = unknownSessionSkillNames(ctx.cwd, skills);
+        if (unknown.length)
+          return reply.code(400).send({ error: `技能不存在于项目目录：${unknown.join(', ')}` });
+      }
+      // 更新必须与进行中的 turn 共用一个 per-key 串行队列，排在 in-flight turn 之后执行，
       // 避免与 registry 持有的 Codex thread 并发操作同一会话。
       const session = await withOwnedSession(reply, () =>
-        codexThreadRegistry.runExclusive(request.params.agentId, request.params.sessionId, () =>
-          ctx.sessions.renameSession(
-            request.params.sessionId,
-            request.params.agentId,
-            request.body.title,
-          ),
-        ),
+        codexThreadRegistry.runExclusive(request.params.agentId, request.params.sessionId, async () => {
+          let current = title
+            ? await ctx.sessions.renameSession(
+                request.params.sessionId,
+                request.params.agentId,
+                title,
+              )
+            : await ctx.sessions.getSession(request.params.sessionId, request.params.agentId);
+          if (current && skills !== undefined) {
+            // null = 取消挂载，恢复 CLI 默认全量发现（持久化层存 undefined）。
+            current = await ctx.sessions.setSessionSkills(
+              request.params.sessionId,
+              request.params.agentId,
+              skills ?? undefined,
+            );
+          }
+          return current;
+        }),
       );
       if (session === undefined && !reply.sent)
         return reply.code(404).send({ error: '会话不存在' });
+      // skills 是创建期注入（Codex 实例的 --config 覆盖），热切换不支持：
+      // 挂载变更后淘汰缓存的 runtime，下一 turn 按新白名单重建线程配置。
+      if (session && skills !== undefined) {
+        await codexThreadRegistry.close(request.params.agentId, request.params.sessionId);
+      }
       return session;
     },
   );

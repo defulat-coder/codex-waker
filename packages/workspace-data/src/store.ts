@@ -1,5 +1,5 @@
-import { randomUUID } from 'node:crypto';
-import { readdirSync, readFileSync } from 'node:fs';
+import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
@@ -19,7 +19,7 @@ export type { MisfirePolicy, ScheduleBounds } from './schedule.js';
 export type Visibility = 'public' | 'private';
 export type ProjectSource = 'filesystem' | 'git';
 export type ProjectStatus = 'idle' | 'syncing' | 'ready' | 'error' | 'archived';
-export type AutomationKind = 'schedule' | 'api' | 'event';
+export type AutomationKind = 'schedule' | 'api' | 'event' | 'git-poll';
 export type WorkflowStatus = 'draft' | 'active' | 'paused' | 'error';
 export type ChannelStatus = 'disconnected' | 'connected' | 'error';
 export type TaskStatus = 'queued' | 'waiting' | 'running' | 'completed' | 'failed' | 'cancelled';
@@ -29,7 +29,7 @@ export type TaskSourceType = 'manual' | 'conversation' | 'automation' | 'workflo
 export type TaskPriority = 'low' | 'normal' | 'high' | 'urgent';
 export type RunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 export type AutomationRunStatus = RunStatus | 'skipped';
-export type AutomationRunTrigger = 'manual' | 'scheduled';
+export type AutomationRunTrigger = 'manual' | 'scheduled' | 'api' | 'event' | 'git';
 export type AutomationThinkingLevel =
   'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra';
 export const automationMisfireGraceMs = 60_000;
@@ -78,8 +78,62 @@ export interface Automation {
   nextRun: number | null;
   completedAt: number | null;
   deletedAt: number | null;
+  triggerKey: string | null;
+  /** git-poll：轮询的 git 仓库（本地路径或远端 URL）。 */
+  repo: string | null;
+  /** git-poll：轮询的分支；null 表示跟随仓库默认分支/HEAD。 */
+  branch: string | null;
+  /** git-poll：轮询间隔（秒）。 */
+  pollIntervalSeconds: number | null;
+  /** git-poll：上次观测到的分支头 commit（游标）。 */
+  lastSeenCommit: string | null;
   createdAt: number;
   updatedAt: number;
+}
+
+export const GIT_POLL_DEFAULT_INTERVAL_SECONDS = 60;
+export const GIT_POLL_MIN_INTERVAL_SECONDS = 15;
+
+/** Remote git address (https/ssh/git/file URL or scp-like user@host:path); anything else is a local path. */
+export function isRemoteGitRepo(repo: string): boolean {
+  return /^(?:https?|git|ssh|file):\/\//i.test(repo) || /^[\w.-]+@[\w.-]+:\S+$/.test(repo);
+}
+
+function validateGitPollRepo(repo: string): string {
+  const value = requireText(repo, 'repo');
+  if (isRemoteGitRepo(value)) return value;
+  if (!existsSync(value)) throw new Error(`Git 仓库路径不存在：${value}`);
+  return value;
+}
+
+function validateGitPollBranch(branch: string | null | undefined): string | null {
+  if (branch === undefined || branch === null) return null;
+  const value = requireText(branch, 'branch');
+  if (value.startsWith('-') || value.includes('..') || /[\s~^:?*[\]\\]/.test(value)) {
+    throw new Error(`Invalid branch: ${value}`);
+  }
+  return value;
+}
+
+function validateGitPollInterval(interval: number | null | undefined): number {
+  if (interval === undefined || interval === null) return GIT_POLL_DEFAULT_INTERVAL_SECONDS;
+  if (!Number.isSafeInteger(interval) || interval < GIT_POLL_MIN_INTERVAL_SECONDS) {
+    throw new Error(`pollIntervalSeconds must be an integer >= ${GIT_POLL_MIN_INTERVAL_SECONDS}`);
+  }
+  return interval;
+}
+
+/** Inbound api/event automations authenticate with this opaque per-automation key. */
+export function generateAutomationTriggerKey(): string {
+  return `wak_${randomBytes(24).toString('base64url')}`;
+}
+
+/** Constant-time comparison so inbound trigger probes cannot shave a key down byte by byte. */
+export function matchesAutomationTriggerKey(stored: string | null, presented: string): boolean {
+  if (!stored || !presented) return false;
+  const expected = Buffer.from(stored, 'utf8');
+  const candidate = Buffer.from(presented, 'utf8');
+  return expected.length === candidate.length && timingSafeEqual(expected, candidate);
 }
 
 export interface Workflow {
@@ -192,6 +246,23 @@ export interface AutomationDeleteImpact {
   runs: number;
   tasks: number;
   sessions: number;
+}
+
+/** SQL-aggregated run counts for one automation (QoderWake trigger stats parity). */
+export interface AutomationRunAggregate {
+  automationId: string;
+  total: number;
+  byStatus: Record<AutomationRunStatus, number>;
+  byTrigger: Record<AutomationRunTrigger, number>;
+  lastRunAt: number | null;
+  lastRunStatus: AutomationRunStatus | null;
+}
+
+export interface AutomationCalendarDayCount {
+  /** YYYY-MM-DD in the requested timezone. */
+  date: string;
+  runs: number;
+  scheduled: number;
 }
 
 export interface WorkflowRun {
@@ -437,6 +508,11 @@ type AutomationInput = Omit<
   | 'projectId'
   | 'model'
   | 'thinking'
+  | 'triggerKey'
+  | 'repo'
+  | 'branch'
+  | 'pollIntervalSeconds'
+  | 'lastSeenCommit'
 > & {
   id?: string;
   schedule?: string | null;
@@ -450,6 +526,9 @@ type AutomationInput = Omit<
   projectId?: string | null;
   model?: string | null;
   thinking?: AutomationThinkingLevel | null;
+  repo?: string | null;
+  branch?: string | null;
+  pollIntervalSeconds?: number | null;
 };
 
 export interface EnqueueAutomationRunInput {
@@ -724,6 +803,11 @@ function automation(row: Row): Automation {
     nextRun: row.next_run as number | null,
     completedAt: row.completed_at as number | null,
     deletedAt: row.deleted_at as number | null,
+    triggerKey: row.trigger_key as string | null,
+    repo: row.repo as string | null,
+    branch: row.branch as string | null,
+    pollIntervalSeconds: row.poll_interval_seconds as number | null,
+    lastSeenCommit: row.last_seen_commit as string | null,
     createdAt: row.created_at as number,
     updatedAt: row.updated_at as number,
   };
@@ -1274,13 +1358,20 @@ export class WorkspaceStore {
     requireText(input.wakerId, 'wakerId');
     requireText(input.name, 'name');
     requireText(input.prompt, 'prompt');
-    requireEnum(input.kind, ['schedule', 'api', 'event'], 'automation kind');
+    requireEnum(input.kind, ['schedule', 'api', 'event', 'git-poll'], 'automation kind');
     if (input.kind !== 'schedule' && input.schedule !== undefined && input.schedule !== null)
       throw new Error('Only scheduled automations can have a schedule');
     const id = input.id ?? randomUUID();
     const now = this.now();
     const schedule =
       input.kind === 'schedule' ? requireText(input.schedule ?? '', 'schedule') : null;
+    const repo =
+      input.kind === 'git-poll' ? validateGitPollRepo(input.repo ?? '') : null;
+    if (input.kind !== 'git-poll' && input.repo !== undefined && input.repo !== null)
+      throw new Error('Only git-poll automations can have a repo');
+    const branch = input.kind === 'git-poll' ? validateGitPollBranch(input.branch) : null;
+    const pollIntervalSeconds =
+      input.kind === 'git-poll' ? validateGitPollInterval(input.pollIntervalSeconds) : null;
     const timezone = validateTimeZone(input.timezone ?? 'UTC');
     const startAt =
       input.startAt ??
@@ -1313,13 +1404,16 @@ export class WorkspaceStore {
         : calculateNextRun(schedule, now, { timeZone: timezone, startAt, endAt });
     const completedAt =
       input.kind === 'schedule' && input.enabled !== false && nextRun === null ? now : null;
+    const triggerKey =
+      input.kind === 'api' || input.kind === 'event' ? generateAutomationTriggerKey() : null;
     this.db
       .prepare(
         `INSERT INTO automations
          (id, waker_id, name, kind, schedule, prompt, enabled, timezone, start_at, end_at,
           max_runs, run_count, misfire_policy, last_run, last_scheduled_at, next_run, completed_at,
-          project_id, model, thinking, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)`,
+          project_id, model, thinking, trigger_key, repo, branch, poll_interval_seconds,
+          created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -1340,6 +1434,10 @@ export class WorkspaceStore {
         input.projectId ?? null,
         input.model ?? null,
         input.thinking ?? null,
+        triggerKey,
+        repo,
+        branch,
+        pollIntervalSeconds,
         now,
         now,
       );
@@ -1373,10 +1471,14 @@ export class WorkspaceStore {
     const now = this.now();
     requireText(value.name, 'name');
     requireText(value.prompt, 'prompt');
-    requireEnum(value.kind, ['schedule', 'api', 'event'], 'automation kind');
+    requireEnum(value.kind, ['schedule', 'api', 'event', 'git-poll'], 'automation kind');
     const timezone = validateTimeZone(value.timezone);
     const schedule =
       value.kind === 'schedule' ? requireText(value.schedule ?? '', 'schedule') : null;
+    const repo = value.kind === 'git-poll' ? validateGitPollRepo(value.repo ?? '') : null;
+    const branch = value.kind === 'git-poll' ? validateGitPollBranch(value.branch) : null;
+    const pollIntervalSeconds =
+      value.kind === 'git-poll' ? validateGitPollInterval(value.pollIntervalSeconds) : null;
     const startAt =
       value.kind === 'schedule' && schedule?.startsWith('interval:') && value.startAt === null
         ? now
@@ -1415,11 +1517,23 @@ export class WorkspaceStore {
       value.enabled && value.kind === 'schedule' && nextRun === null
         ? (current.completedAt ?? now)
         : null;
+    // A kind switch away from schedule must not leave the automation without an inbound key.
+    const triggerKey =
+      (value.kind === 'api' || value.kind === 'event') && value.triggerKey === null
+        ? generateAutomationTriggerKey()
+        : value.triggerKey;
+    // Repo/branch changes re-baseline the cursor so the next poll does not compare
+    // commits across two different histories.
+    const lastSeenCommit =
+      value.kind === 'git-poll' && repo === current.repo && branch === current.branch
+        ? value.lastSeenCommit
+        : null;
     this.db
       .prepare(
         `UPDATE automations SET name=?, kind=?, schedule=?, prompt=?, enabled=?, timezone=?, start_at=?,
          end_at=?, max_runs=?, misfire_policy=?, last_run=?, next_run=?, completed_at=?,
-         project_id=?, model=?, thinking=?, updated_at=?
+         project_id=?, model=?, thinking=?, trigger_key=?, repo=?, branch=?, poll_interval_seconds=?,
+         last_seen_commit=?, updated_at=?
          WHERE id=? AND waker_id=?`,
       )
       .run(
@@ -1439,11 +1553,34 @@ export class WorkspaceStore {
         value.projectId,
         value.model,
         value.thinking,
+        triggerKey,
+        repo,
+        branch,
+        pollIntervalSeconds,
+        lastSeenCommit,
         now,
         id,
         wakerId,
       );
     return this.getAutomation(wakerId, id);
+  }
+
+  rotateAutomationTriggerKey(wakerId: string, id: string): Automation | undefined {
+    const current = this.getAutomation(wakerId, id);
+    if (!current) return undefined;
+    const now = this.now();
+    this.db
+      .prepare('UPDATE automations SET trigger_key=?, updated_at=? WHERE id=? AND waker_id=?')
+      .run(generateAutomationTriggerKey(), now, id, wakerId);
+    return this.getAutomation(wakerId, id);
+  }
+
+  /** Inbound trigger endpoints address an automation by id alone; the key is the credential. */
+  getAutomationById(id: string): Automation | undefined {
+    const row = this.db
+      .prepare('SELECT * FROM automations WHERE id = ? AND deleted_at IS NULL')
+      .get(id);
+    return row ? automation(row as Row) : undefined;
   }
 
   deleteAutomation(wakerId: string, id: string): boolean {
@@ -1509,17 +1646,70 @@ export class WorkspaceStore {
     id: string,
     input: EnqueueAutomationRunInput,
   ): AutomationRun {
-    if (input.trigger !== 'manual') {
-      throw new Error('Scheduled runs must be claimed by the scheduler');
-    }
     return this.db.transaction(() => {
       const value = this.requireAutomationForRun(wakerId, id);
+      if (input.trigger === 'scheduled') {
+        throw new Error('Scheduled runs must be claimed by the scheduler');
+      }
+      if (input.trigger === 'api' && value.kind !== 'api') {
+        throw new Error('Automation is not API-triggered');
+      }
+      if (input.trigger === 'event' && value.kind !== 'event') {
+        throw new Error('Automation is not event-triggered');
+      }
+      if (input.trigger === 'git' && value.kind !== 'git-poll') {
+        throw new Error('Automation is not git-triggered');
+      }
       this.requireNoActiveAutomationRun(id);
       const run = this.insertAutomationRun(value, input, null);
       const now = this.now();
       this.db
         .prepare('UPDATE automations SET last_run=?, updated_at=? WHERE id=?')
         .run(now, now, id);
+      return run;
+    })();
+  }
+
+  /**
+   * Git 轮询触发（QoderWake script pull parity 的本地实现）：head commit 与游标不同时
+   * 排队一次 trigger='git' 的运行并推进游标。首次观测只落基线不触发（创建即 fire 不符合
+   * 旧版轮询语义）；有活跃运行时跳过本轮（游标不动，下轮重检），与 schedule single-flight 一致。
+   */
+  claimGitPollRun(
+    wakerId: string,
+    id: string,
+    head: { commit: string; branch: string },
+    observedAt = this.now(),
+  ): AutomationRun | undefined {
+    return this.db.transaction(() => {
+      const value = this.getAutomation(wakerId, id);
+      if (!value || !value.enabled || value.kind !== 'git-poll') return undefined;
+      const commit = requireText(head.commit, 'commit');
+      if (value.lastSeenCommit === null) {
+        this.db
+          .prepare('UPDATE automations SET last_seen_commit=?, updated_at=? WHERE id=?')
+          .run(commit, observedAt, id);
+        return undefined;
+      }
+      if (value.lastSeenCommit === commit) return undefined;
+      if (this.hasActiveAutomationRun(id)) return undefined;
+      const run = this.insertAutomationRun(
+        value,
+        {
+          trigger: 'git',
+          input: {
+            source: 'git-poll',
+            repo: value.repo,
+            branch: head.branch,
+            beforeCommit: value.lastSeenCommit,
+            afterCommit: commit,
+          },
+        },
+        null,
+      );
+      this.db
+        .prepare('UPDATE automations SET last_seen_commit=?, last_run=?, updated_at=? WHERE id=?')
+        .run(commit, observedAt, observedAt, id);
       return run;
     })();
   }
@@ -1734,6 +1924,127 @@ export class WorkspaceStore {
       ? this.db.prepare(sql).get(wakerId, automationId)
       : this.db.prepare(sql).get(wakerId);
     return (row as Row).count as number;
+  }
+
+  /** Per-automation run stats, aggregated in SQL from automation_runs. */
+  automationRunAggregates(wakerId: string): AutomationRunAggregate[] {
+    const rows = this.db
+      .prepare(
+        `SELECT automation_id,
+           COUNT(*) AS total,
+           SUM(status='queued') AS queued,
+           SUM(status='running') AS running,
+           SUM(status='succeeded') AS succeeded,
+           SUM(status='failed') AS failed,
+           SUM(status='cancelled') AS cancelled,
+           SUM(status='skipped') AS skipped,
+           SUM("trigger"='manual') AS manual,
+           SUM("trigger"='scheduled') AS scheduled,
+           SUM("trigger"='api') AS api,
+           SUM("trigger"='event') AS event,
+           SUM("trigger"='git') AS git,
+           MAX(created_at) AS last_run_at
+         FROM automation_runs WHERE waker_id=? GROUP BY automation_id`,
+      )
+      .all(wakerId) as Row[];
+    const lastRows = this.db
+      .prepare(
+        `SELECT automation_id, status FROM (
+           SELECT automation_id, status,
+             ROW_NUMBER() OVER (PARTITION BY automation_id ORDER BY created_at DESC, id) AS rank
+           FROM automation_runs WHERE waker_id=?
+         ) WHERE rank=1`,
+      )
+      .all(wakerId) as Row[];
+    const lastStatus = new Map(
+      lastRows.map((row) => [row.automation_id as string, row.status as AutomationRunStatus]),
+    );
+    return rows.map((row) => ({
+      automationId: row.automation_id as string,
+      total: row.total as number,
+      byStatus: {
+        queued: row.queued as number,
+        running: row.running as number,
+        succeeded: row.succeeded as number,
+        failed: row.failed as number,
+        cancelled: row.cancelled as number,
+        skipped: row.skipped as number,
+      },
+      byTrigger: {
+        manual: row.manual as number,
+        scheduled: row.scheduled as number,
+        api: row.api as number,
+        event: row.event as number,
+        git: row.git as number,
+      },
+      lastRunAt: (row.last_run_at as number | null) ?? null,
+      lastRunStatus: lastStatus.get(row.automation_id as string) ?? null,
+    }));
+  }
+
+  /**
+   * Per-day run counts plus planned occurrences of enabled schedule automations
+   * (QoderWake trigger calendar parity: future cron/interval/one-time expansion included,
+   * bounded by remaining maxRuns).
+   */
+  automationRunCalendar(
+    wakerId: string,
+    options: { from: string; to: string; timeZone: string },
+  ): AutomationCalendarDayCount[] {
+    const timeZone = validateTimeZone(options.timeZone);
+    const dayMs = 86_400_000;
+    const fromUtc = Date.parse(`${options.from}T00:00:00Z`);
+    const toUtc = Date.parse(`${options.to}T00:00:00Z`);
+    if (!Number.isFinite(fromUtc) || !Number.isFinite(toUtc) || toUtc < fromUtc) {
+      throw new Error('Invalid calendar range');
+    }
+    if ((toUtc - fromUtc) / dayMs + 1 > 31) throw new Error('Calendar range exceeds 31 days');
+    // Zoned days are not UTC days; pad the epoch window so every IANA offset buckets correctly.
+    const pad = 2 * dayMs;
+    const dayKey = new Intl.DateTimeFormat('en-CA', { timeZone });
+    const buckets = new Map<string, AutomationCalendarDayCount>();
+    for (let t = fromUtc; t <= toUtc; t += dayMs) {
+      const date = new Date(t).toISOString().slice(0, 10);
+      buckets.set(date, { date, runs: 0, scheduled: 0 });
+    }
+    const runRows = this.db
+      .prepare(
+        'SELECT created_at FROM automation_runs WHERE waker_id=? AND created_at>=? AND created_at<?',
+      )
+      .all(wakerId, fromUtc - pad, toUtc + dayMs + pad) as Row[];
+    for (const row of runRows) {
+      const bucket = buckets.get(dayKey.format(row.created_at as number));
+      if (bucket) bucket.runs += 1;
+    }
+    const scheduledAutomations = this.db
+      .prepare(
+        `SELECT * FROM automations
+         WHERE waker_id=? AND kind='schedule' AND enabled=1 AND deleted_at IS NULL`,
+      )
+      .all(wakerId)
+      .map((row) => automation(row as Row));
+    const windowEnd = toUtc + dayMs + pad;
+    for (const value of scheduledAutomations) {
+      let remaining =
+        value.maxRuns === null
+          ? Number.POSITIVE_INFINITY
+          : Math.max(0, value.maxRuns - value.runCount);
+      let cursor = fromUtc - pad - 1;
+      // Guard against pathological schedules (e.g. minutely crons over long ranges).
+      for (let guard = 0; remaining > 0 && guard < 50_000; guard += 1) {
+        const next = calculateNextRun(value.schedule, cursor, {
+          timeZone: value.timezone,
+          startAt: value.startAt,
+          endAt: value.endAt,
+        });
+        if (next === null || next >= windowEnd) break;
+        remaining -= 1;
+        cursor = next;
+        const bucket = buckets.get(dayKey.format(next));
+        if (bucket) bucket.scheduled += 1;
+      }
+    }
+    return [...buckets.values()];
   }
 
   listRecoverableAutomationRuns(wakerId: string): AutomationRun[] {

@@ -4,6 +4,8 @@ import type {
   AgentHomeResponse,
   CreateAgentRequest,
   ImportAgentRequest,
+  SummarizeAgentProfileRequest,
+  SummarizeAgentProfileResponse,
   UpdateAgentRequest,
   UploadAgentAvatarRequest,
 } from '@waker/contracts';
@@ -15,18 +17,25 @@ import {
   deleteAgent,
   importAgent,
   listAgentResources,
+  listCodexModels,
   readAgentAvatar,
   readAgentSource,
   updateAgent,
   writeAgentAvatar,
+  writeAgentProfileSections,
 } from '@waker/codex-runtime';
 import {
   AgentParamsSchema,
   CreateAgentSchema,
   ImportAgentSchema,
+  SummarizeAgentProfileSchema,
   UpdateAgentSchema,
   UploadAgentAvatarSchema,
 } from '../schemas.js';
+import {
+  buildAgentProfileSummarizePrompt,
+  parseAgentProfileOutput,
+} from '../agent-profile-summarize.js';
 import { agentOr404, beginAgentDeletion, endAgentDeletion, type AppContext } from '../context.js';
 
 /** Same Base64 contract as session attachments; invalid input is a 400, not a 500. */
@@ -143,6 +152,54 @@ export function registerAgentRoutes(app: FastifyInstance, ctx: AppContext): void
     },
   );
 
+  // 画像派生（QoderWake 0.4.2 summarize-profile）：默认只返回派生结果；
+  // apply=true 时把 coreCapabilities/workStyles 回写 frontmatter 的 strengths/workStyles。
+  app.post<{ Params: { agentId: string }; Body: SummarizeAgentProfileRequest }>(
+    '/agents/:agentId/summarize-profile',
+    { schema: { params: AgentParamsSchema, body: SummarizeAgentProfileSchema } },
+    async (request, reply): Promise<SummarizeAgentProfileResponse | void> => {
+      const agent = agentOr404(ctx, request.params.agentId, reply);
+      if (!agent) return;
+      const { model, thinking, apply } = request.body;
+      if (model) {
+        const available = new Set(listCodexModels(ctx.cwd).map((entry) => entry.id));
+        if (!available.has(model))
+          return reply.code(400).send({ error: `模型不在可用列表中：${model}` });
+      }
+      let raw: string;
+      try {
+        raw = await ctx.summarizeAgentProfile(buildAgentProfileSummarizePrompt(agent), {
+          ...(model ? { model } : {}),
+          ...(thinking ? { thinking } : {}),
+        });
+      } catch (error) {
+        return reply.code(502).send({
+          error: `画像派生失败：${error instanceof Error ? error.message : '模型调用失败'}`,
+        });
+      }
+      let profile: SummarizeAgentProfileResponse['profile'];
+      try {
+        profile = parseAgentProfileOutput(raw);
+      } catch (error) {
+        return reply.code(502).send({
+          error: `画像派生失败：${error instanceof Error ? error.message : 'AI 输出无法解析'}`,
+        });
+      }
+      if (apply) {
+        try {
+          writeAgentProfileSections(ctx.cwd, agent.id, {
+            strengths: profile.coreCapabilities,
+            workStyles: profile.workStyles,
+          });
+        } catch (error) {
+          if (error instanceof AgentCreateError)
+            return reply.code(400).send({ error: error.message });
+          throw error;
+        }
+      }
+      return { agentId: agent.id, profile, applied: apply === true };
+    },
+  );
   // Waker Home 数据：入职时间取定义文件 birthtime，计数与 delete-impact 同源，
   // 活跃度按会话 updated_at 的日期分组（session store SQL 聚合，只扫该 Agent 的行）。
   app.get<{ Params: { agentId: string } }>(
@@ -249,6 +306,7 @@ export function registerAgentRoutes(app: FastifyInstance, ctx: AppContext): void
         }
         // Catch requests that passed their first guard immediately before deletion began.
         await deleteSessions();
+        ctx.sessions.deleteSidebarSections(agentId);
         deleteAgent(ctx.cwd, agentId);
         return reply.code(204).send();
       } finally {

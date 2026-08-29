@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, it } from 'node:test';
 import Database from 'better-sqlite3';
 import { seedWorkspace } from './seed.js';
-import { calculateNextRun, WorkspaceStore } from './store.js';
+import { calculateNextRun, matchesAutomationTriggerKey, WorkspaceStore } from './store.js';
 import type { WorkflowDefinition } from './workflow.js';
 
 const roots: string[] = [];
@@ -47,6 +47,8 @@ describe('WorkspaceStore migrations', () => {
       '008',
       '009',
       '010',
+      '011',
+      '012',
     ]);
     store.close();
     const reopened = new WorkspaceStore(path);
@@ -61,6 +63,8 @@ describe('WorkspaceStore migrations', () => {
       '008',
       '009',
       '010',
+      '011',
+      '012',
     ]);
     reopened.close();
   });
@@ -143,6 +147,8 @@ describe('WorkspaceStore migrations', () => {
       '008',
       '009',
       '010',
+      '011',
+      '012',
     ]);
     assert.equal(
       store.getAutomation('alpha', 'legacy')?.nextRun,
@@ -403,6 +409,209 @@ describe('WorkspaceStore automation and constraints', () => {
     assert.equal(skippedRun.scheduledFor, 1_700);
     assert.equal(store.getAutomation('alpha', skipped.id)?.runCount, 1);
     assert.equal(store.getAutomation('alpha', skipped.id)?.nextRun, 61_800);
+    store.close();
+  });
+
+  it('issues and rotates inbound trigger keys and records api/event run sources', () => {
+    const store = new WorkspaceStore(':memory:');
+    const apiAutomation = store.createAutomation({
+      wakerId: 'alpha',
+      name: 'Hook',
+      kind: 'api',
+      prompt: 'Run',
+    });
+    assert.match(apiAutomation.triggerKey ?? '', /^wak_/);
+    const eventAutomation = store.createAutomation({
+      wakerId: 'alpha',
+      name: 'Push',
+      kind: 'event',
+      prompt: 'Run',
+    });
+    assert.ok(eventAutomation.triggerKey);
+    const scheduled = store.createAutomation({
+      wakerId: 'alpha',
+      name: 'Cron',
+      kind: 'schedule',
+      schedule: '0 9 * * *',
+      prompt: 'Run',
+    });
+    assert.equal(scheduled.triggerKey, null);
+
+    const apiRun = store.enqueueAutomationRun('alpha', apiAutomation.id, {
+      trigger: 'api',
+      input: { payload: { delivered: 1 } },
+    });
+    assert.equal(apiRun.trigger, 'api');
+    assert.deepEqual(apiRun.input, { payload: { delivered: 1 } });
+    store.cancelAutomationRun('alpha', apiRun.id);
+    assert.throws(
+      () => store.enqueueAutomationRun('alpha', apiAutomation.id, { trigger: 'event' }),
+      /not event-triggered/,
+    );
+
+    const eventRun = store.enqueueAutomationRun('alpha', eventAutomation.id, {
+      trigger: 'event',
+    });
+    assert.equal(eventRun.trigger, 'event');
+    store.cancelAutomationRun('alpha', eventRun.id);
+    assert.throws(
+      () => store.enqueueAutomationRun('alpha', eventAutomation.id, { trigger: 'api' }),
+      /not API-triggered/,
+    );
+    assert.throws(
+      () => store.enqueueAutomationRun('alpha', scheduled.id, { trigger: 'api' }),
+      /not API-triggered/,
+    );
+    assert.throws(
+      () => store.enqueueAutomationRun('alpha', apiAutomation.id, { trigger: 'scheduled' }),
+      /claimed by the scheduler/,
+    );
+
+    // A kind switch away from schedule backfills the inbound key.
+    const switched = store.updateAutomation('alpha', scheduled.id, { kind: 'api' })!;
+    assert.match(switched.triggerKey ?? '', /^wak_/);
+
+    assert.equal(store.getAutomationById(apiAutomation.id)?.wakerId, 'alpha');
+    assert.equal(store.getAutomationById('missing'), undefined);
+    const rotated = store.rotateAutomationTriggerKey('alpha', apiAutomation.id)!;
+    assert.match(rotated.triggerKey ?? '', /^wak_/);
+    assert.notEqual(rotated.triggerKey, apiAutomation.triggerKey);
+    assert.equal(store.rotateAutomationTriggerKey('beta', apiAutomation.id), undefined);
+    assert.equal(matchesAutomationTriggerKey(rotated.triggerKey, rotated.triggerKey!), true);
+    assert.equal(matchesAutomationTriggerKey(rotated.triggerKey, apiAutomation.triggerKey!), false);
+    assert.equal(matchesAutomationTriggerKey(null, rotated.triggerKey!), false);
+    store.close();
+  });
+
+  it('validates git-poll automations and turns head commit moves into git runs', () => {
+    const root = mkdtempSync(join(tmpdir(), 'waker-git-poll-store-'));
+    roots.push(root);
+    const repoDir = join(root, 'repo');
+    mkdirSync(repoDir);
+    const store = new WorkspaceStore(':memory:', { now: () => 1_000 });
+    assert.throws(
+      () => store.createAutomation({ wakerId: 'alpha', name: 'Bad', kind: 'git-poll', prompt: 'x' }),
+      /repo is required/,
+    );
+    assert.throws(
+      () =>
+        store.createAutomation({
+          wakerId: 'alpha',
+          name: 'Bad',
+          kind: 'git-poll',
+          prompt: 'x',
+          repo: join(root, 'missing-repo'),
+        }),
+      /路径不存在/,
+    );
+    assert.throws(
+      () =>
+        store.createAutomation({
+          wakerId: 'alpha',
+          name: 'Bad',
+          kind: 'git-poll',
+          prompt: 'x',
+          repo: repoDir,
+          pollIntervalSeconds: 5,
+        }),
+      /pollIntervalSeconds/,
+    );
+    assert.throws(
+      () =>
+        store.createAutomation({
+          wakerId: 'alpha',
+          name: 'Bad',
+          kind: 'api',
+          prompt: 'x',
+          repo: repoDir,
+        }),
+      /Only git-poll/,
+    );
+    // URL-shaped repos skip the local existence check; interval defaults to 60s, no inbound key.
+    const remote = store.createAutomation({
+      wakerId: 'alpha',
+      name: 'Remote',
+      kind: 'git-poll',
+      prompt: 'x',
+      repo: 'https://github.com/org/repo.git',
+    });
+    assert.equal(remote.pollIntervalSeconds, 60);
+    assert.equal(remote.branch, null);
+    assert.equal(remote.triggerKey, null);
+    const scp = store.createAutomation({
+      wakerId: 'alpha',
+      name: 'Scp',
+      kind: 'git-poll',
+      prompt: 'x',
+      repo: 'git@github.com:org/repo.git',
+      branch: 'main',
+    });
+    assert.equal(scp.branch, 'main');
+    const value = store.createAutomation({
+      wakerId: 'alpha',
+      name: 'Watch',
+      kind: 'git-poll',
+      prompt: 'x',
+      repo: repoDir,
+      pollIntervalSeconds: 30,
+    });
+    assert.equal(value.lastSeenCommit, null);
+
+    // First observation only seeds the baseline cursor; no run fires on creation.
+    assert.equal(
+      store.claimGitPollRun('alpha', value.id, { commit: 'aaa', branch: 'main' }),
+      undefined,
+    );
+    assert.equal(store.getAutomation('alpha', value.id)!.lastSeenCommit, 'aaa');
+    // Unchanged head does not trigger.
+    assert.equal(
+      store.claimGitPollRun('alpha', value.id, { commit: 'aaa', branch: 'main' }),
+      undefined,
+    );
+    // A moved head queues exactly one trigger='git' run with the commit payload.
+    const run = store.claimGitPollRun('alpha', value.id, { commit: 'bbb', branch: 'main' })!;
+    assert.equal(run.trigger, 'git');
+    assert.deepEqual(run.input, {
+      source: 'git-poll',
+      repo: repoDir,
+      branch: 'main',
+      beforeCommit: 'aaa',
+      afterCommit: 'bbb',
+    });
+    assert.equal(store.getAutomation('alpha', value.id)!.lastSeenCommit, 'bbb');
+    // While that run is active a newer commit is detected but not queued (single-flight);
+    // once the run settles the next claim fires with the full before/after span.
+    assert.equal(
+      store.claimGitPollRun('alpha', value.id, { commit: 'ccc', branch: 'main' }),
+      undefined,
+    );
+    assert.equal(store.getAutomation('alpha', value.id)!.lastSeenCommit, 'bbb');
+    store.cancelAutomationRun('alpha', run.id);
+    const followUp = store.claimGitPollRun('alpha', value.id, { commit: 'ccc', branch: 'main' })!;
+    assert.equal(followUp.trigger, 'git');
+    const followUpInput = followUp.input as { beforeCommit: string; afterCommit: string };
+    assert.equal(followUpInput.beforeCommit, 'bbb');
+    assert.equal(followUpInput.afterCommit, 'ccc');
+    store.cancelAutomationRun('alpha', followUp.id);
+    // enqueueAutomationRun with trigger 'git' is reserved for git-poll automations.
+    assert.throws(
+      () => store.enqueueAutomationRun('alpha', remote.id, { trigger: 'api' }),
+      /not API-triggered/,
+    );
+    assert.throws(
+      () => store.enqueueAutomationRun('alpha', scp.id, { trigger: 'event' }),
+      /not event-triggered/,
+    );
+    // Stats aggregate the git trigger bucket.
+    const aggregate = store
+      .automationRunAggregates('alpha')
+      .find((row) => row.automationId === value.id)!;
+    assert.equal(aggregate.byTrigger.git, 2);
+    // Changing the repo re-baselines the cursor instead of comparing across histories.
+    const updated = store.updateAutomation('alpha', value.id, {
+      repo: 'https://example.com/other.git',
+    })!;
+    assert.equal(updated.lastSeenCommit, null);
     store.close();
   });
 

@@ -19,6 +19,7 @@ import { loadConfig, type AppConfig } from './config.js';
 import { type AppContext } from './context.js';
 import { MemoryDreamer } from './memory-dream.js';
 import { registerAgentRoutes } from './routes/agents.js';
+import { registerAgentPackageRoutes } from './routes/agents-package.js';
 import { registerChatRoutes } from './routes/chat.js';
 import { registerFileRoutes } from './routes/files.js';
 import { registerMetaRoutes } from './routes/meta.js';
@@ -30,8 +31,11 @@ import { registerKnowledgeRoutes } from './routes/knowledge.js';
 import { registerMemoryRoutes } from './routes/memory.js';
 import { registerWorkspaceRoutes } from './routes/workspace.js';
 import { registerSessionOutputRoutes } from './routes/session-outputs.js';
+import { registerSessionDiagnosticsRoutes } from './routes/session-diagnostics.js';
 import { registerCapabilityRoutes } from './routes/capabilities.js';
 import { runDueAutomations } from './scheduler.js';
+import { MemoryMaintenanceJob, type MemoryMaintenanceJobOptions } from './memory-maintenance.js';
+import { GitPollJob, type GitPollJobOptions } from './git-poller.js';
 import { AutomationExecutor, type AutomationExecutorOptions } from './automation-executor.js';
 import { WorkflowExecutor, type WorkflowExecutorOptions } from './workflow-executor.js';
 import { registerWorkflowRoutes } from './routes/workflows.js';
@@ -56,8 +60,14 @@ type AppDependencies = {
   chatRuntime?: Pick<AppContext, 'runTurn'>;
   /** memory dream 替身（测试用，默认真实 MemoryDreamer）。 */
   memoryDream?: AppContext['memoryDream'];
+  /** 每日 memory 维护作业的节奏覆盖（测试用，默认 1h 检查 / 24h 跑一次）。 */
+  memoryMaintenanceRuntime?: Pick<MemoryMaintenanceJobOptions, 'checkIntervalMs' | 'runEveryMs'>;
+  /** git-poll 轮询作业的节奏/exec 覆盖（测试用，默认 30s 检查）。 */
+  gitPollRuntime?: Pick<GitPollJobOptions, 'checkIntervalMs' | 'exec'>;
   /** AI 生成流程定义的一次性调用替身（测试用，默认 runCodexOneShot）。 */
   generateWorkflowDefinition?: AppContext['generateWorkflowDefinition'];
+  /** Agent 画像派生的一次性调用替身（测试用，默认 runCodexOneShot）。 */
+  summarizeAgentProfile?: AppContext['summarizeAgentProfile'];
 };
 
 export function buildApp(
@@ -129,6 +139,14 @@ export function buildApp(
     generateWorkflowDefinition:
       dependencies.generateWorkflowDefinition ??
       ((prompt, model) => runCodexOneShot(prompt, { cwd, ...(model ? { model } : {}) })),
+    summarizeAgentProfile:
+      dependencies.summarizeAgentProfile ??
+      ((prompt, options) =>
+        runCodexOneShot(prompt, {
+          cwd,
+          ...(options?.model ? { model: options.model } : {}),
+          ...(options?.thinking ? { reasoningEffort: options.thinking } : {}),
+        })),
   };
 
   // Web 走 vite proxy 同源访问，不需要携带凭证的跨域。
@@ -163,7 +181,39 @@ export function buildApp(
   app.addHook('onReady', async () => {
     workflowExecutor.recover(loadAgents(cwd).map((agent) => agent.id));
   });
+  // 每日 memory 维护（trigger='cron'），WAKER_MEMORY_MAINTENANCE=off 时不启动。
+  let memoryMaintenance: MemoryMaintenanceJob | undefined;
+  if (config.WAKER_MEMORY_MAINTENANCE?.trim().toLowerCase() !== 'off') {
+    app.addHook('onReady', async () => {
+      memoryMaintenance = new MemoryMaintenanceJob({
+        memory,
+        scopeIds: () => loadAgents(cwd).map((agent) => agent.id),
+        logger: { info: (message) => app.log.info(message), warn: (message) => app.log.warn(message) },
+        ...dependencies.memoryMaintenanceRuntime,
+      });
+      memoryMaintenance.start();
+    });
+  }
+  // git-poll 轮询（kind='git-poll' 触发源），WAKER_GIT_POLL=off 或 Codex 未启用时不启动。
+  let gitPoll: GitPollJob | undefined;
+  if (config.CODEX_AGENT_ENABLED && config.WAKER_GIT_POLL?.trim().toLowerCase() !== 'off') {
+    app.addHook('onReady', async () => {
+      gitPoll = new GitPollJob({
+        store: workspaceData,
+        wakerIds: () => loadAgents(cwd).map((agent) => agent.id),
+        enqueue: (wakerId, runId) => automationExecutor.enqueue(wakerId, runId),
+        logger: {
+          info: (message) => app.log.info(message),
+          warn: (message) => app.log.warn(message),
+        },
+        ...dependencies.gitPollRuntime,
+      });
+      gitPoll.start();
+    });
+  }
   app.addHook('onClose', async () => {
+    memoryMaintenance?.stop();
+    gitPoll?.stop();
     if (scheduler) clearInterval(scheduler);
     await automationExecutor.close();
     await workflowExecutor.close();
@@ -181,9 +231,16 @@ export function buildApp(
 
   app.register(
     async (v1) => {
+      // Agent 整包导入的 body 是原始 ZIP；buffer parser 不做任何 JSON 解析。
+      v1.addContentTypeParser(
+        ['application/zip', 'application/octet-stream', 'application/x-zip-compressed'],
+        { parseAs: 'buffer' },
+        (_request, body, done) => done(null, body),
+      );
       registerMetaRoutes(v1, ctx);
       registerSkillRoutes(v1, ctx);
       registerAgentRoutes(v1, ctx);
+      registerAgentPackageRoutes(v1, ctx);
       registerSessionRoutes(v1, ctx);
       registerPreferenceRoutes(v1, ctx);
       registerUsageRoutes(v1, ctx);
@@ -195,6 +252,7 @@ export function buildApp(
       registerWorkflowRoutes(v1, ctx);
       registerBoardRoutes(v1, ctx);
       registerSessionOutputRoutes(v1, ctx);
+      registerSessionDiagnosticsRoutes(v1, ctx);
       registerCapabilityRoutes(v1, ctx);
     },
     { prefix: '/api/v1' },

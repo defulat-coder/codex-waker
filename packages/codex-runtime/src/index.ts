@@ -20,10 +20,12 @@ import {
   type CodexReasoningEffort,
 } from './model-config.js';
 import { agentSessionStoreFor, AgentSessionStore } from './session-store.js';
+import { sessionSkillConfigOverrides } from './session-skills.js';
 
 export * from './agents.js';
 export * from './error-classification.js';
 export * from './events.js';
+export * from './frontmatter.js';
 export * from './json-store.js';
 export {
   getCodexModelConfig,
@@ -44,7 +46,12 @@ export type {
   CodexSandboxMode,
 } from './model-config.js';
 export { parseRolloutMessages } from './rollout.js';
+export * from './diagnostics.js';
+export * from './mcp-servers.js';
 export * from './session-store.js';
+export * from './session-skills.js';
+export * from './sidebar-sections.js';
+export * from './skill-versions.js';
 export * from './skills.js';
 export * from './templates.js';
 export * from './usage.js';
@@ -202,12 +209,15 @@ export async function createCodexAgentSession(
 
   let sessionId: string;
   let existingThreadId: string | null = null;
+  let sessionSkills: string[] | undefined;
   if (persistSession) {
     const summary = options.sessionId
       ? await store.ensureSession(options.sessionId, agent.id)
       : await store.createSession(agent.id);
     sessionId = summary.id;
-    existingThreadId = store.getEntry(sessionId, agent.id)?.threadId ?? null;
+    const binding = store.getEntry(sessionId, agent.id);
+    existingThreadId = binding?.threadId ?? null;
+    sessionSkills = binding?.skills;
   } else {
     sessionId = options.sessionId ?? `session_${randomUUID().slice(0, 8)}`;
   }
@@ -221,7 +231,13 @@ export async function createCodexAgentSession(
     throw new Error(`模型提供方需要 API key：请在 .env 配置 ${provider.envKey}`);
   }
 
-  const codex = new Codex({ env, ...(provider ? { config: provider.config } : {}) });
+  // 会话级 skill 挂载：绑定里持久化的白名单转成 skills.config path 级禁用覆盖，
+  // 与 provider 覆盖合并（键不相交）。未挂载的会话不注入该键，保持 CLI 默认发现。
+  const config = {
+    ...(provider?.config ?? {}),
+    ...(sessionSkillConfigOverrides(cwd, sessionSkills) ?? {}),
+  };
+  const codex = new Codex({ env, ...(Object.keys(config).length ? { config } : {}) });
   const workingDirectory = options.workingDirectory ?? cwd;
   const threadOptions: ThreadOptions = {
     workingDirectory,

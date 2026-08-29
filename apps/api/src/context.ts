@@ -14,6 +14,7 @@ import type { AutomationExecutor } from './automation-executor.js';
 import type { WorkflowExecutor } from './workflow-executor.js';
 import type { MemoryDreamer } from './memory-dream.js';
 import type { WorkflowDefinitionGenerator } from './workflow-generate.js';
+import type { AgentProfileSummarizer } from './agent-profile-summarize.js';
 
 const deletingAgents = new Set<string>();
 
@@ -54,6 +55,8 @@ export interface AppContext {
   memoryDream: Pick<MemoryDreamer, 'trigger'>;
   /** WakerFlow AI 生成定义的一次性调用；默认 runCodexOneShot，测试注入替身。 */
   generateWorkflowDefinition: WorkflowDefinitionGenerator;
+  /** Agent 关于我画像派生的一次性调用；默认 runCodexOneShot，测试注入替身。 */
+  summarizeAgentProfile: AgentProfileSummarizer;
 }
 
 export function agentOr404(ctx: AppContext, agentId: string, reply: FastifyReply) {

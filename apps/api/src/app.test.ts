@@ -301,6 +301,73 @@ describe('Waker API', () => {
     assert.equal(missing.statusCode, 404);
   });
 
+  it('mounts skills on session create/PATCH with catalog validation', async () => {
+    mkdirSync(join(root, '.agents', 'skills', 'probe'), { recursive: true });
+    writeFileSync(
+      join(root, '.agents', 'skills', 'probe', 'SKILL.md'),
+      '---\nname: probe\ndescription: Probe skill.\n---\n\nProbe.\n',
+    );
+
+    // 未知技能名在创建与 PATCH 都是 400。
+    const badCreate = await app.inject({
+      method: 'POST',
+      url: '/api/v1/agents/codex-assistant/sessions',
+      payload: { skills: ['nope'] },
+    });
+    assert.equal(badCreate.statusCode, 400);
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/v1/agents/codex-assistant/sessions',
+      payload: { skills: ['probe'] },
+    });
+    assert.equal(created.statusCode, 200);
+    const sessionId = created.json().id as string;
+    assert.deepEqual(created.json().skills, ['probe']);
+    // 持久化在绑定条目上（runtime 重建时按此注入 skills.config 覆盖）。
+    assert.deepEqual(sessions.getEntry(sessionId, 'codex-assistant')?.skills, ['probe']);
+
+    const badPatch = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/agents/codex-assistant/sessions/${sessionId}`,
+      payload: { skills: ['nope'] },
+    });
+    assert.equal(badPatch.statusCode, 400);
+
+    // 空数组 = 关闭全部目录技能；null = 取消挂载恢复默认发现。
+    const emptied = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/agents/codex-assistant/sessions/${sessionId}`,
+      payload: { skills: [] },
+    });
+    assert.equal(emptied.statusCode, 200);
+    assert.deepEqual(emptied.json().skills, []);
+    const cleared = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/agents/codex-assistant/sessions/${sessionId}`,
+      payload: { skills: null },
+    });
+    assert.equal(cleared.statusCode, 200);
+    assert.equal(cleared.json().skills, undefined);
+
+    // title 与 skills 可同请求更新；只传 title 不动挂载。
+    const both = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/agents/codex-assistant/sessions/${sessionId}`,
+      payload: { title: '挂载讨论', skills: ['probe'] },
+    });
+    assert.equal(both.statusCode, 200);
+    assert.equal(both.json().title, '挂载讨论');
+    assert.deepEqual(both.json().skills, ['probe']);
+    const renamedOnly = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/agents/codex-assistant/sessions/${sessionId}`,
+      payload: { title: '只改名' },
+    });
+    assert.equal(renamedOnly.statusCode, 200);
+    assert.deepEqual(renamedOnly.json().skills, ['probe']);
+  });
+
   it('rename 排在同一 session 的 in-flight 任务之后，不与进行中的写并发', async () => {
     const created = await app.inject({
       method: 'POST',

@@ -1,17 +1,30 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { Type } from '@sinclair/typebox';
-import { getCodexSandboxConfig } from '@waker/codex-runtime';
+import { join } from 'node:path';
+import {
+  getCodexSandboxConfig,
+  probeMcpServerTools,
+  registerMcpServer,
+  removeMcpServer,
+} from '@waker/codex-runtime';
 import type { Connector, HumanAction, PermissionPolicy } from '@waker/workspace-data';
 import type { AppContext } from '../context.js';
 
 const id = Type.String({ minLength: 1, maxLength: 200 });
 const HOST_TOOLS = ['file_read', 'shell', 'web_search', 'mcp'] as const;
 
+function connectorError(value: Connector): string | undefined {
+  const message = value.metadata.lastError;
+  return typeof message === 'string' && message ? message : undefined;
+}
+
 function connectorDto(value: Connector) {
+  const error = connectorError(value);
   return {
     ...value,
     ...(value.command ? { command: value.command } : { command: undefined }),
     ...(value.url ? { url: value.url } : { url: undefined }),
+    ...(error ? { error } : {}),
     createdAt: new Date(value.createdAt).toISOString(),
     updatedAt: new Date(value.updatedAt).toISOString(),
   };
@@ -33,6 +46,113 @@ function actionDto(value: HumanAction) {
 
 function badRequest(reply: FastifyReply, error: unknown): void {
   reply.code(400).send({ error: error instanceof Error ? error.message : '请求无法处理' });
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/** connector 对应的 mcp_servers 条目名（UUID 只含安全字符）。 */
+function mcpServerName(connector: Connector): string {
+  return `waker_${connector.id}`;
+}
+
+function metadataWithError(connector: Connector, message: string): Record<string, unknown> {
+  return { ...connector.metadata, lastError: message };
+}
+
+function metadataWithoutError(connector: Connector): Record<string, unknown> {
+  const { lastError: _dropped, ...metadata } = connector.metadata;
+  return metadata;
+}
+
+/**
+ * enable 的真实语义（对齐 QoderWake 0.4.2 ConnectorToolDiscoveryService）：
+ * 先把 MCP server 合并写入 Codex CLI 配置面（$CODEX_HOME/config.toml，新线程生效），
+ * 再用 MCP 协议直连探测工具列表；任一步失败 status='error' + lastError。
+ */
+async function enableConnectorReal(
+  ctx: AppContext,
+  wakerId: string,
+  connectorId: string,
+): Promise<Connector | undefined> {
+  const connector = ctx.workspaceData.getConnector(wakerId, connectorId);
+  if (!connector) return undefined;
+  const spec = {
+    name: mcpServerName(connector),
+    transport: connector.transport,
+    ...(connector.command ? { command: connector.command } : {}),
+    ...(connector.url ? { url: connector.url } : {}),
+  };
+  const codexHome = join(ctx.cwd, '.codex');
+  try {
+    await registerMcpServer(codexHome, spec);
+  } catch (error) {
+    return ctx.workspaceData.updateConnector(wakerId, connectorId, {
+      status: 'error',
+      metadata: metadataWithError(connector, errorMessage(error)),
+    });
+  }
+  try {
+    const tools = await probeMcpServerTools(spec);
+    return ctx.workspaceData.updateConnector(wakerId, connectorId, {
+      status: 'ready',
+      tools,
+      metadata: metadataWithoutError(connector),
+    });
+  } catch (error) {
+    return ctx.workspaceData.updateConnector(wakerId, connectorId, {
+      status: 'error',
+      metadata: metadataWithError(connector, errorMessage(error)),
+    });
+  }
+}
+
+async function disableConnectorReal(
+  ctx: AppContext,
+  wakerId: string,
+  connectorId: string,
+): Promise<Connector | undefined> {
+  const connector = ctx.workspaceData.getConnector(wakerId, connectorId);
+  if (!connector) return undefined;
+  try {
+    await removeMcpServer(join(ctx.cwd, '.codex'), mcpServerName(connector));
+  } catch (error) {
+    return ctx.workspaceData.updateConnector(wakerId, connectorId, {
+      status: 'error',
+      metadata: metadataWithError(connector, errorMessage(error)),
+    });
+  }
+  return ctx.workspaceData.updateConnector(wakerId, connectorId, {
+    status: 'disabled',
+    metadata: metadataWithoutError(connector),
+  });
+}
+
+async function probeConnectorReal(
+  ctx: AppContext,
+  wakerId: string,
+  connectorId: string,
+): Promise<Connector | undefined> {
+  const connector = ctx.workspaceData.getConnector(wakerId, connectorId);
+  if (!connector) return undefined;
+  try {
+    const tools = await probeMcpServerTools({
+      transport: connector.transport,
+      ...(connector.command ? { command: connector.command } : {}),
+      ...(connector.url ? { url: connector.url } : {}),
+    });
+    return ctx.workspaceData.updateConnector(wakerId, connectorId, {
+      status: connector.status === 'disabled' ? 'disabled' : 'ready',
+      tools,
+      metadata: metadataWithoutError(connector),
+    });
+  } catch (error) {
+    return ctx.workspaceData.updateConnector(wakerId, connectorId, {
+      status: 'error',
+      metadata: metadataWithError(connector, errorMessage(error)),
+    });
+  }
 }
 
 export function registerCapabilityRoutes(app: FastifyInstance, ctx: AppContext): void {
@@ -96,8 +216,8 @@ export function registerCapabilityRoutes(app: FastifyInstance, ctx: AppContext):
         try {
           const updated =
             action === 'enable'
-              ? ctx.workspaceData.enableConnector(wakerId, connectorId)
-              : ctx.workspaceData.disableConnector(wakerId, connectorId);
+              ? await enableConnectorReal(ctx, wakerId, connectorId)
+              : await disableConnectorReal(ctx, wakerId, connectorId);
           return updated
             ? connectorDto(updated)
             : reply.code(404).send({ error: 'Connector 不存在' });
@@ -107,6 +227,23 @@ export function registerCapabilityRoutes(app: FastifyInstance, ctx: AppContext):
       },
     );
   }
+
+  app.post(
+    '/connectors/:connectorId/probe',
+    { schema: { params: Type.Object({ connectorId: id }), body: Type.Object({ wakerId: id }) } },
+    async (request, reply) => {
+      const { connectorId } = request.params as { connectorId: string };
+      const { wakerId } = request.body as { wakerId: string };
+      try {
+        const updated = await probeConnectorReal(ctx, wakerId, connectorId);
+        return updated
+          ? connectorDto(updated)
+          : reply.code(404).send({ error: 'Connector 不存在' });
+      } catch (error) {
+        return badRequest(reply, error);
+      }
+    },
+  );
 
   app.delete(
     '/connectors/:connectorId',
@@ -119,6 +256,15 @@ export function registerCapabilityRoutes(app: FastifyInstance, ctx: AppContext):
     async (request, reply) => {
       const { connectorId } = request.params as { connectorId: string };
       const { wakerId } = request.query as { wakerId: string };
+      const connector = ctx.workspaceData.getConnector(wakerId, connectorId);
+      if (!connector) return reply.code(404).send({ error: 'Connector 不存在' });
+      // 删除连带清掉 Codex CLI 配置面里的条目；清理失败不阻塞删除（残留条目
+      // 指向的 server 不再被引用，下次 enable 同名覆盖）。
+      try {
+        await removeMcpServer(join(ctx.cwd, '.codex'), mcpServerName(connector));
+      } catch {
+        // best-effort
+      }
       return ctx.workspaceData.deleteConnector(wakerId, connectorId)
         ? reply.code(204).send()
         : reply.code(404).send({ error: 'Connector 不存在' });

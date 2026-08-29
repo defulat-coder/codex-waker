@@ -1,6 +1,11 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { Type } from '@sinclair/typebox';
-import { MemoryError, type MemoryFilter, type MemoryScope } from '@waker/memory';
+import {
+  MemoryError,
+  runMemoryMaintenance,
+  type MemoryFilter,
+  type MemoryScope,
+} from '@waker/memory';
 import type { AppContext } from '../context.js';
 
 const id = Type.String({ minLength: 1, maxLength: 200 });
@@ -230,6 +235,30 @@ export function registerMemoryRoutes(app: FastifyInstance, ctx: AppContext): voi
       };
       try {
         return ctx.memory.rollback(body.snapshotId, body);
+      } catch (error) {
+        return handleMemoryError(reply, error);
+      }
+    },
+  );
+
+  app.post(
+    '/memory/maintenance/run',
+    {
+      schema: {
+        body: Type.Object({
+          scope: scopeSchema,
+          staleAfterDays: Type.Optional(Type.Integer({ minimum: 1, maximum: 3650 })),
+        }),
+      },
+    },
+    async (request, reply) => {
+      const body = request.body as { scope: MemoryScope; staleAfterDays?: number };
+      try {
+        return runMemoryMaintenance(ctx.memory, {
+          scope: body.scope,
+          trigger: 'manual',
+          ...(body.staleAfterDays ? { staleAfterDays: body.staleAfterDays } : {}),
+        });
       } catch (error) {
         return handleMemoryError(reply, error);
       }

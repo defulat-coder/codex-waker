@@ -24,6 +24,7 @@ import type {
   LibrarySkillDetail,
   LocalResourcesResponse,
   MemoryDocument,
+  MemoryMaintenanceReport,
   MemoryScope,
   MemorySnapshot,
   MemoryTimelineEntry,
@@ -33,6 +34,8 @@ import type {
   SessionArtifact,
   SessionFileChange,
   SessionOutputsResponse,
+  SummarizeAgentProfileRequest,
+  SummarizeAgentProfileResponse,
   WakerConnector,
   WakerPermissionPolicy,
   HumanActionRecord,
@@ -424,6 +427,16 @@ export async function fetchMemoryTimeline(scope: MemoryScope): Promise<MemoryTim
     )
   ).items;
 }
+export async function runMemoryMaintenance(scope: MemoryScope): Promise<MemoryMaintenanceReport> {
+  return readJson(
+    await fetch('/api/v1/memory/maintenance/run', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ scope }),
+    }),
+    '记忆维护暂时无法执行',
+  );
+}
 export async function fetchMemoryDiff(from: string, to: string): Promise<string> {
   const query = new URLSearchParams({ from, to });
   return (
@@ -483,7 +496,7 @@ export async function importMemory(input: {
 
 export async function automationAction(
   id: string,
-  action: 'pause' | 'resume',
+  action: 'pause' | 'resume' | 'rotate-trigger-key',
   wakerId: string,
 ): Promise<WakerAutomation> {
   return readJson(
@@ -1054,6 +1067,21 @@ export async function updateAgent(
       body: JSON.stringify(request),
     }),
     'Agent 暂时无法保存',
+  );
+}
+
+/** 画像派生：apply=true 时服务端把派生的 strengths/workStyles 回写进定义文件。 */
+export async function summarizeAgentProfile(
+  agentId: string,
+  request: SummarizeAgentProfileRequest = {},
+): Promise<SummarizeAgentProfileResponse> {
+  return readJson(
+    await fetch(`/api/v1/agents/${encodeURIComponent(agentId)}/summarize-profile`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(request),
+    }),
+    '画像派生暂时不可用',
   );
 }
 

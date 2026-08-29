@@ -35,6 +35,10 @@ const schema = Type.Object({
   CODEX_API_KEY: Type.Optional(Type.String({ minLength: 1, maxLength: 240 })),
   // 对话后自动 memory 提取（memory dream）：'off' 时整体禁用，默认启用。
   WAKER_MEMORY_DREAM: Type.Optional(Type.String()),
+  // 每日 memory 维护周期作业（trigger='cron'）：'off' 时不启动，默认启用。
+  WAKER_MEMORY_MAINTENANCE: Type.Optional(Type.String()),
+  // git-poll 轮询作业（kind='git-poll' 触发源）：'off' 时不启动，默认启用。
+  WAKER_GIT_POLL: Type.Optional(Type.String()),
   LOG_LEVEL: Type.Union(
     [
       Type.Literal('trace'),

@@ -130,6 +130,35 @@ export interface AgentHomeResponse {
   activity: Array<{ date: string; count: number }>;
 }
 
+/**
+ * Report of POST /api/v1/agents/import-package; dry-run and apply share the shape
+ * (dry-run 只描述计划，apply 报告真实落地结果).
+ */
+export interface AgentPackageImportReport {
+  mode: 'dry-run' | 'apply';
+  /** Target agent id (query override wins over the manifest id). */
+  agentId: string;
+  agentName: string;
+  /** create = 新建目标 Agent；overwrite = 覆盖已有定义与包内包含的同类数据。 */
+  action: 'create' | 'overwrite';
+  /** Unknown/tool-ish frontmatter fields stripped from the imported definition. */
+  strippedFrontmatter: string[];
+  contents: {
+    avatar: boolean;
+    memories: number;
+    projects: number;
+    automations: number;
+    workflows: number;
+    connectors: number;
+    preferences: number;
+    knowledgeBindings: number;
+  };
+  /** Entries that will not / did not land (missing notebook, invalid model preference, bad avatar). */
+  skipped: Array<{ kind: string; id: string; reason: string }>;
+  /** Per-item write failures (apply only; empty in dry-run). */
+  failures: Array<{ kind: string; id: string; error: string }>;
+}
+
 export interface SessionSummary {
   id: string;
   agentId: string;
@@ -146,6 +175,12 @@ export interface SessionSummary {
   attentionDetail?: string;
   /** 收件箱预览：最后一条 assistant 文本（无则最后一条 user 文本），压缩成单行并截断；为空时省略。 */
   preview?: string;
+  /**
+   * 会话级挂载的项目技能名（白名单语义）：设置后该会话只启用列表内的目录技能，
+   * 其余目录技能由 runtime 以 `skills.config` path 级 enabled=false 覆盖关掉；
+   * 未设置 = 跟随 CLI 默认的全量发现。空数组 = 关闭全部目录技能。
+   */
+  skills?: string[];
 }
 
 /** Payload of GET /api/v1/agents/:agentId/sessions. */
@@ -184,9 +219,43 @@ export interface InboxReadAllResponse {
   updated: number;
 }
 
-/** Payload of PATCH /api/v1/agents/:agentId/sessions/:sessionId. */
-export interface RenameSessionRequest {
-  title: string;
+/** Payload of POST /api/v1/agents/:agentId/sessions; 全部字段可选。 */
+export interface CreateSessionRequest {
+  /** 会话级挂载的项目技能名；省略 = 跟随 CLI 默认全量发现。 */
+  skills?: string[];
+}
+
+/** Payload of PATCH /api/v1/agents/:agentId/sessions/:sessionId; 至少一个字段。 */
+export interface UpdateSessionRequest {
+  title?: string;
+  /** 全量替换挂载列表；null = 取消挂载，恢复 CLI 默认全量发现。 */
+  skills?: string[] | null;
+}
+
+/** 侧边栏会话分组的一个分组（复刻 QoderWake 0.4.2 console sidebar-sections，最多两级嵌套）。 */
+export interface SidebarSection {
+  id: string;
+  /** 1-32 字符。 */
+  name: string;
+  /** 父分组 id；顶层为 null。父分组自身不能再有父级。 */
+  parentId: string | null;
+  /** 同级排序权重。 */
+  order: number;
+}
+
+/**
+ * 一个 Agent 的侧边栏分组全量状态；GET/PUT /api/v1/agents/:agentId/sidebar-sections 的载荷。
+ * PUT 为全量替换，updatedAt 由服务端重写。
+ */
+export interface SidebarSectionsState {
+  sections: SidebarSection[];
+  /** sessionId → sectionId。 */
+  assignments: Record<string, string>;
+  /** 顶层条目的展示顺序：section id 与未分组 session id 混合。 */
+  entryOrder: string[];
+  /** 处于折叠状态的 section id。 */
+  collapsed: string[];
+  updatedAt: string;
 }
 
 /** A browser-held attachment uploaded atomically with one chat turn. */
@@ -288,6 +357,120 @@ export interface SessionMessage {
 /** Payload of GET /api/v1/agents/:agentId/sessions/:sessionId/messages. */
 export interface SessionMessagesResponse {
   items: SessionMessage[];
+}
+
+/** 一次 turn 失败的本地补记（session_turn_failures 表），runtime-diagnostics 原样携带。 */
+export interface SessionTurnFailure {
+  timestamp: string;
+  errorMessage: string;
+  kind?: ChatErrorKind;
+  resetAt?: string;
+}
+
+/**
+ * Payload of GET /api/v1/sessions/:sessionId/runtime-diagnostics（复刻 QoderWake 0.4.2
+ * session-runtime diagnostics 的按会话裁剪版）。全部字段来自真实存储：sessions 绑定表、
+ * session_turn_failures、Codex rollout JSONL 的解析结果；无数据源的旧版字段直接省略。
+ */
+export interface SessionRuntimeDiagnostics {
+  sessionId: string;
+  agentId: string;
+  /** 绑定的 Codex thread id；首轮 thread.started 之前为 null。 */
+  threadId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  /** 由收件箱/attention 状态推导：有未处理的出错/中断 > 已完成 > 空闲。 */
+  status: 'idle' | 'needs_attention' | 'completed';
+  /** 绑定 thread 的 rollout 文件；未绑定 thread 或文件已删除时为 null。 */
+  rollout: { path: string; sizeBytes: number; updatedAt: string } | null;
+  /** rollout session_meta 里的运行时信息；无 rollout 时为空对象。 */
+  runtime: { cliVersion?: string; modelProvider?: string };
+  /** rollout 记录计数，按 `type` 或 `type/payload.type` 分桶。 */
+  events: { total: number; byType: Record<string, number> };
+  turns: { total: number; completed: number; failed: number; aborted: number; running: number };
+  /** rollout 最后一次 token_count 报告的会话级累计用量；从未报告时省略。 */
+  usage?: ChatUsage;
+  /** 本地补记的 turn 失败（rollout 未留下 error 记录的轮次），按时间升序。 */
+  failures: SessionTurnFailure[];
+}
+
+export type SessionDebugNodeStatus = 'completed' | 'failed' | 'running' | 'cancelled';
+export type SessionDebugSeverity = 'normal' | 'warning' | 'danger';
+
+/**
+ * Debug timeline 的一个节点（对齐 QoderWake 0.4.2 buildSessionDebugTimeline 的 node 形状）；
+ * kind 取自本地 rollout 可真实提供的事件：turn_start / user_message / reasoning /
+ * assistant_message / tool_call / token_usage / error / turn_aborted / turn_complete。
+ */
+export interface SessionDebugTimelineNode {
+  id: string;
+  kind: string;
+  startedAt: string;
+  durationMs: number | null;
+  status: SessionDebugNodeStatus;
+  severity: SessionDebugSeverity;
+  reasonCode?: string;
+  supportInfo: Record<string, unknown>;
+}
+
+/** Debug timeline 的一轮（对应旧版 round；requestSetId 本地取 rollout turn_id）。 */
+export interface SessionDebugTimelineRound {
+  id: string;
+  index: number;
+  requestSetId: string;
+  title: 'round_initial' | 'round_followup';
+  startedAt: string;
+  durationMs: number | null;
+  status: SessionDebugNodeStatus;
+  nodes: SessionDebugTimelineNode[];
+}
+
+/**
+ * Payload of GET /api/v1/sessions/:sessionId/debug-timeline（对齐旧版
+ * buildSessionDebugTimeline 的整体形状；数据全部来自 rollout 解析）。
+ */
+export interface SessionDebugTimeline {
+  sessionId: string;
+  available: boolean;
+  generatedAt: string;
+  summary: {
+    status: SessionDebugNodeStatus | 'insufficient_data';
+    totalDurationMs: number | null;
+    roundCount: number;
+    errorCount: number;
+    warningCount: number;
+    primaryDelayNodeId?: string;
+  };
+  rounds: SessionDebugTimelineRound[];
+}
+
+/** 一次 turn 的 trace（GET /api/v1/sessions/:sessionId/traces 的条目）。 */
+export interface SessionTurnTrace {
+  /** rollout 的 turn_id；缺失时退回 `turn-<index>`。 */
+  traceId: string;
+  index: number;
+  status: 'completed' | 'failed' | 'aborted' | 'running';
+  /** turn_context 报告的模型；缺失时省略。 */
+  model?: string;
+  /** turn_context 报告的 reasoning effort；缺失时省略。 */
+  thinking?: string;
+  startedAt?: string;
+  finishedAt?: string;
+  durationMs?: number;
+  timeToFirstTokenMs?: number;
+  /** 本轮 token 用量（token_count 的 last_token_usage）；未报告时省略。 */
+  usage?: ChatUsage;
+  /** 本轮去重后的工具调用数（function_call 与 item_completed 按 id 合并）。 */
+  toolCallCount: number;
+  errorMessage?: string;
+}
+
+/** Payload of GET /api/v1/sessions/:sessionId/traces。 */
+export interface SessionTracesResponse {
+  sessionId: string;
+  agentId: string;
+  items: SessionTurnTrace[];
+  total: number;
 }
 
 /** Payloads transported by the POST /api/v1/chat SSE endpoint. */
@@ -510,6 +693,142 @@ export interface InstalledSkillContent {
   integrity: InstalledSkillSummary['integrity'];
 }
 
+/* ---- Skill 内容版本（`.agents/skills/` 只读取快照，归档于 .codex/skill-versions/） ---- */
+
+export type SkillVersionTrigger = 'manual' | 'auto' | 'rollback';
+
+/** 相对上一版的新增/修改/删除文件（repo 相对 POSIX 路径）。 */
+export interface SkillVersionChanges {
+  added: string[];
+  modified: string[];
+  deleted: string[];
+}
+
+/* ---- Skill 安全扫描（确定性正则/启发式，只报告不拦截） ---- */
+
+export type SkillSafetySeverity = 'critical' | 'warning' | 'info';
+
+export interface SkillSafetyFinding {
+  /** 规则 id，如 prompt-injection / secret-exfiltration。 */
+  ruleId: string;
+  severity: SkillSafetySeverity;
+  /** 命中文件（`.agents/skills/` 相对 POSIX 路径）。 */
+  path: string;
+  /** 1 起始行号。 */
+  line: number;
+  message: string;
+}
+
+export interface SkillScanCounts {
+  critical: number;
+  warning: number;
+  info: number;
+}
+
+export interface SkillScanSummary {
+  /** 实际参与扫描的文本文件（二进制/超阈值文件不扫）。 */
+  scannedPaths: string[];
+  /** 命中明细（有上限，截断见 truncated）。 */
+  findings: SkillSafetyFinding[];
+  counts: SkillScanCounts;
+  /** 最高严重级别；零命中为 clean。 */
+  level: 'critical' | 'warning' | 'info' | 'clean';
+  /** findings 超过保留上限时为 true，counts 仍是完整计数。 */
+  truncated?: boolean;
+}
+
+/** Payload of POST /api/v1/skills/scan：当前 `.agents/skills/` 全量扫描报告。 */
+export interface SkillScanReport extends SkillScanSummary {
+  scannedAt: string;
+  /** 目录内文件总数（含未参与扫描的）。 */
+  totalFiles: number;
+}
+
+export interface SkillVersionSummary {
+  /** vNNNNNN，零填充序号即时间序。 */
+  id: string;
+  createdAt: string;
+  label?: string;
+  trigger: SkillVersionTrigger;
+  /** 整树指纹：按路径排序的 路径+逐文件 sha256 的 sha256。 */
+  fingerprint: string;
+  fileCount: number;
+  changes: SkillVersionChanges;
+  /** 记版时对 added/modified 文本文件的安全扫描摘要；老版本快照可能缺失。 */
+  scan?: SkillScanSummary;
+}
+
+export interface SkillVersionFileEntry {
+  path: string;
+  sha256: string;
+  size: number;
+  /** false = 超过 1MB 只记指纹未归档内容，diff/rollback 无法还原该文件。 */
+  archived: boolean;
+}
+
+/** Payload of GET /api/v1/skills/versions/:versionId。 */
+export interface SkillVersionDetail extends SkillVersionSummary {
+  files: SkillVersionFileEntry[];
+}
+
+/** Payload of GET /api/v1/skills/versions。 */
+export interface SkillVersionListResponse {
+  items: SkillVersionSummary[];
+  total: number;
+}
+
+/** Payload of POST /api/v1/skills/snapshots。 */
+export interface SkillSnapshotRequest {
+  label?: string;
+}
+
+export interface SkillSnapshotResponse {
+  version: SkillVersionDetail;
+  /** false = 目录无漂移，返回的是最新既有版本。 */
+  created: boolean;
+}
+
+export interface SkillDiffFileChange {
+  path: string;
+  status: 'added' | 'modified' | 'deleted';
+  /** 文本文件且有归档内容时的 unified diff。 */
+  diff?: string;
+  /** 二进制或未归档内容时的说明（替代 diff）。 */
+  note?: string;
+}
+
+/** Payload of GET /api/v1/skills/diff?from=&to=；to 可为字面量 current（实时目录）。 */
+export interface SkillDiffResponse {
+  from: string;
+  to: string;
+  files: SkillDiffFileChange[];
+}
+
+/** Payload of POST /api/v1/skills/rollback；默认 dry-run，apply=true 才写入。 */
+export interface SkillRollbackRequest {
+  versionId: string;
+  apply?: boolean;
+  reason?: string;
+}
+
+export interface SkillRollbackPlan {
+  /** 内容将被恢复为快照内容的文件。 */
+  restore: string[];
+  /** 快照之后新增、将被删除的文件。 */
+  delete: string[];
+  unchanged: number;
+  skipped: { path: string; reason: string }[];
+  upToDate: boolean;
+}
+
+export interface SkillRollbackResponse {
+  versionId: string;
+  applied: boolean;
+  plan: SkillRollbackPlan;
+  /** apply=true 写入前自动打的当前状态快照 id（可借此反悔）。 */
+  preSnapshotId?: string;
+}
+
 /** Payload of GET /api/v1/skills/library/detail：skills.sh 详情页解析结果。 */
 export interface LibrarySkillDetail {
   /** skills.sh 三段式 id，e.g. "vercel-labs/skills/find-skills"。 */
@@ -645,6 +964,34 @@ export interface AgentTemplate {
 
 export interface AgentTemplatesResponse {
   items: AgentTemplate[];
+}
+
+/** Payload for POST /api/v1/agents/:agentId/summarize-profile; derives the 关于我 profile with a one-shot model call. */
+export interface SummarizeAgentProfileRequest {
+  /** Optional model override; must be in the configured catalog (invalid values are 400). */
+  model?: string;
+  /** Optional per-call thinking level. */
+  thinking?: AgentThinkingLevel;
+  /** When true, the derived sections are written back into the agent file frontmatter. */
+  apply?: boolean;
+}
+
+/** Model-derived agent profile; mirrors the legacy coreCapabilities/workStyles shape. */
+export interface AgentDerivedProfile {
+  /** Derived 我最擅长 items (legacy coreCapabilities: 4-5 {name, description} entries). */
+  coreCapabilities: AgentProfileSectionItem[];
+  /** Derived 工作风格 items (legacy workStyles: 4-5 {name, description} entries). */
+  workStyles: AgentProfileSectionItem[];
+  /** Derived task descriptions the agent is a good fit for; returned but never persisted. */
+  suggestedUseCases: string[];
+}
+
+/** Payload of POST /api/v1/agents/:agentId/summarize-profile. */
+export interface SummarizeAgentProfileResponse {
+  agentId: string;
+  profile: AgentDerivedProfile;
+  /** True when apply wrote the derived sections back into .codex/agents/<id>.md. */
+  applied: boolean;
 }
 
 /** Payload of GET /api/v1/preferences; keys are namespaced (ui.*, thinking.<agentId>). */
@@ -805,7 +1152,7 @@ export interface WakerAutomation {
   id: string;
   wakerId: string;
   name: string;
-  kind: 'schedule' | 'api' | 'event';
+  kind: 'schedule' | 'api' | 'event' | 'git-poll';
   schedule?: string;
   prompt: string;
   projectId?: string;
@@ -823,6 +1170,16 @@ export interface WakerAutomation {
   lastScheduledAt?: string;
   nextRunAt?: string;
   completedAt?: string;
+  /** Inbound api/event trigger credential; present only for externally triggered kinds. */
+  triggerKey?: string;
+  /** git-poll：轮询的 git 仓库（本地路径或远端 URL）。 */
+  repo?: string;
+  /** git-poll：轮询的分支；缺省表示仓库默认分支/HEAD。 */
+  branch?: string;
+  /** git-poll：轮询间隔（秒）。 */
+  pollIntervalSeconds?: number;
+  /** git-poll：上次观测到的分支头 commit。 */
+  lastSeenCommit?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -1097,13 +1454,35 @@ export interface MemoryTimelineEntry {
   createdAt: string;
 }
 
+export type MemoryMaintenanceTrigger = 'cron' | 'manual';
+
+export interface MemoryMaintenanceAction {
+  documentId: string;
+  title: string;
+  action: 'deleted' | 'skipped';
+  reason: string;
+  snapshotId?: string;
+}
+
+export interface MemoryMaintenanceReport {
+  scope: MemoryScope;
+  trigger: MemoryMaintenanceTrigger;
+  startedAt: string;
+  finishedAt: string;
+  checked: number;
+  deleted: number;
+  snapshotted: number;
+  skipped: number;
+  actions: MemoryMaintenanceAction[];
+}
+
 export interface AutomationRunRecord {
   id: string;
   automationId: string;
   taskId: string;
   wakerId: string;
   status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'skipped';
-  trigger: 'manual' | 'scheduled';
+  trigger: 'manual' | 'scheduled' | 'api' | 'event' | 'git';
   scheduledFor?: string;
   nameSnapshot: string;
   promptSnapshot: string;
@@ -1122,6 +1501,55 @@ export interface AutomationRunRecord {
   updatedAt: string;
   startedAt?: string;
   completedAt?: string;
+}
+
+export type AutomationRunStatusName =
+  | 'queued'
+  | 'running'
+  | 'succeeded'
+  | 'failed'
+  | 'cancelled'
+  | 'skipped';
+export type AutomationRunTriggerName = 'manual' | 'scheduled' | 'api' | 'event' | 'git';
+
+export interface AutomationRunStatsBreakdown {
+  total: number;
+  byStatus: Record<AutomationRunStatusName, number>;
+  byTrigger: Record<AutomationRunTriggerName, number>;
+  /** succeeded / (succeeded + failed + cancelled); null until a run reaches a finished status. */
+  successRate: number | null;
+  lastRunAt?: string;
+  lastRunStatus?: AutomationRunStatusName;
+}
+
+export interface AutomationStatsEntry extends AutomationRunStatsBreakdown {
+  automationId: string;
+  name: string;
+  kind: 'schedule' | 'api' | 'event' | 'git-poll';
+  enabled: boolean;
+}
+
+export interface AutomationStatsResponse {
+  wakerId: string;
+  totals: AutomationRunStatsBreakdown;
+  automations: AutomationStatsEntry[];
+}
+
+export interface AutomationCalendarDay {
+  /** YYYY-MM-DD in the requested timezone. */
+  date: string;
+  /** Runs created on that day. */
+  runs: number;
+  /** Planned occurrences of enabled schedule automations on that day. */
+  scheduled: number;
+}
+
+export interface AutomationCalendarResponse {
+  wakerId: string;
+  timezone: string;
+  from: string;
+  to: string;
+  days: AutomationCalendarDay[];
 }
 
 export interface WorkflowRunRecord {
@@ -1227,6 +1655,8 @@ export interface WakerConnector {
   url?: string;
   metadata: Record<string, unknown>;
   status: 'disabled' | 'ready' | 'error';
+  /** 最近一次 enable/probe 失败的错误消息（status 为 error 时给出）。 */
+  error?: string;
   tools: Array<{ name: string; description?: string }>;
   createdAt: string;
   updatedAt: string;

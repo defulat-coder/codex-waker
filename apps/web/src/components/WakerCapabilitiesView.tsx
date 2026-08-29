@@ -176,7 +176,11 @@ export function WakerCapabilitiesView({
                     <strong>{item.name}</strong>
                     <small>
                       {item.transport} · {item.command ?? item.url} · {item.tools.length} tools
+                      {item.tools.length
+                        ? `：${item.tools.map((tool) => tool.name).join('、')}`
+                        : ''}
                     </small>
+                    {item.error ? <small className="connector-error">{item.error}</small> : null}
                   </div>
                   <span className={cx('resource-status', item.status)}>{item.status}</span>
                   <button

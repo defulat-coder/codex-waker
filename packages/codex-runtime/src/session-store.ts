@@ -14,11 +14,27 @@ import {
   AGENT_ID_PATTERN,
   type ChatCitationSource,
   type ChatErrorKind,
+  type SessionDebugTimeline,
   type SessionMessage,
+  type SessionRuntimeDiagnostics,
   type SessionSummary,
+  type SessionTracesResponse,
+  type SessionTurnFailure,
+  type SidebarSectionsState,
 } from '@waker/contracts';
+import {
+  analyzeRollout,
+  buildSessionDebugTimeline,
+  tracesFromAnalysis,
+  type RolloutAnalysis,
+} from './diagnostics.js';
 import { readCodexSettings } from './model-config.js';
 import { parseRolloutMessages, sanitizeCitationSources } from './rollout.js';
+import {
+  emptySidebarSections,
+  SidebarSectionsValidationError,
+  validateSidebarSections,
+} from './sidebar-sections.js';
 
 const AGENT_ID_REGEX = new RegExp(AGENT_ID_PATTERN);
 
@@ -51,6 +67,8 @@ export interface WorkbenchSessionEntry {
   read?: boolean;
   /** 被标记完成的时间；未完成为 undefined。 */
   completedAt?: string;
+  /** 会话级挂载的项目技能名（白名单）；undefined = 跟随 CLI 默认全量发现。 */
+  skills?: string[];
 }
 
 /** 旧版 .codex/workbench.json 的形状，仅用于一次性迁移。 */
@@ -68,9 +86,23 @@ interface SessionRow {
   updated_at: string;
   read: number | null;
   completed_at: string | null;
+  skills: string | null;
+}
+
+function skillsFromJson(raw: string | null): string[] | undefined {
+  if (raw === null) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return undefined;
+    const names = parsed.filter((name): name is string => typeof name === 'string');
+    return names;
+  } catch {
+    return undefined; // 单行坏 JSON 按未挂载处理，不影响会话本身。
+  }
 }
 
 function entryFromRow(row: SessionRow): WorkbenchSessionEntry {
+  const skills = skillsFromJson(row.skills);
   return {
     agentId: row.agent_id,
     threadId: row.thread_id,
@@ -79,6 +111,7 @@ function entryFromRow(row: SessionRow): WorkbenchSessionEntry {
     updatedAt: row.updated_at,
     read: row.read === 1,
     ...(row.completed_at !== null ? { completedAt: row.completed_at } : {}),
+    ...(skills !== undefined ? { skills } : {}),
   };
 }
 
@@ -92,6 +125,7 @@ function rowParams(id: string, entry: WorkbenchSessionEntry): unknown[] {
     entry.updatedAt,
     entry.read ? 1 : 0,
     entry.completedAt ?? null,
+    entry.skills !== undefined ? JSON.stringify(entry.skills) : null,
   ];
 }
 
@@ -159,11 +193,16 @@ export class WorkbenchStore {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         read INTEGER,
-        completed_at TEXT
+        completed_at TEXT,
+        skills TEXT
       );
       CREATE TABLE IF NOT EXISTS preferences (
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS sidebar_sections (
+        agent_id TEXT PRIMARY KEY,
+        state_json TEXT NOT NULL
       );
       CREATE TABLE IF NOT EXISTS session_turn_sources (
         session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -182,7 +221,18 @@ export class WorkbenchStore {
       CREATE INDEX IF NOT EXISTS idx_session_turn_failures_session
         ON session_turn_failures(session_id);
     `);
+    this.migrateSessionSkillsColumn();
     this.migrateLegacyJson();
+  }
+
+  /** 既有库补 skills 列（会话级技能挂载）；CREATE TABLE 只覆盖新库。 */
+  private migrateSessionSkillsColumn(): void {
+    const columns = this.db.prepare('PRAGMA table_info(sessions)').all() as Array<{
+      name: string;
+    }>;
+    if (!columns.some((column) => column.name === 'skills')) {
+      this.db.exec('ALTER TABLE sessions ADD COLUMN skills TEXT');
+    }
   }
 
   /** 从旧 workbench.json 一次性迁移；仅在数据库为空且旧文件可读时发生。 */
@@ -203,8 +253,8 @@ export class WorkbenchStore {
     const preferences =
       parsed.preferences && typeof parsed.preferences === 'object' ? parsed.preferences : {};
     const insertSession = this.db.prepare(
-      `INSERT INTO sessions (id, agent_id, thread_id, title, created_at, updated_at, read, completed_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO sessions (id, agent_id, thread_id, title, created_at, updated_at, read, completed_at, skills)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          agent_id=excluded.agent_id,
          thread_id=excluded.thread_id,
@@ -212,7 +262,8 @@ export class WorkbenchStore {
          created_at=excluded.created_at,
          updated_at=excluded.updated_at,
          read=excluded.read,
-         completed_at=excluded.completed_at`,
+         completed_at=excluded.completed_at,
+         skills=excluded.skills`,
     );
     const insertPreference = this.db.prepare(
       'INSERT OR REPLACE INTO preferences (key, value) VALUES (?, ?)',
@@ -242,8 +293,8 @@ export class WorkbenchStore {
   putEntry(id: string, entry: WorkbenchSessionEntry): void {
     this.db
       .prepare(
-        `INSERT INTO sessions (id, agent_id, thread_id, title, created_at, updated_at, read, completed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO sessions (id, agent_id, thread_id, title, created_at, updated_at, read, completed_at, skills)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            agent_id=excluded.agent_id,
            thread_id=excluded.thread_id,
@@ -251,7 +302,8 @@ export class WorkbenchStore {
            created_at=excluded.created_at,
            updated_at=excluded.updated_at,
            read=excluded.read,
-           completed_at=excluded.completed_at`,
+           completed_at=excluded.completed_at,
+           skills=excluded.skills`,
       )
       .run(...rowParams(id, entry));
   }
@@ -367,6 +419,32 @@ export class WorkbenchStore {
 
   deletePreference(key: string): void {
     this.db.prepare('DELETE FROM preferences WHERE key = ?').run(key);
+  }
+
+  /** 读一个 Agent 的侧边栏分组全量状态；无记录或内容损坏返回 undefined。 */
+  getSidebarSections(agentId: string): SidebarSectionsState | undefined {
+    const row = this.db
+      .prepare('SELECT state_json FROM sidebar_sections WHERE agent_id = ?')
+      .get(agentId) as { state_json: string } | undefined;
+    if (!row) return undefined;
+    try {
+      return validateSidebarSections(JSON.parse(row.state_json));
+    } catch {
+      return undefined;
+    }
+  }
+
+  putSidebarSections(agentId: string, state: SidebarSectionsState): void {
+    this.db
+      .prepare(
+        `INSERT INTO sidebar_sections (agent_id, state_json) VALUES (?, ?)
+         ON CONFLICT(agent_id) DO UPDATE SET state_json=excluded.state_json`,
+      )
+      .run(agentId, JSON.stringify(state));
+  }
+
+  deleteSidebarSections(agentId: string): void {
+    this.db.prepare('DELETE FROM sidebar_sections WHERE agent_id = ?').run(agentId);
   }
 
   /**
@@ -607,6 +685,23 @@ export class AgentSessionStore {
     return next ? this.recordFromEntry(id, next) : undefined;
   }
 
+  /**
+   * 全量替换会话级挂载的技能名（白名单）；undefined = 取消挂载恢复 CLI 默认发现。
+   * 技能名合法性由调用方（API 层对照技能目录）校验，这里只负责持久化。
+   */
+  async setSessionSkills(
+    id: string,
+    agentId: string,
+    skills: string[] | undefined,
+  ): Promise<SessionRecord | undefined> {
+    this.requireEntry(id, agentId);
+    const next = this.workbench.patchEntry(id, {
+      skills,
+      updatedAt: new Date().toISOString(),
+    });
+    return next ? this.recordFromEntry(id, next) : undefined;
+  }
+
   /** 收件箱已读/完成状态直接落在 sessions 表的会话行上。 */
   async updateInboxState(
     id: string,
@@ -635,6 +730,95 @@ export class AgentSessionStore {
     this.workbench.recordTurnFailure(id, failure);
   }
 
+  /**
+   * Session runtime 诊断（复刻 QoderWake 0.4.2 session-runtime diagnostics 的按会话版）。
+   * 绑定缺失/非法按不存在处理返回 undefined；所有字段来自 sessions 表、
+   * session_turn_failures 与 rollout 解析，不做任何推断填充。
+   */
+  async getRuntimeDiagnostics(id: string): Promise<SessionRuntimeDiagnostics | undefined> {
+    const entry = this.workbench.getEntry(id);
+    if (!entry) return undefined;
+    try {
+      assertSessionAgentBinding(entry);
+    } catch {
+      return undefined;
+    }
+    const record = this.recordFromEntry(id, entry);
+    const rollout = entry.threadId ? this.readRollout(entry.threadId) : undefined;
+    const analysis = rollout ? analyzeRollout(rollout.content, [this.cwd]) : undefined;
+    const turns = { total: 0, completed: 0, failed: 0, aborted: 0, running: 0 };
+    for (const turn of analysis?.turns ?? []) {
+      turns.total += 1;
+      turns[turn.status === 'aborted' ? 'aborted' : turn.status] += 1;
+    }
+    const failures: SessionTurnFailure[] = this.workbench.listTurnFailures(id).map((row) => {
+      const { id: _rowId, ...failure } = row;
+      return failure;
+    });
+    return {
+      sessionId: id,
+      agentId: entry.agentId,
+      threadId: entry.threadId,
+      createdAt: entry.createdAt,
+      updatedAt: record.updatedAt,
+      status: record.needsAttention ? 'needs_attention' : record.completedAt ? 'completed' : 'idle',
+      rollout: rollout
+        ? { path: rollout.path, sizeBytes: rollout.sizeBytes, updatedAt: rollout.updatedAt }
+        : null,
+      runtime: {
+        ...(analysis?.meta.cliVersion ? { cliVersion: analysis.meta.cliVersion } : {}),
+        ...(analysis?.meta.modelProvider ? { modelProvider: analysis.meta.modelProvider } : {}),
+      },
+      events: {
+        total: analysis?.totalEvents ?? 0,
+        byType: analysis?.eventsByType ?? {},
+      },
+      turns,
+      ...(analysis?.cumulativeUsage ? { usage: analysis.cumulativeUsage } : {}),
+      failures,
+    };
+  }
+
+  /**
+   * Debug timeline（对齐旧版 buildSessionDebugTimeline 形状）：rollout 事件按 turn
+   * 归组为 rounds/nodes。limit 取最近 N 轮；无 rollout 时 available=false。
+   */
+  async getDebugTimeline(id: string, limit?: number): Promise<SessionDebugTimeline | undefined> {
+    const analysis = this.analyzeSessionRollout(id);
+    if (analysis === undefined) return undefined;
+    return buildSessionDebugTimeline({
+      sessionId: id,
+      analysis,
+      ...(limit !== undefined ? { limit } : {}),
+    });
+  }
+
+  /** 每次 turn 的 trace（模型/thinking/token 用量/耗时/工具调用计数），limit 取最近 N 条。 */
+  async getSessionTraces(id: string, limit?: number): Promise<SessionTracesResponse | undefined> {
+    const analysis = this.analyzeSessionRollout(id);
+    if (analysis === undefined) return undefined;
+    const all = tracesFromAnalysis(analysis);
+    const items =
+      limit !== undefined && all.length > limit ? all.slice(all.length - limit) : all;
+    const entry = this.workbench.getEntry(id)!;
+    return { sessionId: id, agentId: entry.agentId, items, total: items.length };
+  }
+
+  /** 会话存在性校验 + rollout 解析的公共路径；会话不存在/绑定非法返回 undefined。 */
+  private analyzeSessionRollout(id: string): RolloutAnalysis | undefined {
+    const entry = this.workbench.getEntry(id);
+    if (!entry) return undefined;
+    try {
+      assertSessionAgentBinding(entry);
+    } catch {
+      return undefined;
+    }
+    const rollout = entry.threadId ? this.readRollout(entry.threadId) : undefined;
+    return rollout
+      ? analyzeRollout(rollout.content, [this.cwd])
+      : analyzeRollout('', [this.cwd]);
+  }
+
   /** Stores host-owned provenance for one serialized user turn; browser text never owns it. */
   setTurnSources(
     id: string,
@@ -659,7 +843,58 @@ export class AgentSessionStore {
       }
     }
     this.workbench.deleteEntry(id);
+    this.pruneSidebarSections(agentId, id);
     return true;
+  }
+
+  /** 侧边栏会话分组：无记录时返回空默认（对齐旧版 emptySidebarSections）。 */
+  async getSidebarSections(agentId: string): Promise<SidebarSectionsState> {
+    return this.workbench.getSidebarSections(agentId) ?? emptySidebarSections();
+  }
+
+  /**
+   * 全量替换侧边栏分组。结构校验之外复核引用的 sessionId 必须属于该 Agent
+   * （assignments 的 key，以及 entryOrder 里非 section id 的条目），updatedAt 由服务端重写。
+   */
+  async putSidebarSections(agentId: string, value: unknown): Promise<SidebarSectionsState> {
+    if (!AGENT_ID_REGEX.test(agentId)) throw new SessionBindingError('AGENT_BINDING_INVALID');
+    const state = validateSidebarSections(value);
+    state.updatedAt = new Date().toISOString();
+    const sectionIds = new Set(state.sections.map((section) => section.id));
+    const referenced = new Set<string>([
+      ...Object.keys(state.assignments),
+      ...state.entryOrder.filter((key) => !sectionIds.has(key)),
+    ]);
+    if (referenced.size) {
+      const entries = this.workbench.listEntries();
+      for (const sessionId of referenced) {
+        const entry = entries[sessionId];
+        if (!entry || entry.agentId !== agentId) {
+          throw new SidebarSectionsValidationError(`unknown session for agent: ${sessionId}`);
+        }
+      }
+    }
+    this.workbench.putSidebarSections(agentId, state);
+    return state;
+  }
+
+  /** Agent 删除时清掉它的分组状态（表按 agent_id 主键隔离，不会随 sessions 行级联）。 */
+  deleteSidebarSections(agentId: string): void {
+    this.workbench.deleteSidebarSections(agentId);
+  }
+
+  /** 会话删除后同步清掉分组里的悬空引用，避免 GET 回读到已删除的 sessionId。 */
+  private pruneSidebarSections(agentId: string, sessionId: string): void {
+    const state = this.workbench.getSidebarSections(agentId);
+    if (!state) return;
+    if (!(sessionId in state.assignments) && !state.entryOrder.includes(sessionId)) return;
+    const assignments = { ...state.assignments };
+    delete assignments[sessionId];
+    this.workbench.putSidebarSections(agentId, {
+      ...state,
+      assignments,
+      entryOrder: state.entryOrder.filter((key) => key !== sessionId),
+    });
   }
 
   private requireEntry(id: string, agentId: string): WorkbenchSessionEntry {
@@ -701,6 +936,25 @@ export class AgentSessionStore {
     if (found) this.threadFileCache.set(threadId, found);
     else this.threadFileCache.delete(threadId);
     return found;
+  }
+
+  /** 读取绑定 thread 的 rollout 原文与文件状态；诊断端点低频调用，不走 mtime 缓存。 */
+  private readRollout(
+    threadId: string,
+  ): { path: string; content: string; sizeBytes: number; updatedAt: string } | undefined {
+    const file = this.findRolloutFile(threadId);
+    if (!file) return undefined;
+    try {
+      const stat = statSync(file);
+      return {
+        path: file,
+        content: readFileSync(file, 'utf8'),
+        sizeBytes: stat.size,
+        updatedAt: stat.mtime.toISOString(),
+      };
+    } catch {
+      return undefined;
+    }
   }
 
   /** Parses one rollout JSONL once per file version; mtime changes force a re-parse. */
@@ -799,6 +1053,7 @@ export class AgentSessionStore {
       ...(preview ? { preview } : {}),
       read: entry.read ?? false,
       ...(entry.completedAt ? { completedAt: entry.completedAt } : {}),
+      ...(entry.skills !== undefined ? { skills: entry.skills } : {}),
     };
   }
 }

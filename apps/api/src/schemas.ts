@@ -98,6 +98,21 @@ export const ImportAgentSchema = Type.Object({
 });
 
 export const AgentParamsSchema = Type.Object({ agentId: AgentIdSchema });
+// 画像派生：model 走目录校验（路由层），thinking 复用全局枚举，apply 触发 frontmatter 回写。
+export const SummarizeAgentProfileSchema = Type.Object(
+  {
+    model: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
+    thinking: Type.Optional(ThinkingLevelSchema),
+    apply: Type.Optional(Type.Boolean()),
+  },
+  { additionalProperties: false },
+);
+// 整包导入：body 是原始 ZIP（自定义 content-type parser），参数走 querystring。
+export const ImportAgentPackageQuerySchema = Type.Object({
+  agentId: Type.Optional(AgentIdSchema),
+  mode: Type.Optional(Type.Union([Type.Literal('dry-run'), Type.Literal('apply')])),
+  conflict: Type.Optional(Type.Union([Type.Literal('error'), Type.Literal('overwrite')])),
+});
 // 头像上传沿用会话附件的 Base64 JSON 模式；magic bytes 与 2MB 上限在路由层复核。
 export const UploadAgentAvatarSchema = Type.Object({
   mimeType: Type.Union([Type.Literal('image/png'), Type.Literal('image/jpeg')]),
@@ -108,9 +123,29 @@ export const SessionParamsSchema = Type.Object({
   agentId: AgentIdSchema,
   sessionId: SessionIdSchema,
 });
-export const RenameSessionSchema = Type.Object({
-  title: Type.String({ minLength: 1, maxLength: 80 }),
+// 会话级 skill 挂载：名字限定 CLI 技能名形状，合法存在性由路由层对照技能目录复核（400）。
+export const SessionSkillsSchema = Type.Array(Type.String({ pattern: '^[a-z0-9-]{1,80}$' }), {
+  maxItems: 32,
+  uniqueItems: true,
 });
+export const CreateSessionSchema = Type.Object(
+  {
+    skills: Type.Optional(SessionSkillsSchema),
+  },
+  { additionalProperties: false },
+);
+// 至少一个字段（minProperties）；skills=null 表示取消挂载恢复默认发现。
+export const UpdateSessionSchema = Type.Object(
+  {
+    title: Type.Optional(Type.String({ minLength: 1, maxLength: 80 })),
+    skills: Type.Optional(Type.Union([SessionSkillsSchema, Type.Null()])),
+  },
+  { additionalProperties: false, minProperties: 1 },
+);
+
+// 侧边栏分组全量替换：schema 只保证 body 是对象；结构规则（两级嵌套、name 长度、
+// sessionId 归属）由 codex-runtime 的 validateSidebarSections 复核并映射为 400。
+export const SidebarSectionsUpdateSchema = Type.Object({}, { additionalProperties: true });
 
 // GET /inbox 的 query：tab 默认 attention，q 对 title/preview 做大小写不敏感包含过滤。
 export const InboxQuerySchema = Type.Object({
@@ -181,6 +216,27 @@ export const SkillDetailQuerySchema = Type.Object({
   source: SkillSourceSchema,
   skillId: SkillNameSchema,
 });
+
+// 技能内容版本：快照 id 固定 vNNNNNN；diff 的 to 额外允许字面量 current（实时目录）。
+export const SkillVersionIdSchema = Type.String({ pattern: '^v\\d{6}$' });
+export const SkillVersionParamsSchema = Type.Object({ versionId: SkillVersionIdSchema });
+export const SkillSnapshotSchema = Type.Object(
+  { label: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })) },
+  { additionalProperties: false },
+);
+export const SkillDiffQuerySchema = Type.Object({
+  from: SkillVersionIdSchema,
+  to: Type.String({ pattern: '^(v\\d{6}|current)$' }),
+});
+export const SkillRollbackSchema = Type.Object(
+  {
+    versionId: SkillVersionIdSchema,
+    // 省略/false = dry-run 只回计划；true 才写入（写入前自动打当前状态快照）。
+    apply: Type.Optional(Type.Boolean()),
+    reason: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
+  },
+  { additionalProperties: false },
+);
 
 // 文件浏览：path 为相对仓库根的路径；逃逸/敏感文件由路由层复核（schema 只挡长度）。
 export const FileListQuerySchema = Type.Object({

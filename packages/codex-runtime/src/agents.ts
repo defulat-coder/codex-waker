@@ -351,6 +351,43 @@ export function deleteAgent(cwd: string, id: string): void {
   for (const ext of ['png', 'jpg']) rmSync(join(directory, `${id}.avatar.${ext}`), { force: true });
 }
 
+/**
+ * Rewrites only the 关于我 profile sections (strengths/workStyles) of .codex/agents/<id>.md:
+ * every other frontmatter field and the persona body keep their current values. Sections
+ * passed as undefined are removed; omitted keys are left untouched. Atomic (temp + rename).
+ * Used by the summarize-profile endpoint when apply=true persists model-derived sections.
+ */
+export function writeAgentProfileSections(
+  cwd: string,
+  id: string,
+  sections: { strengths?: AgentProfileSectionItem[]; workStyles?: AgentProfileSectionItem[] },
+): AgentDefinition {
+  if (!AGENT_ID_REGEX.test(id))
+    throw new AgentCreateError('INVALID_ID', 'Agent id 需匹配 [a-z][a-z0-9-]{1,63}');
+  const directory = join(cwd, '.codex', 'agents');
+  const target = join(directory, `${id}.md`);
+  if (!existsSync(target)) throw new AgentCreateError('NOT_FOUND', `Agent 不存在：${id}`);
+  const current = parseAgentFile(directory, `${id}.md`);
+  const strengths =
+    'strengths' in sections ? validateProfileSection(sections.strengths, 'strengths') : current.strengths;
+  const workStyles =
+    'workStyles' in sections
+      ? validateProfileSection(sections.workStyles, 'workStyles')
+      : current.workStyles;
+  const file = serializeAgentFile(
+    validateAgentFields({
+      ...current,
+      ...(strengths?.length ? { strengths } : {}),
+      ...(workStyles?.length ? { workStyles } : {}),
+    }),
+  );
+  const temporary = join(directory, `.${id}.md.tmp-${process.pid}`);
+  writeFileSync(temporary, file, 'utf8');
+  renameSync(temporary, target);
+  // Roundtrip through the real parser so a serialization bug can never persist a broken file.
+  return parseAgentFile(directory, `${id}.md`);
+}
+
 /** 头像上限与 legacy 一致：PNG / JPG，不超过 2 MB。 */
 export const AGENT_AVATAR_MAX_BYTES = 2 * 1024 * 1024;
 const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];

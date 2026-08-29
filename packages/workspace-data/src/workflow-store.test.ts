@@ -292,6 +292,8 @@ describe('WorkspaceStore workflow definitions', () => {
       '008',
       '009',
       '010',
+      '011',
+      '012',
     ]);
     store.close();
   });

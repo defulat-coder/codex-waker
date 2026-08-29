@@ -12,6 +12,7 @@ import { Info } from '@phosphor-icons/react/dist/icons/Info';
 import { Keyboard } from '@phosphor-icons/react/dist/icons/Keyboard';
 import { Layout } from '@phosphor-icons/react/dist/icons/Layout';
 import { MagnifyingGlass } from '@phosphor-icons/react/dist/icons/MagnifyingGlass';
+import { Package } from '@phosphor-icons/react/dist/icons/Package';
 import { Plus } from '@phosphor-icons/react/dist/icons/Plus';
 import { PuzzlePiece } from '@phosphor-icons/react/dist/icons/PuzzlePiece';
 import { SidebarSimple } from '@phosphor-icons/react/dist/icons/SidebarSimple';
@@ -517,6 +518,15 @@ export function Sidebar(props: SidebarProps) {
                           >
                             <DownloadSimple size={14} />
                             导出定义
+                          </a>
+                          <a
+                            role="menuitem"
+                            href={`/api/v1/agents/${encodeURIComponent(agent.id)}/export-package`}
+                            download={`${agent.id}.wakerpack`}
+                            onClick={() => setAgentMenuId(null)}
+                          >
+                            <Package size={14} />
+                            导出整包
                           </a>
                           <button
                             type="button"

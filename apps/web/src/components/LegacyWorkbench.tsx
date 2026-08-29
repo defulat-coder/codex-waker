@@ -569,6 +569,14 @@ export function WakersView({
                             >
                               导出
                             </a>
+                            <a
+                              role="menuitem"
+                              href={`/api/v1/agents/${encodeURIComponent(agent.id)}/export-package`}
+                              download={`${agent.id}.wakerpack`}
+                              onClick={() => setMenuAgentId(null)}
+                            >
+                              导出整包
+                            </a>
                             <button
                               type="button"
                               role="menuitem"

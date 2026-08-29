@@ -21,6 +21,7 @@ import {
   readPrompt,
   updateAgent,
   writeAgentAvatar,
+  writeAgentProfileSections,
   writeAppendSystem,
   writePrompt,
 } from './agents.js';
@@ -577,5 +578,67 @@ describe('listSkills', () => {
     assert.equal(research?.path, '.agents/skills/research/SKILL.md');
     assert.equal(research?.description, '按来源做桌面调研。');
     assert.equal(research?.preview, '先搜一手来源，再写结论。');
+  });
+});
+
+describe('writeAgentProfileSections', () => {
+  it('replaces strengths/workStyles while preserving body and other frontmatter fields', () => {
+    const root = fixtureRoot();
+    createAgent(root, {
+      id: 'profile-agent',
+      name: '画像助手',
+      mark: '像',
+      tagline: '测试画像',
+      description: '测试画像回写。',
+      suggestions: ['帮我看看'],
+      body: '你是画像助手。\n\n先读代码再下结论。',
+    });
+    const updated = writeAgentProfileSections(root, 'profile-agent', {
+      strengths: [{ title: '代码排查', text: '带文件路径与行号定位。' }],
+      workStyles: [{ title: '讲证据', text: '测试跟判断冲突时听测试的。' }],
+    });
+    assert.deepEqual(updated.strengths, [{ title: '代码排查', text: '带文件路径与行号定位。' }]);
+    assert.deepEqual(updated.workStyles, [{ title: '讲证据', text: '测试跟判断冲突时听测试的。' }]);
+    assert.equal(updated.name, '画像助手');
+    assert.equal(updated.body, '你是画像助手。\n\n先读代码再下结论。');
+    assert.deepEqual(updated.suggestions, ['帮我看看']);
+    // 回读磁盘文件确认持久化，而不是只看返回值。
+    const reread = getAgent(root, 'profile-agent');
+    assert.deepEqual(reread.strengths, updated.strengths);
+    assert.deepEqual(reread.workStyles, updated.workStyles);
+    assert.equal(reread.body, updated.body);
+  });
+
+  it('replaces existing sections and validates items', () => {
+    const root = fixtureRoot();
+    createAgent(root, {
+      id: 'profile-agent',
+      name: '画像助手',
+      mark: '像',
+      tagline: '测试画像',
+      description: '测试画像回写。',
+      suggestions: ['帮我看看'],
+      body: '你是画像助手。',
+      strengths: [{ title: '旧能力', text: '旧描述。' }],
+    });
+    const updated = writeAgentProfileSections(root, 'profile-agent', {
+      strengths: [{ title: '新能力', text: '新描述。' }],
+    });
+    assert.deepEqual(updated.strengths, [{ title: '新能力', text: '新描述。' }]);
+    assert.throws(
+      () =>
+        writeAgentProfileSections(root, 'profile-agent', {
+          workStyles: [{ title: '', text: '没有标题' }],
+        }),
+      (error: unknown) => error instanceof AgentCreateError && error.code === 'INVALID_FIELD',
+    );
+    assert.throws(
+      () => writeAgentProfileSections(root, 'ghost-agent', { strengths: [] }),
+      (error: unknown) => error instanceof AgentCreateError && error.code === 'NOT_FOUND',
+    );
+    // 校验失败不得改动已落盘的内容。
+    assert.deepEqual(getAgent(root, 'profile-agent').strengths, [
+      { title: '新能力', text: '新描述。' },
+    ]);
   });
 });

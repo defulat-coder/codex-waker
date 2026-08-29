@@ -246,6 +246,76 @@ describe('WakerHomeView', () => {
     assert.ok(screen.getByRole('heading', { name: '建议问题' }));
   });
 
+  it('derives the profile via the API and refreshes 关于我 sections', async () => {
+    let current: AgentDetail = { ...detail };
+    delete current.strengths;
+    delete current.workStyles;
+    const requests: Array<{ url: string; body: string }> = [];
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/summarize-profile')) {
+        requests.push({ url, body: String(init?.body ?? '') });
+        current = {
+          ...current,
+          strengths: [{ title: '派生能力', text: '模型派生的能力描述。' }],
+          workStyles: [{ title: '派生风格', text: '模型派生的风格描述。' }],
+        };
+        return Response.json({
+          agentId: agent.id,
+          profile: {
+            coreCapabilities: current.strengths,
+            workStyles: current.workStyles,
+            suggestedUseCases: [],
+          },
+          applied: true,
+        });
+      }
+      if (url.includes('/home')) return Response.json(home);
+      if (url.includes('/sessions')) {
+        return Response.json({ items: sessions, total: sessions.length });
+      }
+      if (url.includes('/automation-runs')) {
+        return Response.json({ items: runs, total: runs.length });
+      }
+      return Response.json(current);
+    }) as typeof fetch;
+    renderHome();
+    await settle();
+    // 初始定义没有区块，派生按钮仍在「关于我」标题旁。
+    assert.equal(screen.queryByRole('heading', { name: '我最擅长' }), null);
+    fireEvent.click(screen.getByRole('button', { name: /重新派生/ }));
+    await settle();
+    assert.equal(requests.length, 1);
+    assert.match(requests[0]!.url, /\/api\/v1\/agents\/agent-a\/summarize-profile$/);
+    assert.deepEqual(JSON.parse(requests[0]!.body), { apply: true });
+    // apply 成功后整体重载，新区块渲染出来。
+    assert.ok(screen.getByRole('heading', { name: '我最擅长' }));
+    assert.ok(screen.getByText('派生能力'));
+    assert.ok(screen.getByText('派生风格'));
+  });
+
+  it('shows an inline error when profile derivation fails', async () => {
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/summarize-profile')) {
+        return Response.json({ error: '画像派生失败：模型提供方超时' }, { status: 502 });
+      }
+      if (url.includes('/home')) return Response.json(home);
+      if (url.includes('/sessions')) {
+        return Response.json({ items: sessions, total: sessions.length });
+      }
+      if (url.includes('/automation-runs')) {
+        return Response.json({ items: runs, total: runs.length });
+      }
+      return Response.json(detail);
+    }) as typeof fetch;
+    renderHome();
+    await settle();
+    fireEvent.click(screen.getByRole('button', { name: /重新派生/ }));
+    await settle();
+    assert.ok(screen.getByText('画像派生失败：模型提供方超时'));
+  });
+
   it('shows empty states when there are no records', async () => {
     mockFetch({
       sessions: [],

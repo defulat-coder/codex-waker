@@ -8,11 +8,13 @@ import type {
   SessionSummary,
 } from '@waker/contracts';
 import { SlidersHorizontal } from '@phosphor-icons/react/dist/icons/SlidersHorizontal';
+import { Sparkle } from '@phosphor-icons/react/dist/icons/Sparkle';
 import {
   fetchAgent,
   fetchAgentHome,
   fetchAutomationRuns,
   fetchSessions,
+  summarizeAgentProfile,
 } from '../lib/api.js';
 import { cx } from '../lib/cx.js';
 import { MOTION_EASE } from '../lib/motion.js';
@@ -146,6 +148,9 @@ export function WakerHomeView({ agent, onEdit }: { agent: AgentSummary; onEdit: 
   const [data, setData] = useState<HomeData | null>(null);
   const [error, setError] = useState('');
   const [tab, setTab] = useState<RecordsTab>('timeline');
+  /** 「重新派生」状态：进行中禁用按钮，失败在关于我区块内联展示。 */
+  const [deriving, setDeriving] = useState(false);
+  const [deriveError, setDeriveError] = useState('');
   /** 相对时间与热力图的「现在」：随每次成功加载刷新，避免常驻定时器。 */
   const [now, setNow] = useState(() => new Date());
   const load = useCallback(async () => {
@@ -167,6 +172,20 @@ export function WakerHomeView({ agent, onEdit }: { agent: AgentSummary; onEdit: 
     setData(null);
     void load();
   }, [load]);
+
+  /** 用模型从定义派生 strengths/workStyles 并回写 frontmatter（apply），成功后整体重载。 */
+  const deriveProfile = useCallback(async () => {
+    setDeriving(true);
+    setDeriveError('');
+    try {
+      await summarizeAgentProfile(agent.id, { apply: true });
+      await load();
+    } catch (cause) {
+      setDeriveError(cause instanceof Error ? cause.message : '画像派生失败，请稍后重试');
+    } finally {
+      setDeriving(false);
+    }
+  }, [agent.id, load]);
 
   const heatmap = useMemo(
     () => (data ? buildHeatmap(data.home.activity, now) : null),
@@ -388,7 +407,24 @@ export function WakerHomeView({ agent, onEdit }: { agent: AgentSummary; onEdit: 
             </section>
 
             <section className="waker-home-section" aria-labelledby="waker-home-about-title">
-              <h2 id="waker-home-about-title">关于我</h2>
+              <div className="waker-home-records-head">
+                <h2 id="waker-home-about-title">关于我</h2>
+                <button
+                  type="button"
+                  className="legacy-button"
+                  disabled={deriving}
+                  onClick={() => void deriveProfile()}
+                  title="用模型从 Agent 定义重新派生「我最擅长 / 工作风格」并写回定义文件"
+                >
+                  <Sparkle size={14} aria-hidden="true" />
+                  {deriving ? '派生中…' : '重新派生'}
+                </button>
+              </div>
+              {deriveError ? (
+                <div className="legacy-error" role="alert">
+                  <p>{deriveError}</p>
+                </div>
+              ) : null}
               <div className="waker-home-about-block">
                 <h3>简介</h3>
                 <p>{data.detail.description}</p>

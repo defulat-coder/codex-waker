@@ -9,6 +9,7 @@ import type {
   WakerProject,
 } from '@waker/contracts';
 import { ArrowCounterClockwise } from '@phosphor-icons/react/dist/icons/ArrowCounterClockwise';
+import { Broom } from '@phosphor-icons/react/dist/icons/Broom';
 import { ClockCounterClockwise } from '@phosphor-icons/react/dist/icons/ClockCounterClockwise';
 import { DownloadSimple } from '@phosphor-icons/react/dist/icons/DownloadSimple';
 import { FloppyDisk } from '@phosphor-icons/react/dist/icons/FloppyDisk';
@@ -25,6 +26,7 @@ import {
   fetchMemoryTimeline,
   importMemory,
   rollbackMemory,
+  runMemoryMaintenance,
   updateMemory,
 } from '../lib/api.js';
 import { cx } from '../lib/cx.js';
@@ -215,6 +217,21 @@ export function MemoryView({
     const [from, to] = history.snapshots.slice(-2);
     if (from && to) setDiff(await fetchMemoryDiff(from.id, to.id).catch(() => '无法生成差异'));
   };
+  const maintain = async () => {
+    if (!scope || busy) return;
+    setBusy(true);
+    try {
+      const report = await runMemoryMaintenance(scope);
+      notify(
+        `维护完成：检查 ${report.checked} 条，清理 ${report.deleted} 条，跳过 ${report.skipped} 条`,
+      );
+      await load();
+    } catch (cause) {
+      notify(cause instanceof Error ? cause.message : '记忆维护失败');
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <section className="legacy-page memory-page">
       <header className="legacy-page-header">
@@ -225,6 +242,10 @@ export function MemoryView({
         <div className="page-actions">
           <button className="legacy-button" onClick={onClose}>
             返回 Waker
+          </button>
+          <button className="legacy-button" disabled={!scope || busy} onClick={() => void maintain()}>
+            <Broom size={15} />
+            立即维护
           </button>
           <button
             className="legacy-button"

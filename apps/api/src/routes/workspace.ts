@@ -1,9 +1,14 @@
-import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { Type } from '@sinclair/typebox';
 import { AGENT_THINKING_LEVELS } from '@waker/contracts';
 import type {
   AgentThinkingLevel,
+  AutomationCalendarResponse,
   AutomationRunRecord,
+  AutomationRunStatsBreakdown,
+  AutomationRunStatusName,
+  AutomationRunTriggerName,
+  AutomationStatsResponse,
   ChatUsage,
   LocalResourcesResponse,
   ProjectDeleteImpact,
@@ -21,6 +26,7 @@ import type {
   Task,
   Workflow,
 } from '@waker/workspace-data';
+import { matchesAutomationTriggerKey, validateTimeZone } from '@waker/workspace-data';
 import {
   getCodexModelConfig,
   getCodexReasoningEffort,
@@ -82,6 +88,13 @@ function automationDto(value: Automation): WakerAutomation {
     ...(iso(value.lastScheduledAt) ? { lastScheduledAt: iso(value.lastScheduledAt) } : {}),
     ...(iso(value.nextRun) ? { nextRunAt: iso(value.nextRun) } : {}),
     ...(iso(value.completedAt) ? { completedAt: iso(value.completedAt) } : {}),
+    ...(value.triggerKey ? { triggerKey: value.triggerKey } : {}),
+    ...(value.repo ? { repo: value.repo } : {}),
+    ...(value.branch ? { branch: value.branch } : {}),
+    ...(value.pollIntervalSeconds === null
+      ? {}
+      : { pollIntervalSeconds: value.pollIntervalSeconds }),
+    ...(value.lastSeenCommit ? { lastSeenCommit: value.lastSeenCommit } : {}),
     createdAt: new Date(value.createdAt).toISOString(),
     updatedAt: new Date(value.updatedAt).toISOString(),
   };
@@ -245,6 +258,104 @@ function badRequest(reply: FastifyReply, error: unknown): void {
   reply.code(400).send({ error: error instanceof Error ? error.message : '请求无法处理' });
 }
 
+const zeroStatusCounts = (): Record<AutomationRunStatusName, number> => ({
+  queued: 0,
+  running: 0,
+  succeeded: 0,
+  failed: 0,
+  cancelled: 0,
+  skipped: 0,
+});
+const zeroTriggerCounts = (): Record<AutomationRunTriggerName, number> => ({
+  manual: 0,
+  scheduled: 0,
+  api: 0,
+  event: 0,
+  git: 0,
+});
+
+function statsBreakdown(
+  byStatus: Record<AutomationRunStatusName, number>,
+  byTrigger: Record<AutomationRunTriggerName, number>,
+  lastRunAt: number | null,
+  lastRunStatus: AutomationRunStatusName | null,
+): AutomationRunStatsBreakdown {
+  const total = Object.values(byStatus).reduce((sum, count) => sum + count, 0);
+  const finished = byStatus.succeeded + byStatus.failed + byStatus.cancelled;
+  return {
+    total,
+    byStatus,
+    byTrigger,
+    successRate: finished === 0 ? null : byStatus.succeeded / finished,
+    ...(lastRunAt === null ? {} : { lastRunAt: new Date(lastRunAt).toISOString() }),
+    ...(lastRunStatus === null ? {} : { lastRunStatus }),
+  };
+}
+
+/** Epoch ms of a YYYY-MM-DD day key read as UTC, undefined when malformed or not a real date. */
+function parseDayKey(value: string): number | undefined {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return undefined;
+  const ms = Date.parse(`${value}T00:00:00Z`);
+  if (!Number.isFinite(ms) || new Date(ms).toISOString().slice(0, 10) !== value) return undefined;
+  return ms;
+}
+
+/**
+ * Inbound trigger auth (QoderWake TriggerRouter parity): the per-automation `triggerKey`
+ * is presented as the `x-api-trigger-key` header or an `Authorization: Bearer` token.
+ * Webhook senders that cannot set headers may instead pass `?key=` on the webhook endpoint.
+ */
+function presentedTriggerKey(request: FastifyRequest, allowQueryKey = false): string | undefined {
+  const header = request.headers['x-api-trigger-key'];
+  if (typeof header === 'string' && header.trim()) return header.trim();
+  const authorization = request.headers.authorization;
+  if (authorization?.startsWith('Bearer ')) {
+    const token = authorization.slice('Bearer '.length).trim();
+    if (token) return token;
+  }
+  if (allowQueryKey) {
+    const { key } = request.query as { key?: unknown };
+    if (typeof key === 'string' && key.trim()) return key.trim();
+  }
+  return undefined;
+}
+
+/** Shared inbound surface for kind='api' (invoke) and kind='event' (webhook) automations. */
+async function handleInboundTrigger(
+  ctx: AppContext,
+  request: FastifyRequest,
+  reply: FastifyReply,
+  trigger: 'api' | 'event',
+): Promise<unknown> {
+  const { automationId } = request.params as { automationId: string };
+  const automation = ctx.workspaceData.getAutomationById(automationId);
+  if (!automation) return reply.code(404).send({ error: '自动任务不存在' });
+  if (automation.kind !== trigger) {
+    return reply.code(409).send({
+      error: trigger === 'api' ? '自动任务不是 API 触发类型' : '自动任务不是事件触发类型',
+    });
+  }
+  const key = presentedTriggerKey(request, trigger === 'event');
+  if (!key || !matchesAutomationTriggerKey(automation.triggerKey, key)) {
+    return reply.code(401).send({ error: '触发令牌无效' });
+  }
+  if (!ctx.config.CODEX_AGENT_ENABLED)
+    return reply.code(503).send({ error: 'Codex 模型未启用，无法运行自动任务' });
+  try {
+    validateAutomationSelection(ctx, automation.wakerId, automation);
+    // The request body rides on the run record as `{ payload }`, mirroring the legacy invokePayload.
+    const body = request.body as unknown;
+    const run = ctx.workspaceData.enqueueAutomationRun(automation.wakerId, automationId, {
+      trigger,
+      ...(body === undefined || body === null ? {} : { input: { payload: body } }),
+    });
+    ctx.automationExecutor.enqueue(automation.wakerId, run.id);
+    return reply.code(202).send(automationRunDto(run));
+  } catch (error) {
+    return badRequest(reply, error);
+  }
+}
+
 export function registerWorkspaceRoutes(app: FastifyInstance, ctx: AppContext): void {
   app.get('/local-resources', async (request, reply) => {
     const { wakerId } = request.query as { wakerId?: string };
@@ -399,9 +510,19 @@ export function registerWorkspaceRoutes(app: FastifyInstance, ctx: AppContext): 
         body: Type.Object({
           wakerId: id,
           name: Type.String({ minLength: 1, maxLength: 160 }),
-          kind: Type.Union([Type.Literal('schedule'), Type.Literal('api'), Type.Literal('event')]),
+          kind: Type.Union([
+            Type.Literal('schedule'),
+            Type.Literal('api'),
+            Type.Literal('event'),
+            Type.Literal('git-poll'),
+          ]),
           schedule: Type.Optional(Type.String({ maxLength: 240 })),
           prompt: Type.String({ minLength: 1, maxLength: 20_000 }),
+          repo: Type.Optional(Type.String({ minLength: 1, maxLength: 4000 })),
+          branch: Type.Optional(nullableText),
+          pollIntervalSeconds: Type.Optional(
+            Type.Union([Type.Integer({ minimum: 15 }), Type.Null()]),
+          ),
           projectId: Type.Optional(nullableId),
           model: Type.Optional(nullableText),
           thinking: Type.Optional(nullableThinking),
@@ -420,9 +541,12 @@ export function registerWorkspaceRoutes(app: FastifyInstance, ctx: AppContext): 
       const body = request.body as {
         wakerId: string;
         name: string;
-        kind: 'schedule' | 'api' | 'event';
+        kind: 'schedule' | 'api' | 'event' | 'git-poll';
         schedule?: string;
         prompt: string;
+        repo?: string;
+        branch?: string | null;
+        pollIntervalSeconds?: number | null;
         projectId?: string | null;
         model?: string | null;
         thinking?: AgentThinkingLevel | null;
@@ -465,6 +589,11 @@ export function registerWorkspaceRoutes(app: FastifyInstance, ctx: AppContext): 
           schedule: Type.Optional(Type.String({ maxLength: 240 })),
           prompt: Type.Optional(Type.String({ minLength: 1, maxLength: 20_000 })),
           enabled: Type.Optional(Type.Boolean()),
+          repo: Type.Optional(Type.String({ minLength: 1, maxLength: 4000 })),
+          branch: Type.Optional(nullableText),
+          pollIntervalSeconds: Type.Optional(
+            Type.Union([Type.Integer({ minimum: 15 }), Type.Null()]),
+          ),
           projectId: Type.Optional(nullableId),
           model: Type.Optional(nullableText),
           thinking: Type.Optional(nullableThinking),
@@ -486,6 +615,9 @@ export function registerWorkspaceRoutes(app: FastifyInstance, ctx: AppContext): 
         schedule?: string;
         prompt?: string;
         enabled?: boolean;
+        repo?: string;
+        branch?: string | null;
+        pollIntervalSeconds?: number | null;
         projectId?: string | null;
         model?: string | null;
         thinking?: AgentThinkingLevel | null;
@@ -585,6 +717,31 @@ export function registerWorkspaceRoutes(app: FastifyInstance, ctx: AppContext): 
   );
 
   app.post(
+    '/automations/:automationId/invoke',
+    { schema: { params: Type.Object({ automationId: id }) } },
+    async (request, reply) => handleInboundTrigger(ctx, request, reply, 'api'),
+  );
+
+  app.post(
+    '/automations/:automationId/webhook',
+    { schema: { params: Type.Object({ automationId: id }) } },
+    async (request, reply) => handleInboundTrigger(ctx, request, reply, 'event'),
+  );
+
+  app.post(
+    '/automations/:automationId/rotate-trigger-key',
+    { schema: { params: Type.Object({ automationId: id }), body: wakerBody } },
+    async (request, reply) => {
+      const { automationId } = request.params as { automationId: string };
+      const { wakerId } = request.body as { wakerId: string };
+      if (!agentOr404(ctx, wakerId, reply)) return;
+      if (rejectDeletingAgent(reply, wakerId)) return;
+      const updated = ctx.workspaceData.rotateAutomationTriggerKey(wakerId, automationId);
+      return updated ? automationDto(updated) : reply.code(404).send({ error: '自动任务不存在' });
+    },
+  );
+
+  app.post(
     '/automations/:automationId/pause',
     { schema: { params: Type.Object({ automationId: id }), body: wakerBody } },
     async (request, reply) => {
@@ -643,6 +800,105 @@ export function registerWorkspaceRoutes(app: FastifyInstance, ctx: AppContext): 
         items,
         total: ctx.workspaceData.countAutomationRuns(query.wakerId, query.automationId),
       };
+    },
+  );
+
+  app.get(
+    '/automation-stats',
+    { schema: { querystring: Type.Object({ wakerId: id }) } },
+    async (request) => {
+      const { wakerId } = request.query as { wakerId: string };
+      const aggregates = new Map(
+        ctx.workspaceData.automationRunAggregates(wakerId).map((row) => [row.automationId, row]),
+      );
+      const automations = ctx.workspaceData.listAutomations(wakerId).map((value) => {
+        const row = aggregates.get(value.id);
+        return {
+          automationId: value.id,
+          name: value.name,
+          kind: value.kind,
+          enabled: value.enabled,
+          ...statsBreakdown(
+            row?.byStatus ?? zeroStatusCounts(),
+            row?.byTrigger ?? zeroTriggerCounts(),
+            row?.lastRunAt ?? null,
+            row?.lastRunStatus ?? null,
+          ),
+        };
+      });
+      const byStatus = zeroStatusCounts();
+      const byTrigger = zeroTriggerCounts();
+      let lastRunAt: number | null = null;
+      let lastRunStatus: AutomationRunStatusName | null = null;
+      for (const row of aggregates.values()) {
+        for (const status of Object.keys(byStatus) as AutomationRunStatusName[])
+          byStatus[status] += row.byStatus[status];
+        for (const trigger of Object.keys(byTrigger) as AutomationRunTriggerName[])
+          byTrigger[trigger] += row.byTrigger[trigger];
+        if (row.lastRunAt !== null && (lastRunAt === null || row.lastRunAt > lastRunAt)) {
+          lastRunAt = row.lastRunAt;
+          lastRunStatus = row.lastRunStatus;
+        }
+      }
+      const response: AutomationStatsResponse = {
+        wakerId,
+        totals: statsBreakdown(byStatus, byTrigger, lastRunAt, lastRunStatus),
+        automations,
+      };
+      return response;
+    },
+  );
+
+  app.get(
+    '/automation-calendar',
+    {
+      schema: {
+        querystring: Type.Object({
+          wakerId: id,
+          from: Type.Optional(Type.String({ maxLength: 10 })),
+          to: Type.Optional(Type.String({ maxLength: 10 })),
+          timezone: Type.Optional(Type.String({ maxLength: 120 })),
+        }),
+      },
+    },
+    async (request, reply) => {
+      const query = request.query as {
+        wakerId: string;
+        from?: string;
+        to?: string;
+        timezone?: string;
+      };
+      let timezone: string;
+      try {
+        timezone = validateTimeZone(
+          query.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+        );
+      } catch {
+        return reply.code(400).send({ error: 'timezone 无效' });
+      }
+      const today = new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(new Date());
+      const to = query.to ?? today;
+      const toMs = parseDayKey(to);
+      if (toMs === undefined) return reply.code(400).send({ error: 'to 必须是 YYYY-MM-DD' });
+      const from = query.from ?? new Date(toMs - 6 * 86_400_000).toISOString().slice(0, 10);
+      const fromMs = parseDayKey(from);
+      if (fromMs === undefined) return reply.code(400).send({ error: 'from 必须是 YYYY-MM-DD' });
+      if (fromMs > toMs) return reply.code(400).send({ error: 'from 不能晚于 to' });
+      if ((toMs - fromMs) / 86_400_000 + 1 > 31) {
+        return reply.code(400).send({ error: '时间范围不能超过 31 天' });
+      }
+      const response: AutomationCalendarResponse = {
+        wakerId: query.wakerId,
+        timezone,
+        from,
+        to,
+        days: ctx.workspaceData.automationRunCalendar(query.wakerId, {
+          from,
+          to,
+          timeZone: timezone,
+        }),
+      };
+      return response;
     },
   );
 

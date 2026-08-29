@@ -7043,6 +7043,10 @@ button.agent-card:hover,
 .resource-row small {
   color: var(--text-quaternary);
 }
+.resource-row small.connector-error {
+  display: block;
+  color: var(--error-text);
+}
 .resource-status {
   padding: 3px 8px;
   color: var(--text-tertiary);

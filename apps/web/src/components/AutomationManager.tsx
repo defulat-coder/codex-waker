@@ -42,6 +42,9 @@ type AutomationEditor = {
   endAt: string;
   maxRuns: string;
   misfirePolicy: WakerAutomation['misfirePolicy'];
+  repo: string;
+  branch: string;
+  pollIntervalSeconds: string;
   projectId: string;
   model: string;
   thinking: string;
@@ -57,6 +60,9 @@ const EMPTY_EDITOR: AutomationEditor = {
   endAt: '',
   maxRuns: '',
   misfirePolicy: 'run_once',
+  repo: '',
+  branch: '',
+  pollIntervalSeconds: '60',
   projectId: '',
   model: '',
   thinking: '',
@@ -71,6 +77,14 @@ const RUN_STATUS: Record<AutomationRunRecord['status'], string> = {
   skipped: '已跳过',
 };
 
+const RUN_TRIGGER: Record<AutomationRunRecord['trigger'], string> = {
+  manual: '手动',
+  scheduled: '计划',
+  api: 'API',
+  event: '事件',
+  git: 'Git',
+};
+
 function editorFor(item: WakerAutomation): AutomationEditor {
   return {
     id: item.id,
@@ -83,6 +97,9 @@ function editorFor(item: WakerAutomation): AutomationEditor {
     endAt: item.endAt ? localInputForIso(item.endAt) : '',
     maxRuns: item.maxRuns?.toString() ?? '',
     misfirePolicy: item.misfirePolicy,
+    repo: item.repo ?? '',
+    branch: item.branch ?? '',
+    pollIntervalSeconds: item.pollIntervalSeconds?.toString() ?? '60',
     projectId: item.projectId ?? '',
     model: item.model ?? '',
     thinking: item.thinking ?? '',
@@ -143,6 +160,13 @@ function editorErrors(editor: AutomationEditor): EditorError[] {
   }
   if (editor.kind === 'schedule' && editor.startAt && editor.endAt && editor.endAt < editor.startAt)
     errors.push({ field: 'endAt', message: '结束时间不能早于开始时间' });
+  if (editor.kind === 'git-poll' && !editor.repo.trim())
+    errors.push({ field: 'repo', message: '请输入 git 仓库（本地路径或 URL）' });
+  if (editor.kind === 'git-poll' && editor.pollIntervalSeconds) {
+    const value = Number(editor.pollIntervalSeconds);
+    if (!Number.isSafeInteger(value) || value < 15)
+      errors.push({ field: 'pollIntervalSeconds', message: '轮询间隔必须是不小于 15 的整数秒' });
+  }
   return errors;
 }
 
@@ -325,6 +349,16 @@ export function AutomationManager({
       model: editor.model || null,
       thinking: (editor.thinking || null) as (typeof AGENT_THINKING_LEVELS)[number] | null,
     };
+    const gitPollConfiguration: Partial<WakerAutomation> =
+      editor.kind === 'git-poll'
+        ? {
+            repo: editor.repo.trim(),
+            ...(editor.branch.trim() ? { branch: editor.branch.trim() } : {}),
+            ...(editor.pollIntervalSeconds
+              ? { pollIntervalSeconds: Number(editor.pollIntervalSeconds) }
+              : {}),
+          }
+        : {};
     const createConfiguration: Partial<WakerAutomation> = {
       timezone: configuration.timezone,
       misfirePolicy: configuration.misfirePolicy,
@@ -344,6 +378,7 @@ export function AutomationManager({
             name,
             prompt,
             ...configuration,
+            ...gitPollConfiguration,
             ...(editor.kind === 'schedule' ? { schedule: editor.schedule.trim() } : {}),
           });
           closeEditor();
@@ -354,6 +389,7 @@ export function AutomationManager({
             kind: editor.kind,
             prompt,
             ...createConfiguration,
+            ...gitPollConfiguration,
             ...(editor.kind === 'schedule' ? { schedule: editor.schedule.trim() } : {}),
           });
           createdId = created.id;
@@ -539,7 +575,10 @@ export function AutomationManager({
                   </div>
                   <div>
                     <dt>计划</dt>
-                    <dd>{selected.schedule || '由外部触发'}</dd>
+                    <dd>
+                      {selected.schedule ||
+                        (selected.kind === 'git-poll' ? '新 commit 触发' : '由外部触发')}
+                    </dd>
                   </div>
                   <div>
                     <dt>下次运行</dt>
@@ -574,11 +613,52 @@ export function AutomationManager({
                   </div>
                 </dl>
 
-                {selected.kind !== 'schedule' && (
-                  <p className="automation-trigger-note">
-                    {selected.kind.toUpperCase()}{' '}
-                    外部触发入口尚未开放；可使用下方“立即运行”在本地手动执行。
-                  </p>
+                {(selected.kind === 'api' || selected.kind === 'event') && (
+                  <div className="automation-trigger-note">
+                    <p>
+                      入站触发{' '}
+                      <code>
+                        POST /api/v1/automations/{selected.id}/
+                        {selected.kind === 'api' ? 'invoke' : 'webhook'}
+                      </code>
+                    </p>
+                    <p>
+                      触发令牌 <code>{selected.triggerKey ?? '生成中…'}</code>
+                      {selected.kind === 'api'
+                        ? '，通过 x-api-trigger-key 头（或 Bearer）携带'
+                        : '，通过 ?key= 查询参数（或 x-api-trigger-key 头）携带'}
+                    </p>
+                    <p>
+                      <button
+                        className="legacy-button"
+                        type="button"
+                        disabled={Boolean(busy)}
+                        onClick={() =>
+                          void perform(
+                            `${selected.id}:rotate`,
+                            () => automationAction(selected.id, 'rotate-trigger-key', wakerId),
+                            '触发令牌已重新生成',
+                          )
+                        }
+                      >
+                        <ArrowClockwise size={14} />
+                        {busy === `${selected.id}:rotate` ? '正在生成…' : '重新生成令牌'}
+                      </button>
+                    </p>
+                  </div>
+                )}
+
+                {selected.kind === 'git-poll' && (
+                  <div className="automation-trigger-note">
+                    <p>
+                      Git 轮询 <code>{selected.repo}</code> 的分支{' '}
+                      <code>{selected.branch || '默认分支 / HEAD'}</code>，每{' '}
+                      {selected.pollIntervalSeconds ?? 60} 秒检查一次头 commit。
+                    </p>
+                    <p>
+                      上次观测 commit <code>{selected.lastSeenCommit ?? '尚未轮询（首次轮询只落基线）'}</code>
+                    </p>
+                  </div>
                 )}
 
                 {actionError && (
@@ -818,6 +898,7 @@ function AutomationEditorForm({
           <option value="schedule">计划</option>
           <option value="api">API</option>
           <option value="event">事件</option>
+          <option value="git-poll">Git 轮询</option>
         </select>
       </label>
       {editor.id && <small id="automation-kind-hint">触发方式创建后不可更改。</small>}
@@ -920,6 +1001,62 @@ function AutomationEditorForm({
               <option value="run_once">补跑一次</option>
               <option value="skip">跳过</option>
             </select>
+          </label>
+        </div>
+      )}
+      {editor.kind === 'git-poll' && (
+        <div className="automation-schedule-fields">
+          <label>
+            Git 仓库
+            <input
+              required
+              maxLength={4000}
+              spellCheck={false}
+              placeholder="/path/to/repo 或 https://github.com/org/repo.git"
+              value={editor.repo}
+              aria-invalid={showFieldError('repo')}
+              aria-describedby={describedBy('repo', 'automation-repo-hint')}
+              onBlur={() => touch('repo')}
+              onChange={(event) => onChange({ ...editor, repo: event.target.value })}
+            />
+            <small id="automation-repo-hint">
+              本地路径直接读工作区分支头；跟踪远端更新请填 git URL（ls-remote 轮询）。
+            </small>
+            {showFieldError('repo') && (
+              <small id="automation-repo-error" className="automation-field-error">
+                {fieldError('repo')}
+              </small>
+            )}
+          </label>
+          <label>
+            分支
+            <input
+              maxLength={240}
+              spellCheck={false}
+              placeholder="留空跟随默认分支 / HEAD"
+              value={editor.branch}
+              onChange={(event) => onChange({ ...editor, branch: event.target.value })}
+            />
+          </label>
+          <label>
+            轮询间隔（秒）
+            <input
+              type="number"
+              min="15"
+              step="1"
+              value={editor.pollIntervalSeconds}
+              aria-invalid={showFieldError('pollIntervalSeconds')}
+              aria-describedby={describedBy('pollIntervalSeconds')}
+              onBlur={() => touch('pollIntervalSeconds')}
+              onChange={(event) =>
+                onChange({ ...editor, pollIntervalSeconds: event.target.value })
+              }
+            />
+            {showFieldError('pollIntervalSeconds') && (
+              <small id="automation-pollIntervalSeconds-error" className="automation-field-error">
+                {fieldError('pollIntervalSeconds')}
+              </small>
+            )}
           </label>
         </div>
       )}
@@ -1054,7 +1191,7 @@ function AutomationRunHistory({
                   <div>
                     <dt>触发</dt>
                     <dd>
-                      {run.trigger === 'scheduled' ? '计划' : '手动'}
+                      {RUN_TRIGGER[run.trigger]}
                       {run.scheduledFor ? ` · ${formatDate(run.scheduledFor)}` : ''}
                     </dd>
                   </div>

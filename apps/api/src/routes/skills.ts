@@ -10,21 +10,38 @@ import type {
   InstalledSkillListResponse,
   LibrarySkillDetail,
   LibrarySkillSummary,
+  SkillDiffResponse,
   SkillInstallRequest,
   SkillLibraryResponse,
   SkillRemoveRequest,
+  SkillRollbackRequest,
+  SkillRollbackResponse,
+  SkillScanReport,
+  SkillSnapshotRequest,
+  SkillSnapshotResponse,
+  SkillVersionDetail,
+  SkillVersionListResponse,
   UploadSkillRequest,
 } from '@waker/contracts';
 import {
   listInstalledSkills,
+  applySkillRollback,
   assertSkillsMutationRootsSafe,
+  createSkillSnapshot,
+  diffSkillVersions,
+  ensureSkillSnapshotFresh,
+  getSkillVersion,
   hasRepoSkillResidue,
+  listSkillVersions,
+  planSkillRollback,
   readStagingMetadata,
   readInstalledSkillContent,
   removeProjectSkill,
   removeUploadedSkillSource,
+  scanSkillsSafety,
   SKILLS_CLI_VERSION,
   SkillUploadError,
+  SkillVersionNotFoundError,
   stageUploadedSkill,
   writeStagingMetadata,
   redactPrivateRoots,
@@ -32,10 +49,14 @@ import {
 import {
   SkillContentQuerySchema,
   SkillDetailQuerySchema,
+  SkillDiffQuerySchema,
   SkillInstallSchema,
   SkillLibraryQuerySchema,
   SkillRemoveSchema,
+  SkillRollbackSchema,
+  SkillSnapshotSchema,
   SkillUploadSchema,
+  SkillVersionParamsSchema,
 } from '../schemas.js';
 import {
   parseSkillsShDetail,
@@ -265,8 +286,90 @@ function installedResponse(cwd: string): InstalledSkillListResponse {
 }
 
 export function registerSkillRoutes(app: FastifyInstance, ctx: AppContext): void {
-  app.get('/skills/installed', async (): Promise<InstalledSkillListResponse> =>
-    installedResponse(ctx.cwd),
+  // 惰性自动版本：读请求时发现 .agents/skills 指纹与最新快照不一致就记一版（只读归档）。
+  const autoSnapshot = (): void => {
+    try {
+      ensureSkillSnapshotFresh(ctx.cwd);
+    } catch (error) {
+      app.log.warn(error, 'skill 自动快照失败');
+    }
+  };
+
+  app.get('/skills/installed', async (): Promise<InstalledSkillListResponse> => {
+    autoSnapshot();
+    return installedResponse(ctx.cwd);
+  });
+
+  // 内容版本（快照式，对齐旧版 versions/diff/rollback 语义；Skills CLI 仍管安装/卸载）。
+  app.get('/skills/versions', async (): Promise<SkillVersionListResponse> => {
+    autoSnapshot();
+    const items = listSkillVersions(ctx.cwd).map(({ files: _files, ...summary }) => summary);
+    return { items, total: items.length };
+  });
+
+  // 手动全量安全扫描：本地 skill 入站面是文件系统变化（CLI 安装/手动放入），
+  // 自动扫描挂在记版时（added/modified），此端点扫当前目录全量；只报告不拦截。
+  app.post('/skills/scan', async (): Promise<SkillScanReport> => scanSkillsSafety(ctx.cwd));
+
+  app.post<{ Body: SkillSnapshotRequest }>(
+    '/skills/snapshots',
+    { schema: { body: SkillSnapshotSchema } },
+    async (request): Promise<SkillSnapshotResponse> =>
+      createSkillSnapshot(ctx.cwd, {
+        trigger: 'manual',
+        ...(request.body?.label ? { label: request.body.label } : {}),
+      }),
+  );
+
+  app.get<{ Params: { versionId: string } }>(
+    '/skills/versions/:versionId',
+    { schema: { params: SkillVersionParamsSchema } },
+    async (request, reply): Promise<SkillVersionDetail | void> => {
+      const version = getSkillVersion(ctx.cwd, request.params.versionId);
+      if (!version) return reply.code(404).send({ error: `技能版本不存在：${request.params.versionId}` });
+      return version;
+    },
+  );
+
+  app.get<{ Querystring: { from: string; to: string } }>(
+    '/skills/diff',
+    { schema: { querystring: SkillDiffQuerySchema } },
+    async (request, reply): Promise<SkillDiffResponse | void> => {
+      try {
+        return diffSkillVersions(ctx.cwd, request.query.from, request.query.to);
+      } catch (error) {
+        if (error instanceof SkillVersionNotFoundError)
+          return reply.code(404).send({ error: error.message });
+        throw error;
+      }
+    },
+  );
+
+  // rollback 默认 dry-run 只回变更计划；apply=true 才写 .agents/skills，
+  // 写入前自动把当前状态打成一版（trigger='rollback'），回滚本身可反悔。
+  app.post<{ Body: SkillRollbackRequest }>(
+    '/skills/rollback',
+    { schema: { body: SkillRollbackSchema } },
+    async (request, reply): Promise<SkillRollbackResponse | void> => {
+      const { versionId, apply, reason } = request.body;
+      try {
+        if (!apply) {
+          const { plan } = planSkillRollback(ctx.cwd, versionId);
+          return { versionId, applied: false, plan };
+        }
+        const result = applySkillRollback(ctx.cwd, versionId, reason);
+        return {
+          versionId,
+          applied: true,
+          plan: result.plan,
+          ...(result.preSnapshotId ? { preSnapshotId: result.preSnapshotId } : {}),
+        };
+      } catch (error) {
+        if (error instanceof SkillVersionNotFoundError)
+          return reply.code(404).send({ error: error.message });
+        throw error;
+      }
+    },
   );
 
   app.get<{

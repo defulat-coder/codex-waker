@@ -98,6 +98,32 @@ describe('agent session store', () => {
     assert.equal(await store.getSession('session-a'), undefined);
   });
 
+  it('persists the per-session skill mount list and clears it on undefined', async () => {
+    const { store } = fixture();
+    const created = await store.createSession('codex-assistant', 'session-skills');
+    assert.equal(created.skills, undefined);
+
+    const mounted = await store.setSessionSkills('session-skills', 'codex-assistant', [
+      'alpha',
+      'beta',
+    ]);
+    assert.deepEqual(mounted?.skills, ['alpha', 'beta']);
+    // 直读 sqlite 复核列持久化（JSON 数组），且绑定条目同样可读。
+    const check = new Database(store.workbench.file);
+    const row = check.prepare('SELECT skills FROM sessions WHERE id = ?').get('session-skills') as
+      | { skills: string | null }
+      | undefined;
+    check.close();
+    assert.equal(row?.skills, '["alpha","beta"]');
+    assert.deepEqual(store.getEntry('session-skills', 'codex-assistant')?.skills, [
+      'alpha',
+      'beta',
+    ]);
+
+    const cleared = await store.setSessionSkills('session-skills', 'codex-assistant', undefined);
+    assert.equal(cleared?.skills, undefined);
+  });
+
   it('counts user messages as questions and derives a title from the first one', async () => {
     const { store } = fixture();
     await store.createSession('codex-assistant', 'session-questions');
