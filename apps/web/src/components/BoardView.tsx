@@ -26,7 +26,13 @@ import type {
   WakerTask,
 } from '@waker/contracts';
 import { cx } from '../lib/cx.js';
-import { MOTION_EASE, MOTION_LAYOUT_TRANSITION, MOTION_TRANSITION } from '../lib/motion.js';
+import {
+  MOTION_DIALOG_BACKDROP,
+  MOTION_DIALOG_SURFACE,
+  MOTION_EASE,
+  MOTION_LAYOUT_TRANSITION,
+  MOTION_TRANSITION,
+} from '../lib/motion.js';
 import { fetchLocalResources } from '../lib/api.js';
 import { useDialogFocus } from '../hooks/useDialogFocus.js';
 import { useVisiblePolling } from '../hooks/useVisiblePolling.js';
@@ -768,16 +774,11 @@ export function BoardView({
         )}
       </AnimatePresence>
 
-      <AnimatePresence>
       {editor && (
         <motion.div
-          key="board-editor"
           className="modal-backdrop"
           onMouseDown={closeEditor}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={MOTION_TRANSITION.exit}
+          {...MOTION_DIALOG_BACKDROP}
         >
           <motion.form
             ref={editorDialogRef}
@@ -788,10 +789,7 @@ export function BoardView({
             tabIndex={-1}
             onMouseDown={(event) => event.stopPropagation()}
             onSubmit={saveManual}
-            initial={{ opacity: 0, scale: 0.985, y: 8 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.985, y: 6 }}
-            transition={MOTION_TRANSITION.panel}
+            {...MOTION_DIALOG_SURFACE}
           >
             <h2 id="board-editor-title">{editor.id ? '编辑手工任务' : '新建手工任务'}</h2>
             <label>
@@ -877,13 +875,9 @@ export function BoardView({
 
       {deleteTarget && (
         <motion.div
-          key="board-delete"
           className="modal-backdrop"
           onMouseDown={closeDelete}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={MOTION_TRANSITION.exit}
+          {...MOTION_DIALOG_BACKDROP}
         >
           <motion.div
             ref={deleteDialogRef}
@@ -893,10 +887,7 @@ export function BoardView({
             aria-labelledby="board-delete-title"
             tabIndex={-1}
             onMouseDown={(event) => event.stopPropagation()}
-            initial={{ opacity: 0, scale: 0.985, y: 8 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.985, y: 6 }}
-            transition={MOTION_TRANSITION.panel}
+            {...MOTION_DIALOG_SURFACE}
           >
             <h2 id="board-delete-title">删除“{deleteTarget.title}”？</h2>
             <p>仅手工任务可删除；Automation、Workflow、Run 和 Session 记录不会被伪造或级联删除。</p>
@@ -939,13 +930,9 @@ export function BoardView({
 
       {ignoreTarget && (
         <motion.div
-          key="board-ignore"
           className="modal-backdrop"
           onMouseDown={closeIgnore}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={MOTION_TRANSITION.exit}
+          {...MOTION_DIALOG_BACKDROP}
         >
           <motion.div
             ref={ignoreDialogRef}
@@ -955,10 +942,7 @@ export function BoardView({
             aria-labelledby="board-ignore-title"
             tabIndex={-1}
             onMouseDown={(event) => event.stopPropagation()}
-            initial={{ opacity: 0, scale: 0.985, y: 8 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.985, y: 6 }}
-            transition={MOTION_TRANSITION.panel}
+            {...MOTION_DIALOG_SURFACE}
           >
             <h2 id="board-ignore-title">忽略“{ignoreTarget.title}”？</h2>
             <p>
@@ -1012,7 +996,6 @@ export function BoardView({
           </motion.div>
         </motion.div>
       )}
-      </AnimatePresence>
     </section>
   );
 }

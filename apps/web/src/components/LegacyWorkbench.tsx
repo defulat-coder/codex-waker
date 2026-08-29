@@ -53,7 +53,13 @@ import {
   markAllInboxRead,
 } from '../lib/api.js';
 import { cx } from '../lib/cx.js';
-import { MOTION_EASE, MOTION_LAYOUT_TRANSITION, MOTION_TRANSITION } from '../lib/motion.js';
+import {
+  MOTION_DIALOG_BACKDROP,
+  MOTION_DIALOG_SURFACE,
+  MOTION_EASE,
+  MOTION_LAYOUT_TRANSITION,
+  MOTION_TRANSITION,
+} from '../lib/motion.js';
 import { AgentChip } from './AgentChip.js';
 import { NewAgentDialog } from './NewAgentDialog.js';
 import { useDialogFocus } from '../hooks/useDialogFocus.js';
@@ -656,21 +662,23 @@ export function WakersView({
         }}
       />
       {deleteTarget && (
-        <div
+        <motion.div
           className="modal-backdrop"
+          {...MOTION_DIALOG_BACKDROP}
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) {
               closeDeleteDialog();
             }
           }}
         >
-          <form
+          <motion.form
             ref={deleteDialogRef}
             tabIndex={-1}
             className="memory-dialog"
             role="dialog"
             aria-modal="true"
             aria-labelledby="delete-waker-title"
+            {...MOTION_DIALOG_SURFACE}
             onSubmit={async (event) => {
               event.preventDefault();
               if (deleteConfirmation !== deleteTarget.name) return;
@@ -742,8 +750,8 @@ export function WakersView({
                 确认删除
               </button>
             </div>
-          </form>
-        </div>
+          </motion.form>
+        </motion.div>
       )}
     </section>
   );
@@ -1112,13 +1120,14 @@ export function KnowledgeView({
         </button>
       </form>
       {docEditor && (
-        <div
+        <motion.div
           className="modal-backdrop"
+          {...MOTION_DIALOG_BACKDROP}
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) closeDocumentDialog();
           }}
         >
-          <form
+          <motion.form
             ref={documentDialogRef}
             tabIndex={-1}
             className="memory-dialog"
@@ -1126,6 +1135,7 @@ export function KnowledgeView({
             aria-modal="true"
             aria-label="新建知识文档"
             onSubmit={createDocument}
+            {...MOTION_DIALOG_SURFACE}
           >
             <h2>新建知识文档</h2>
             <label>
@@ -1178,8 +1188,8 @@ export function KnowledgeView({
                 保存
               </button>
             </div>
-          </form>
-        </div>
+          </motion.form>
+        </motion.div>
       )}
       {error ? (
         <ErrorState message={error} onRetry={() => void load()} />
