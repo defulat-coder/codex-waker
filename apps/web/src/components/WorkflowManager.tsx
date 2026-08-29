@@ -39,7 +39,11 @@ import { cx } from '../lib/cx.js';
 import { useDialogFocus } from '../hooks/useDialogFocus.js';
 import { useVisiblePolling } from '../hooks/useVisiblePolling.js';
 import { MotionLoadingRows } from './MotionFeedback.js';
-import { MOTION_TRANSITION } from '../lib/motion.js';
+import {
+  MOTION_DIALOG_BACKDROP,
+  MOTION_DIALOG_SURFACE,
+  MOTION_TRANSITION,
+} from '../lib/motion.js';
 
 type WorkflowStatus = WakerWorkflow['status'];
 type WorkflowTrace = { run: WorkflowRunRecord; events: WorkflowRunEventRecord[] };
@@ -1486,8 +1490,12 @@ export function WorkflowManager({
       )}
 
       {deleteTarget && (
-        <div className="modal-backdrop" onMouseDown={closeDelete}>
-          <div
+        <motion.div
+          className="modal-backdrop"
+          onMouseDown={closeDelete}
+          {...MOTION_DIALOG_BACKDROP}
+        >
+          <motion.div
             ref={deleteDialogRef}
             className="workflow-delete-dialog"
             role="dialog"
@@ -1495,6 +1503,7 @@ export function WorkflowManager({
             aria-labelledby="workflow-delete-title"
             tabIndex={-1}
             onMouseDown={(event) => event.stopPropagation()}
+            {...MOTION_DIALOG_SURFACE}
           >
             <h2 id="workflow-delete-title">删除“{deleteTarget.name}”？</h2>
             <p>流程定义会从列表移除；不可变版本、运行轨迹和会话继续保留。</p>
@@ -1584,8 +1593,8 @@ export function WorkflowManager({
                 确认删除
               </button>
             </div>
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
       )}
     </section>
   );

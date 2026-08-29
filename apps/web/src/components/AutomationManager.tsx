@@ -32,7 +32,11 @@ import { cx } from '../lib/cx.js';
 import { useVisiblePolling } from '../hooks/useVisiblePolling.js';
 import { useDialogFocus } from '../hooks/useDialogFocus.js';
 import { MotionLoadingRows } from './MotionFeedback.js';
-import { MOTION_TRANSITION } from '../lib/motion.js';
+import {
+  MOTION_DIALOG_BACKDROP,
+  MOTION_DIALOG_SURFACE,
+  MOTION_TRANSITION,
+} from '../lib/motion.js';
 
 type AutomationEditor = {
   id?: string;
@@ -747,8 +751,12 @@ export function AutomationManager({
         </div>
       )}
       {deleteTarget && (
-        <div className="modal-backdrop" onMouseDown={closeDelete}>
-          <div
+        <motion.div
+          className="modal-backdrop"
+          onMouseDown={closeDelete}
+          {...MOTION_DIALOG_BACKDROP}
+        >
+          <motion.div
             ref={deleteDialogRef}
             className="automation-delete-dialog"
             role="dialog"
@@ -756,6 +764,7 @@ export function AutomationManager({
             aria-labelledby="automation-delete-title"
             tabIndex={-1}
             onMouseDown={(event) => event.stopPropagation()}
+            {...MOTION_DIALOG_SURFACE}
           >
             <h2 id="automation-delete-title">删除“{deleteTarget.name}”？</h2>
             <p>任务定义将停用并从列表移除；关联任务和会话仍可从各自入口查看。</p>
@@ -807,8 +816,8 @@ export function AutomationManager({
                 {busy.startsWith('delete:') ? '正在删除…' : '删除任务'}
               </button>
             </div>
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
       )}
     </section>
   );

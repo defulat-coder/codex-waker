@@ -18,7 +18,11 @@ import {
   uploadSessionAttachment,
 } from '../lib/api.js';
 import { MotionLoadingRows } from './MotionFeedback.js';
-import { MOTION_TRANSITION } from '../lib/motion.js';
+import {
+  MOTION_DIALOG_BACKDROP,
+  MOTION_DIALOG_SURFACE,
+  MOTION_TRANSITION,
+} from '../lib/motion.js';
 
 const MAX_SELECTED_ATTACHMENTS = 8;
 const MAX_TEXT_PREVIEW_BYTES = 64 * 1024;
@@ -450,20 +454,22 @@ export function SessionOutputsPanel({
       </div>
 
       {previewTarget && (
-        <div
+        <motion.div
           className="modal-backdrop"
           role="presentation"
+          {...MOTION_DIALOG_BACKDROP}
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) closePreview();
           }}
         >
-          <div
+          <motion.div
             ref={previewDialogRef}
             className="memory-dialog attachment-preview-dialog"
             role="dialog"
             aria-modal="true"
             aria-labelledby="attachment-preview-title"
             tabIndex={-1}
+            {...MOTION_DIALOG_SURFACE}
           >
             <div className="modal-head">
               <h2 id="attachment-preview-title">{previewTarget.originalName}</h2>
@@ -510,25 +516,27 @@ export function SessionOutputsPanel({
                 关闭
               </button>
             </div>
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
       )}
 
       {deleteTarget && (
-        <div
+        <motion.div
           className="modal-backdrop"
           role="presentation"
+          {...MOTION_DIALOG_BACKDROP}
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) closeDelete();
           }}
         >
-          <div
+          <motion.div
             ref={deleteDialogRef}
             className="memory-dialog attachment-delete-dialog"
             role="dialog"
             aria-modal="true"
             aria-labelledby="attachment-delete-title"
             tabIndex={-1}
+            {...MOTION_DIALOG_SURFACE}
           >
             <h2 id="attachment-delete-title">删除附件</h2>
             <p>
@@ -560,8 +568,8 @@ export function SessionOutputsPanel({
                 {deleting ? '删除中…' : '永久删除'}
               </button>
             </div>
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
       )}
     </motion.aside>
   );
