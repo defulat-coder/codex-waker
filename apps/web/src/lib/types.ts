@@ -1,4 +1,4 @@
-import type { ChatCitationSource, ChatModelLabel, ChatUsage } from '@waker/contracts';
+import type { ChatCitationSource, ChatErrorKind, ChatModelLabel, ChatUsage } from '@waker/contracts';
 import type { ExploreView } from './explore.js';
 import type { LiveToolCall } from './stream.js';
 
@@ -13,6 +13,10 @@ export type ChatMessage = {
   streaming?: boolean;
   /** Set when the turn ended with a stream error. */
   error?: string;
+  /** 服务端错误分类（红卡按此渲染分类文案）；历史错误无此字段时保持原文展示。 */
+  errorKind?: ChatErrorKind;
+  /** quota 类错误的重置时间提示（若服务端从 provider 消息中提取到）。 */
+  errorResetAt?: string;
   /** Set when the turn was interrupted (client aborted the stream). */
   interrupted?: boolean;
   /** 本轮发生的工具、计划与委派过程；完成后可从 rollout 历史恢复。 */

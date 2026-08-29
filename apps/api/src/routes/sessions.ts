@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type {
   InboxItem,
+  InboxReadAllResponse,
   InboxResponse,
   InboxTab,
   RenameSessionRequest,
@@ -72,6 +73,17 @@ export function registerSessionRoutes(app: FastifyInstance, ctx: AppContext): vo
       return { items, total: items.length, unreadCount };
     },
   );
+
+  app.post('/inbox/read-all', async (): Promise<InboxReadAllResponse> => {
+    // 与收件箱 unreadCount 同口径：needsAttention && !completedAt && !read。
+    const unread = (await ctx.sessions.listSessions()).filter(
+      (session) => session.needsAttention && !session.completedAt && !session.read,
+    );
+    for (const session of unread) {
+      await ctx.sessions.updateInboxState(session.id, session.agentId, { read: true });
+    }
+    return { updated: unread.length };
+  });
 
   app.get<{ Params: { agentId: string } }>(
     '/agents/:agentId/sessions',

@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import type {
   MemoryDocument,
+  MemoryScope,
+  MemoryScopeType,
   MemorySnapshot,
   MemoryTimelineEntry,
   MemoryVersion,
+  WakerProject,
 } from '@waker/contracts';
 import { ArrowCounterClockwise } from '@phosphor-icons/react/dist/icons/ArrowCounterClockwise';
 import { ClockCounterClockwise } from '@phosphor-icons/react/dist/icons/ClockCounterClockwise';
@@ -15,6 +18,7 @@ import {
   createMemory,
   createMemorySnapshot,
   exportMemory,
+  fetchLocalResources,
   fetchMemories,
   fetchMemoryDiff,
   fetchMemoryHistory,
@@ -50,7 +54,14 @@ export function MemoryView({
   onClose: () => void;
   notify: (text: string) => void;
 }) {
-  const scope = useMemo(() => ({ type: 'waker' as const, id: wakerId }), [wakerId]);
+  const [scopeType, setScopeType] = useState<MemoryScopeType>('waker');
+  const [projectId, setProjectId] = useState('');
+  const [projects, setProjects] = useState<WakerProject[] | null>(null);
+  const scope = useMemo<MemoryScope | null>(() => {
+    if (scopeType === 'waker') return { type: 'waker', id: wakerId };
+    if (scopeType === 'project' && projectId) return { type: 'project', id: projectId };
+    return null;
+  }, [scopeType, projectId, wakerId]);
   const [items, setItems] = useState<MemoryDocument[] | null>(null);
   const [selected, setSelected] = useState<MemoryDocument | null>(null);
   const [history, setHistory] = useState<{
@@ -77,6 +88,13 @@ export function MemoryView({
     }
   }, [editor]);
   const load = useCallback(async () => {
+    if (!scope) {
+      setItems([]);
+      setSelected(null);
+      setTimeline([]);
+      setHistory({ versions: [], snapshots: [] });
+      return;
+    }
     try {
       setError('');
       const list = await fetchMemories(scope);
@@ -91,6 +109,27 @@ export function MemoryView({
     void load();
   }, [load]);
   useEffect(() => {
+    setDiff('');
+  }, [scope]);
+  useEffect(() => {
+    let cancelled = false;
+    fetchLocalResources(wakerId)
+      .then((resources) => {
+        if (!cancelled)
+          setProjects(resources.projects.filter((project) => project.wakerId === wakerId));
+      })
+      .catch(() => {
+        if (!cancelled) setProjects([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [wakerId]);
+  useEffect(() => {
+    const firstProject = projects?.[0];
+    if (scopeType === 'project' && firstProject && !projectId) setProjectId(firstProject.id);
+  }, [scopeType, projects, projectId]);
+  useEffect(() => {
     if (selected)
       void fetchMemoryHistory(selected.id)
         .then(setHistory)
@@ -98,7 +137,7 @@ export function MemoryView({
   }, [selected]);
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!editor) return;
+    if (!editor || !scope) return;
     setBusy(true);
     try {
       if (editor.mode === 'import')
@@ -138,6 +177,7 @@ export function MemoryView({
     }
   };
   const download = async (format: 'json' | 'markdown') => {
+    if (!scope) return;
     try {
       const content = await exportMemory(
         format,
@@ -157,7 +197,7 @@ export function MemoryView({
     }
   };
   const rollback = async (snapshot: MemorySnapshot, apply: boolean) => {
-    if (!selected) return;
+    if (!selected || !scope) return;
     try {
       const result = await rollbackMemory({
         snapshotId: snapshot.id,
@@ -180,7 +220,7 @@ export function MemoryView({
       <header className="legacy-page-header">
         <div>
           <h1>记忆</h1>
-          <p>管理当前 Waker 的本地长期记忆、版本与回滚。</p>
+          <p>管理个人、项目与群组范围的本地长期记忆、版本与回滚。</p>
         </div>
         <div className="page-actions">
           <button className="legacy-button" onClick={onClose}>
@@ -188,6 +228,7 @@ export function MemoryView({
           </button>
           <button
             className="legacy-button"
+            disabled={!scope}
             onClick={(event) => {
               event.currentTarget.focus();
               editorTriggerRef.current = event.currentTarget;
@@ -199,6 +240,7 @@ export function MemoryView({
           </button>
           <button
             className="legacy-button primary"
+            disabled={!scope}
             onClick={(event) => {
               event.currentTarget.focus();
               editorTriggerRef.current = event.currentTarget;
@@ -210,6 +252,58 @@ export function MemoryView({
           </button>
         </div>
       </header>
+      <div className="memory-scope-bar">
+        <div className="waker-tabs memory-scope-tabs" role="tablist" aria-label="记忆范围">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={scopeType === 'waker'}
+            className={cx('waker-tab', scopeType === 'waker' && 'active')}
+            onClick={() => setScopeType('waker')}
+          >
+            个人
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={scopeType === 'project'}
+            className={cx('waker-tab', scopeType === 'project' && 'active')}
+            onClick={() => setScopeType('project')}
+          >
+            项目
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={scopeType === 'group'}
+            className="waker-tab"
+            disabled
+            title="云端多 Waker 群组在本地模式不可用"
+          >
+            群组
+          </button>
+        </div>
+        {scopeType === 'project' &&
+          projects !== null &&
+          (projects.length ? (
+            <select
+              className="config-select memory-scope-select"
+              aria-label="选择项目"
+              value={projectId}
+              onChange={(event) => setProjectId(event.target.value)}
+            >
+              {projects.map((project) => (
+                <option key={project.id} value={project.id}>
+                  {project.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span className="memory-scope-empty">
+              当前 Waker 还没有项目，请先在「项目」页创建。
+            </span>
+          ))}
+      </div>
       {error ? (
         <div className="legacy-error" role="alert">
           <p>{error}</p>

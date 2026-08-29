@@ -1,5 +1,6 @@
 import type {
   ChatCitationSource,
+  ChatErrorKind,
   ChatModelLabel,
   ChatProcess,
   ChatProcessStatus,
@@ -71,8 +72,15 @@ export function decodeStreamEvent(block: SseBlock): ChatStreamEvent {
         answer: String(payload.answer ?? ''),
         ...(payload.usage ? { usage: payload.usage as ChatUsage } : {}),
       };
-    case 'error':
-      return { type: 'error', error: String(payload.error ?? '流式响应失败') };
+    case 'error': {
+      const kind = payload.kind;
+      return {
+        type: 'error',
+        error: String(payload.error ?? '流式响应失败'),
+        ...(typeof kind === 'string' ? { kind: kind as ChatErrorKind } : {}),
+        ...(typeof payload.resetAt === 'string' ? { resetAt: payload.resetAt } : {}),
+      };
+    }
     default:
       throw new Error(`未知的流式事件：${block.event}`);
   }

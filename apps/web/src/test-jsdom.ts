@@ -27,6 +27,7 @@ const globals: Record<string, unknown> = {
   HTMLElement: window.HTMLElement,
   KeyboardEvent: window.KeyboardEvent,
   MouseEvent: window.MouseEvent,
+  MutationObserver: window.MutationObserver,
   PointerEvent: window.PointerEvent ?? window.MouseEvent,
   Blob: window.Blob,
   File: window.File,

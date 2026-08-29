@@ -365,4 +365,47 @@ describe('rollout process history', () => {
     assert.equal(assistant?.stopReason, 'aborted');
     assert.equal(assistant?.tools?.[0]?.status, 'cancelled');
   });
+
+  it('回放错误消息时按同一分类器透出 errorKind 与 resetAt', () => {
+    const records = (message: string) => [
+      {
+        type: 'response_item',
+        payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: '问' }] },
+      },
+      { type: 'event_msg', payload: { type: 'error', message } },
+    ];
+    const parse = (message: string) =>
+      parseRolloutMessages(records(message).map((record) => JSON.stringify(record)).join('\n'))[1];
+
+    const timeout = parse('Request timeout after 30s');
+    assert.equal(timeout?.stopReason, 'error');
+    assert.equal(timeout?.errorKind, 'timeout');
+    assert.equal(timeout?.errorResetAt, undefined);
+
+    const quota = parse('quota exceeded，将于 2026-09-01T00:00:00Z 重置');
+    assert.equal(quota?.errorKind, 'quota');
+    assert.equal(quota?.errorResetAt, '2026-09-01T00:00:00Z');
+
+    const generic = parse('上游异常');
+    assert.equal(generic?.errorKind, 'generic');
+
+    // turn_aborted 没有错误消息：不带分类。
+    const aborted = parseRolloutMessages(
+      [
+        {
+          type: 'response_item',
+          payload: {
+            type: 'message',
+            role: 'user',
+            content: [{ type: 'input_text', text: '问' }],
+          },
+        },
+        { type: 'event_msg', payload: { type: 'turn_aborted' } },
+      ]
+        .map((record) => JSON.stringify(record))
+        .join('\n'),
+    )[1];
+    assert.equal(aborted?.stopReason, 'aborted');
+    assert.equal(aborted?.errorKind, undefined);
+  });
 });

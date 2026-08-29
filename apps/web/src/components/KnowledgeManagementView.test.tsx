@@ -8,6 +8,7 @@ import {
   MAX_KNOWLEDGE_IMPORT_FILES,
   prepareKnowledgeFiles,
 } from './knowledgeFileImport.js';
+import { MAX_KNOWLEDGE_IMPORT_URLS, parseKnowledgeUrls } from './knowledgeUrlImport.js';
 
 const originalFetch = globalThis.fetch;
 
@@ -90,6 +91,19 @@ function stubKnowledgeFetch(initialBinding?: KnowledgeBinding): FetchCall[] {
         total: 0,
         truncated: false,
       });
+    if (url.endsWith('/api/v1/knowledge/documents/import-url') && method === 'POST') {
+      const urls = (body?.urls as string[]) ?? [];
+      const results = urls.map((item) =>
+        item.includes('fail')
+          ? { url: item, ok: false, error: '抓取失败（HTTP 404）' }
+          : { url: item, ok: true, documentId: `doc-${item}`, title: '页面标题' },
+      );
+      const imported = results.filter((result) => result.ok).length;
+      return jsonResponse(
+        { results, imported, failed: results.length - imported },
+        imported === results.length ? 200 : imported > 0 ? 200 : 502,
+      );
+    }
     if (url.endsWith('/api/v1/knowledge/documents') && method === 'POST')
       return jsonResponse({ id: 'imported', ...body }, 201);
     if (url.endsWith('/api/v1/knowledge/rebuild') && method === 'POST')
@@ -137,6 +151,18 @@ describe('prepareKnowledgeFiles', () => {
     const result = await prepareKnowledgeFiles(files);
     assert.equal(result.accepted.length, MAX_KNOWLEDGE_IMPORT_FILES);
     assert.equal(result.rejected.length, 2);
+  });
+});
+
+describe('parseKnowledgeUrls', () => {
+  it('按空格/换行拆分，去重并忽略非 http(s) 片段', () => {
+    assert.deepEqual(
+      parseKnowledgeUrls(
+        'https://a.com/1 https://a.com/1\nhttp://b.com/2\tnot-a-url\nftp://c.com/x  https://a.com/1#frag',
+      ),
+      ['https://a.com/1', 'http://b.com/2', 'https://a.com/1#frag'],
+    );
+    assert.deepEqual(parseKnowledgeUrls('   \n  '), []);
   });
 });
 
@@ -320,6 +346,62 @@ describe('KnowledgeManagementView', () => {
       }),
     );
     assert.ok(await screen.findByText('第二库文档'));
+  });
+
+  it('链接导入实时统计有效链接，提交后逐条反馈成功/失败', async () => {
+    const calls = stubKnowledgeFetch({
+      notebookId: NOTEBOOK.id,
+      scope: { kind: 'waker', id: 'waker-one' },
+      access: 'read_write',
+      createdAt: NOTEBOOK.createdAt,
+    });
+    const notices: string[] = [];
+    render(
+      <KnowledgeManagementView wakerId="waker-one" notify={(message) => notices.push(message)} />,
+    );
+    await screen.findByText('快速开始');
+
+    const input = screen.getByRole('textbox', { name: '网页链接' });
+    fireEvent.change(input, {
+      target: { value: 'https://example.com/a https://example.com/fail-page\n垃圾文字' },
+    });
+    assert.ok(screen.getByText(`2/${MAX_KNOWLEDGE_IMPORT_URLS} 个有效链接`));
+    fireEvent.click(screen.getByRole('button', { name: '导入链接' }));
+
+    assert.ok(await screen.findByText('已导入 1 个，失败 1 个'));
+    assert.ok(screen.getByText('https://example.com/fail-page：抓取失败（HTTP 404）'));
+    assert.ok(notices.includes('已导入 1 个，1 个失败'));
+    const importCall = calls.find((call) => call.url.endsWith('/documents/import-url'));
+    assert.deepEqual(importCall?.body?.urls, [
+      'https://example.com/a',
+      'https://example.com/fail-page',
+    ]);
+    // 有成功导入后清空输入框
+    assert.equal((input as HTMLTextAreaElement).value, '');
+  });
+
+  it('超过链接上限时提示并禁用导入按钮', async () => {
+    stubKnowledgeFetch({
+      notebookId: NOTEBOOK.id,
+      scope: { kind: 'waker', id: 'waker-one' },
+      access: 'read_write',
+      createdAt: NOTEBOOK.createdAt,
+    });
+    render(<KnowledgeManagementView wakerId="waker-one" notify={() => undefined} />);
+    await screen.findByText('快速开始');
+
+    const urls = Array.from(
+      { length: MAX_KNOWLEDGE_IMPORT_URLS + 1 },
+      (_, index) => `https://example.com/p${index}`,
+    ).join(' ');
+    fireEvent.change(screen.getByRole('textbox', { name: '网页链接' }), {
+      target: { value: urls },
+    });
+    assert.ok(screen.getByText(`最多允许 ${MAX_KNOWLEDGE_IMPORT_URLS} 个链接`));
+    assert.equal(
+      (screen.getByRole('button', { name: '导入链接' }) as HTMLButtonElement).disabled,
+      true,
+    );
   });
 
   it('删除知识文档前显示影响确认对话框', async () => {

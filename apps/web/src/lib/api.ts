@@ -1,17 +1,20 @@
 import type {
   AgentDetail,
   AgentDeleteImpact,
+  AgentHomeResponse,
   AgentResources,
   AgentTemplate,
   AgentTemplatesResponse,
   AgentThinkingLevel,
   AppendSystemResponse,
+  ChatErrorKind,
   ChatRequest,
   ChatStreamEvent,
   CreateAgentRequest,
   FileContentResponse,
   FileListResponse,
   InboxItem,
+  InboxReadAllResponse,
   InboxResponse,
   InboxTab,
   ImportAgentRequest,
@@ -40,6 +43,8 @@ import type {
   KnowledgeSearchResponse,
   KnowledgeScope,
   CreateKnowledgeNotebookRequest,
+  ImportKnowledgeUrlsRequest,
+  ImportKnowledgeUrlsResponse,
   UpsertKnowledgeDocumentRequest,
   PreferencesResponse,
   PromptDocument,
@@ -233,6 +238,23 @@ export async function upsertKnowledgeDocument(
     '知识文档暂时无法保存',
   );
 }
+export async function importKnowledgeUrls(
+  input: ImportKnowledgeUrlsRequest,
+): Promise<ImportKnowledgeUrlsResponse> {
+  const response = await fetch('/api/v1/knowledge/documents/import-url', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  // 全部失败时 API 返回 400/502，但 body 里仍有逐条结果，优先透出逐条反馈。
+  const payload = (await response.json().catch(() => null)) as ImportKnowledgeUrlsResponse | null;
+  if (!payload || !Array.isArray(payload.results)) {
+    if (!response.ok) throw new Error('无法导入网页链接，请稍后重试。');
+    throw new Error('导入结果格式异常');
+  }
+  return payload;
+}
+
 export async function updateKnowledgeDocument(
   id: string,
   input: { expectedVersion: number; content: string; title?: string; scope?: KnowledgeScope },
@@ -725,6 +747,11 @@ export async function fetchInbox(tab: InboxTab = 'attention', q?: string): Promi
   return readJson(await fetch(`/api/v1/inbox?${params.toString()}`), '收件箱暂时无法读取');
 }
 
+/** Marks every unread attention session as read; resolves with the number updated. */
+export async function markAllInboxRead(): Promise<InboxReadAllResponse> {
+  return readJson(await fetch('/api/v1/inbox/read-all', { method: 'POST' }), '全部标为已读失败');
+}
+
 /** PATCHes one session's inbox read/completed state; resolves with the latest InboxItem. */
 export async function updateInboxState(
   agentId: string,
@@ -898,6 +925,33 @@ export async function fetchAgentTemplates(): Promise<AgentTemplate[]> {
   return payload.items;
 }
 
+/** 新建 Waker 对话框的角色库：.codex/agent-templates/ 下的文件即模板。 */
+export async function fetchAgentRoleTemplates(): Promise<AgentTemplate[]> {
+  const payload = await readJson<AgentTemplatesResponse>(
+    await fetch('/api/v1/agent-templates'),
+    '角色模板暂时无法读取',
+  );
+  return payload.items;
+}
+
+/** Agent 头像地址（无头像时服务端返回 404，调用方按 hasAvatar 决定是否渲染）。 */
+export function agentAvatarUrl(agentId: string): string {
+  return `/api/v1/agents/${encodeURIComponent(agentId)}/avatar`;
+}
+
+/** PUTs the agent avatar (PNG/JPG ≤2MB); server errors (400/413) surface their message. */
+export async function uploadAgentAvatar(agentId: string, file: File): Promise<AgentDetail> {
+  const dataBase64 = await readFileBase64(file);
+  return readJson(
+    await fetch(agentAvatarUrl(agentId), {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ mimeType: file.type, dataBase64 }),
+    }),
+    '头像暂时无法上传',
+  );
+}
+
 export async function fetchUsage(): Promise<UsageResponse> {
   return readJson(await fetch('/api/v1/usage'), '用量数据暂时无法读取');
 }
@@ -980,6 +1034,14 @@ export async function fetchAgentDeleteImpact(agentId: string): Promise<AgentDele
   );
 }
 
+/** Waker Home 的真实统计：入职时间、资源计数与按日活跃度。 */
+export async function fetchAgentHome(agentId: string): Promise<AgentHomeResponse> {
+  return readJson(
+    await fetch(`/api/v1/agents/${encodeURIComponent(agentId)}/home`),
+    'Waker 主页数据暂时无法读取',
+  );
+}
+
 /** PATCHes one agent definition file; server errors (400/404) surface their message. */
 export async function updateAgent(
   agentId: string,
@@ -993,6 +1055,18 @@ export async function updateAgent(
     }),
     'Agent 暂时无法保存',
   );
+}
+
+/** SSE error 帧抛出的失败：携带服务端错误分类，useChatController 据此渲染分类红卡。 */
+export class ChatStreamError extends Error {
+  constructor(
+    message: string,
+    readonly kind?: ChatErrorKind,
+    readonly resetAt?: string,
+  ) {
+    super(message);
+    this.name = 'ChatStreamError';
+  }
 }
 
 /** POSTs a chat turn and streams typed events to `onEvent`; resolves with the final `done` event. */
@@ -1020,7 +1094,8 @@ export async function streamChat(
     const parsed = decodeStreamEvent({ event, data });
     onEvent(parsed);
     if (parsed.type === 'done') final = parsed;
-    if (parsed.type === 'error') failure = new Error(parsed.error);
+    if (parsed.type === 'error')
+      failure = new ChatStreamError(parsed.error, parsed.kind, parsed.resetAt);
   };
 
   while (true) {

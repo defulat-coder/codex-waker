@@ -1,8 +1,19 @@
 import assert from 'node:assert/strict';
-import { describe, it } from 'node:test';
+import { describe, it, mock } from 'node:test';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ChatMessage } from '../lib/types.js';
 import { ThreadView } from './ThreadView.js';
+
+// Shiki 高亮在 CodeBlockHighlight.test.tsx 专项覆盖；这里用透传 mock，
+// 避免真实 shiki 异步加载干扰现有断言。
+mock.module('shiki', {
+  exports: {
+    createHighlighter: async () => ({
+      loadLanguage: async () => {},
+      codeToHtml: (code: string) => `<pre class="shiki"><code>${code}</code></pre>`,
+    }),
+  },
+});
 
 function message(text: string, role: ChatMessage['role'] = 'assistant'): ChatMessage {
   return { id: `${role}-1`, role, text };
@@ -194,5 +205,79 @@ describe('ThreadView readable messages', () => {
     fireEvent.scroll(scroll);
     view.rerender(<ThreadView messages={[message('第一段，继续输出更多')]} />);
     assert.equal(scroll.scrollTop, 1_000);
+  });
+});
+
+describe('ThreadView recovery card', () => {
+  function renderRecovery(overrides: Partial<ChatMessage>) {
+    const onRetry = mock.fn();
+    const view = render(
+      <ThreadView
+        messages={[
+          { id: 'a1', role: 'assistant', text: '', error: 'raw provider error', ...overrides },
+        ]}
+        onRetry={() => onRetry()}
+      />,
+    );
+    return { view, onRetry };
+  }
+
+  it('quota 类渲染「额度已用尽」并带重置时间；动作保留为重试', () => {
+    const { onRetry } = renderRecovery({
+      errorKind: 'quota',
+      errorResetAt: '2026-09-01T00:00:00Z',
+    });
+    assert.ok(screen.getByText('额度已用尽'));
+    assert.ok(screen.getByText(/将于 2026-09-01T00:00:00Z 重置。请稍后再试。/));
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+    assert.equal(onRetry.mock.callCount(), 1);
+  });
+
+  it('quota 类无 resetAt 时用无时间版正文', () => {
+    renderRecovery({ errorKind: 'quota' });
+    assert.ok(screen.getByText('额度已用尽'));
+    assert.ok(screen.getByText(/将于额度周期重置。请稍后再试。/));
+  });
+
+  it('auth 类渲染「对话异常中断」与重登提示', () => {
+    renderRecovery({ errorKind: 'auth' });
+    assert.ok(screen.getByText('对话异常中断'));
+    assert.ok(screen.getByText('认证已失效，请重新登录后继续。'));
+  });
+
+  it('rate_limit / timeout / network / generic 渲染分类正文', () => {
+    const rateLimit = renderRecovery({ errorKind: 'rate_limit' });
+    assert.ok(screen.getByText('请求过于频繁或已达到调用上限，请稍后重试。'));
+    rateLimit.view.unmount();
+
+    const timeout = renderRecovery({ errorKind: 'timeout' });
+    assert.ok(screen.getByText(/与模型服务的连接长时间无响应，已自动中断/));
+    timeout.view.unmount();
+
+    const network = renderRecovery({ errorKind: 'network' });
+    assert.ok(screen.getByText('无法连接到模型服务，请检查网络后重试。'));
+    network.view.unmount();
+
+    renderRecovery({ errorKind: 'generic' });
+    assert.ok(screen.getByText(/对话因后台异常中断，请稍后重试/));
+  });
+
+  it('startup 类渲染「启动失败」现象/原因/建议三段', () => {
+    renderRecovery({ errorKind: 'startup', error: 'stream unavailable' });
+    assert.ok(screen.getByText('启动失败'));
+    assert.ok(screen.getByText(/现象：stream unavailable/));
+    assert.ok(screen.getByText(/原因：模型服务未能正常启动。/));
+    assert.ok(screen.getByText(/建议：请稍后重试/));
+  });
+
+  it('无 kind 的历史错误保持「本轮回复失败」+ 原文', () => {
+    const { view } = renderRecovery({});
+    // message-error-card 与恢复卡都会展示原文，断言收敛到恢复卡内部。
+    const card = view.container.querySelector('.recovery-card') as HTMLElement;
+    assert.ok(card.textContent?.includes('本轮回复失败'));
+    assert.equal(
+      card.querySelector('.recovery-card-desc')?.textContent,
+      'raw provider error',
+    );
   });
 });

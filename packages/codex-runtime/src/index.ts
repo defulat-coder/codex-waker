@@ -22,6 +22,7 @@ import {
 import { agentSessionStoreFor, AgentSessionStore } from './session-store.js';
 
 export * from './agents.js';
+export * from './error-classification.js';
 export * from './events.js';
 export * from './json-store.js';
 export {
@@ -134,21 +135,36 @@ function inheritedEnv(): Record<string, string> {
   );
 }
 
+/** AI 回复语言指令：对应 Global Settings 的 ui.agent-output-language，沿用旧版注入文案。 */
+const AGENT_OUTPUT_LANGUAGE_INSTRUCTIONS: Record<string, string> = {
+  'zh-CN':
+    '# 默认输出语言：用户在 Console Settings 中选择的默认输出语言是：简体中文 (zh-CN)。除非用户在当前会话中明确要求使用其他语言，否则默认使用简体中文回复。不要翻译代码、日志、命令、API 字段、错误原文或用户明确要求保留的文本。',
+  'en-US':
+    '# Default Output Language: The default output language selected by the user in Console Settings is: English (en-US). Unless the user explicitly requests another language in the current session, reply in English by default. Do not translate code, logs, commands, API fields, original error text, or text the user explicitly asks to keep.',
+};
+
+/** 偏好值 → 输出语言指令段；未设置或非法值返回 undefined（不注入，保持现有行为）。 */
+export function agentOutputLanguageInstruction(value: unknown): string | undefined {
+  return typeof value === 'string' ? AGENT_OUTPUT_LANGUAGE_INSTRUCTIONS[value] : undefined;
+}
+
 /**
- * Agent 人设注入：新 thread 的首个 turn 把 agent body 包成 developer-instructions
- * 前缀随用户消息一起发出（Codex Thread 没有运行期 systemPrompt 参数）；后续 turn
- * 原样发送。resumeThread 续上的会话不再重复注入。
+ * Agent 人设注入：新 thread 的首个 turn 把 agent body（可选追加 AI 回复语言指令段）
+ * 包成 developer-instructions 前缀随用户消息一起发出（Codex Thread 没有运行期
+ * systemPrompt 参数）；后续 turn 原样发送。resumeThread 续上的会话不再重复注入。
  */
-function wrapThreadWithPersona(
+export function wrapThreadWithPersona(
   thread: Thread,
   agent: AgentDefinition,
   injectOnFirstTurn: boolean,
+  outputLanguageInstruction?: string,
 ): Thread {
   let pending = injectOnFirstTurn;
   const withPersona = (input: Input): Input => {
     if (!pending) return input;
     pending = false;
-    const persona = `<developer-instructions>\n# Agent: ${agent.name}\n\n${agent.body}\n</developer-instructions>`;
+    const languageBlock = outputLanguageInstruction ? `\n\n${outputLanguageInstruction}` : '';
+    const persona = `<developer-instructions>\n# Agent: ${agent.name}\n\n${agent.body}${languageBlock}\n</developer-instructions>`;
     return typeof input === 'string'
       ? `${persona}\n\n${input}`
       : [{ type: 'text', text: persona }, ...input];
@@ -219,12 +235,16 @@ export async function createCodexAgentSession(
   const thread = existingThreadId
     ? codex.resumeThread(existingThreadId, threadOptions)
     : codex.startThread(threadOptions);
+  // Global Settings 的 AI 回复语言：只注入新会话首 turn（resume 不重复），未设置不注入。
+  const outputLanguage = agentOutputLanguageInstruction(
+    store.workbench.getPreferences()['ui.agent-output-language'],
+  );
 
   const session: CodexAgentSession = {
     cwd,
     agentId: agent.id,
     sessionId,
-    thread: wrapThreadWithPersona(thread, agent, !existingThreadId),
+    thread: wrapThreadWithPersona(thread, agent, !existingThreadId, outputLanguage),
     store,
     get threadId(): string | null {
       return thread.id;
@@ -537,6 +557,42 @@ export class CodexThreadRegistry {
 }
 
 export const codexThreadRegistry = new CodexThreadRegistry();
+
+export interface CodexOneShotOptions {
+  cwd?: string;
+  model?: string;
+  reasoningEffort?: CodexReasoningEffort;
+}
+
+/**
+ * 不绑定会话的一次性调用：独立 thread、不写 workbench 绑定（rollout 仍由 CLI 落在
+ * CODEX_HOME/sessions），用于 memory 提取等后台维护任务，不污染用户会话上下文。
+ */
+export async function runCodexOneShot(
+  prompt: string,
+  options: CodexOneShotOptions = {},
+): Promise<string> {
+  const cwd = options.cwd ?? getCodexProjectRoot();
+  const { model } = getCodexModelConfig(options.model ? { model: options.model } : {}, cwd);
+  const reasoningEffort = getCodexReasoningEffort(options.reasoningEffort, cwd);
+  const sandbox = getCodexSandboxConfig(cwd);
+  const provider = getCodexProviderConfig(cwd, model);
+  const env: Record<string, string> = { ...inheritedEnv(), CODEX_HOME: join(cwd, '.codex') };
+  if (provider?.envKey && !env[provider.envKey]) {
+    throw new Error(`模型提供方需要 API key：请在 .env 配置 ${provider.envKey}`);
+  }
+  const codex = new Codex({ env, ...(provider ? { config: provider.config } : {}) });
+  const thread = codex.startThread({
+    workingDirectory: cwd,
+    skipGitRepoCheck: true,
+    ...(model ? { model } : {}),
+    modelReasoningEffort: reasoningEffort,
+    sandboxMode: sandbox.sandboxMode,
+    approvalPolicy: sandbox.approvalPolicy,
+  });
+  const turn = await thread.run(prompt);
+  return turn.finalResponse;
+}
 
 /** Runs one chat turn; errors are thrown explicitly, never replaced by a fallback answer. */
 export async function runAgentTurn(

@@ -1,4 +1,5 @@
 import type { ChatCitationSource, ChatProcess, ChatUsage, SessionMessage } from '@waker/contracts';
+import { classifyTurnError } from './error-classification.js';
 
 /**
  * Codex CLI rollout files ($CODEX_HOME/sessions/YYYY/MM/DD/rollout-<ts>-<thread_id>.jsonl)
@@ -346,7 +347,15 @@ export function parseRolloutMessages(
     pendingThinking = '';
     pendingUsage = undefined;
     target.stopReason = stopReason;
-    if (errorMessage) target.errorMessage = redactPrivateText(errorMessage, privateRoots);
+    if (errorMessage) {
+      const visible = redactPrivateText(errorMessage, privateRoots);
+      target.errorMessage = visible;
+      // 错误分类不落 rollout 文件（CLI 拥有该文件），回放解析时按同一分类器推导：
+      // 历史会话的错误消息也能得到与实时错误帧一致的 kind。
+      const classified = classifyTurnError({ message: visible });
+      target.errorKind = classified.kind;
+      if (classified.resetAt) target.errorResetAt = classified.resetAt;
+    }
   };
 
   for (const line of content.split('\n')) {

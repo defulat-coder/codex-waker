@@ -510,4 +510,67 @@ describe('useChatController', () => {
     assert.equal(result.current.currentSessionId, null);
     assert.deepEqual(result.current.threadMessages, []);
   });
+
+  it('SSE error 帧的 kind/resetAt 落进消息，回放路径也映射 errorKind', async () => {
+    const channel = sseChannel();
+    globalThis.fetch = (async (url) => {
+      const href = String(url);
+      if (href.includes('/chat')) return channel.response;
+      // 对齐重放失败：本地错误现场保留，error 帧携带的分类不落空。
+      if (href.includes('/sessions/s12/messages')) return new Response('boom', { status: 500 });
+      throw new Error(`unexpected fetch: ${href}`);
+    }) as typeof fetch;
+    const { result } = setup();
+
+    act(() => result.current.send('问题', 'agent-one'));
+    await act(async () => {
+      channel.emit('start', { sessionId: 's12', agentId: 'agent-one', model: MODEL });
+      channel.emit('error', {
+        error: 'quota exceeded，将于 2026-09-01T00:00:00Z 重置',
+        kind: 'quota',
+        resetAt: '2026-09-01T00:00:00Z',
+      });
+      channel.close();
+    });
+
+    await waitFor(() => assert.equal(result.current.threadMessages[1]?.errorKind, 'quota'));
+    assert.equal(result.current.threadMessages[1]?.errorResetAt, '2026-09-01T00:00:00Z');
+    assert.equal(
+      result.current.threadMessages[1]?.error,
+      'quota exceeded，将于 2026-09-01T00:00:00Z 重置',
+    );
+  });
+
+  it('openSession 回放把服务端 errorKind/errorResetAt 映射到消息', async () => {
+    globalThis.fetch = (async (url) => {
+      const href = String(url);
+      if (href.includes('/sessions/s20/messages')) {
+        return new Response(
+          JSON.stringify({
+            items: [
+              { id: 'm1', role: 'user', content: '问题', timestamp: '2026-01-01T00:00:00Z' },
+              {
+                id: 'm2',
+                role: 'assistant',
+                content: '',
+                stopReason: 'error',
+                errorMessage: 'Request timeout after 30s',
+                errorKind: 'timeout',
+                timestamp: '2026-01-01T00:00:01Z',
+              },
+            ],
+          }),
+        );
+      }
+      throw new Error(`unexpected fetch: ${href}`);
+    }) as typeof fetch;
+    const { result } = setup();
+
+    act(() => result.current.openSession('agent-one', 's20'));
+    await waitFor(() => assert.equal(result.current.threadMessages.length, 2));
+    const assistant = result.current.threadMessages[1]!;
+    assert.equal(assistant.error, 'Request timeout after 30s');
+    assert.equal(assistant.errorKind, 'timeout');
+    assert.equal(assistant.errorResetAt, undefined);
+  });
 });

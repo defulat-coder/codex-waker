@@ -40,6 +40,49 @@ const WORKFLOW: WakerWorkflow = {
   definition: DEFINITION,
 };
 
+/** 覆盖七种节点 kind 的定义，用于画布渲染测试。 */
+const FULL_DEFINITION = {
+  schemaVersion: 1 as const,
+  start: 'prepare',
+  nodes: [
+    {
+      id: 'prepare',
+      kind: 'action' as const,
+      action: 'set' as const,
+      key: 'topic',
+      value: '本地优先',
+      next: 'draft',
+    },
+    {
+      id: 'draft',
+      kind: 'codex' as const,
+      prompt: '写一段关于 {{topic}} 的草稿，尽量简洁，保留关键事实',
+      outputKey: 'draft',
+      next: 'review',
+    },
+    {
+      id: 'review',
+      kind: 'decision' as const,
+      key: 'verdict',
+      branches: [
+        { equals: 'ok', next: 'publish' },
+        { equals: 'redo', next: 'draft' },
+      ],
+      defaultNext: 'polish',
+    },
+    { id: 'polish', kind: 'wait' as const, durationMs: 300_000, next: 'confirm' },
+    {
+      id: 'confirm',
+      kind: 'ask_user' as const,
+      prompt: '确认发布吗？',
+      inputKey: 'verdict',
+      next: 'done',
+    },
+    { id: 'publish', kind: 'call_workflow' as const, workflowId: 'wf-child', next: 'done' },
+    { id: 'done', kind: 'terminal' as const, status: 'succeeded' as const },
+  ],
+};
+
 const RUNS: WorkflowRunRecord[] = [
   {
     id: 'run-waiting',
@@ -122,7 +165,11 @@ type Call = { url: string; method: string; body?: Record<string, unknown> };
 
 function installApi(
   calls: Call[],
-  options: { runs?: WorkflowRunRecord[]; versions?: WorkflowVersionRecord[] } = {},
+  options: {
+    runs?: WorkflowRunRecord[];
+    versions?: WorkflowVersionRecord[];
+    generate?: (body: Record<string, unknown>) => Response | Promise<Response>;
+  } = {},
 ) {
   const runs = options.runs ?? RUNS;
   const versions = options.versions ?? [
@@ -224,6 +271,11 @@ function installApi(
       });
     }
     if (url.includes('/workflow-runs/') && method === 'POST') return json(RUNS[0]);
+    if (url.endsWith('/workflows/generate-definition') && method === 'POST') {
+      return options.generate
+        ? options.generate(body ?? {})
+        : json({ definition: DEFINITION });
+    }
     if (url.endsWith('/workflows/validate'))
       return json({ valid: true, definition: DEFINITION, script: WORKFLOW.script, errors: [] });
     if (url.includes('/versions')) {
@@ -581,6 +633,159 @@ describe('WorkflowManager', () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     assert.equal(screen.queryByRole('heading', { name: WORKFLOW.name }), null);
     assert.deepEqual(notices, []);
+  });
+
+  it('generates a definition with AI, shows progress and prefills the script without saving', async () => {
+    const calls: Call[] = [];
+    let resolveGenerate!: (response: Response) => void;
+    installApi(calls, {
+      generate: () =>
+        new Promise<Response>((resolve) => {
+          resolveGenerate = resolve;
+        }),
+    });
+    render(<WorkflowManager wakerId="waker-one" notify={() => {}} />);
+    await screen.findByRole('heading', { name: WORKFLOW.name });
+    fireEvent.click(screen.getByRole('button', { name: '新建流程' }));
+
+    const generate = screen.getByRole('button', { name: '生成定义' }) as HTMLButtonElement;
+    assert.equal(generate.disabled, true);
+    fireEvent.change(screen.getByLabelText('AI 生成定义'), {
+      target: { value: '先写草稿，人工确认后结束' },
+    });
+    assert.equal(generate.disabled, false);
+    fireEvent.click(generate);
+    assert.equal(screen.getByRole('button', { name: /生成中/ }).hasAttribute('disabled'), true);
+
+    resolveGenerate(json({ definition: FULL_DEFINITION }));
+    const definition = screen.getByLabelText('节点定义（JSON）') as HTMLTextAreaElement;
+    await waitFor(() => assert.match(definition.value, /"kind": "codex"/));
+    assert.match(definition.value, /"start": "prepare"/);
+    assert.ok(await screen.findByText(/已生成，请检查脚本后手动保存/));
+    const request = calls.find((call) => call.url.endsWith('/workflows/generate-definition'));
+    assert.deepEqual(request?.body, { description: '先写草稿，人工确认后结束' });
+    // 预填不自动提交：除 validate 外没有任何保存请求。
+    assert.equal(
+      calls.some((call) => call.url.endsWith('/workflows') && call.method === 'POST'),
+      false,
+    );
+  });
+
+  it('shows AI generation failures and retries successfully', async () => {
+    const calls: Call[] = [];
+    let failures = 1;
+    installApi(calls, {
+      generate: () =>
+        failures-- > 0
+          ? json({ error: 'AI 生成定义失败：模型提供方超时' }, 502)
+          : json({ definition: FULL_DEFINITION }),
+    });
+    render(<WorkflowManager wakerId="waker-one" notify={() => {}} />);
+    await screen.findByRole('heading', { name: WORKFLOW.name });
+    fireEvent.click(screen.getByRole('button', { name: '新建流程' }));
+    fireEvent.change(screen.getByLabelText('AI 生成定义'), { target: { value: '两步流程' } });
+    fireEvent.click(screen.getByRole('button', { name: '生成定义' }));
+
+    assert.ok(await screen.findByRole('alert'));
+    assert.match(screen.getByRole('alert').textContent ?? '', /生成失败：AI 生成定义失败/);
+
+    fireEvent.click(screen.getByRole('button', { name: '生成定义' }));
+    const definition = screen.getByLabelText('节点定义（JSON）') as HTMLTextAreaElement;
+    await waitFor(() => assert.match(definition.value, /"kind": "codex"/));
+    assert.equal(screen.queryByRole('alert'), null);
+    assert.equal(
+      calls.filter((call) => call.url.endsWith('/workflows/generate-definition')).length,
+      2,
+    );
+  });
+
+  it('asks before overwriting manually edited definitions with AI output', async () => {
+    const calls: Call[] = [];
+    installApi(calls, { generate: () => json({ definition: FULL_DEFINITION }) });
+    const originalConfirm = window.confirm;
+    let confirmed = false;
+    window.confirm = () => confirmed;
+    try {
+      render(<WorkflowManager wakerId="waker-one" notify={() => {}} />);
+      await screen.findByRole('heading', { name: WORKFLOW.name });
+      fireEvent.click(screen.getByRole('button', { name: '编辑' }));
+      const definition = screen.getByLabelText('节点定义（JSON）') as HTMLTextAreaElement;
+      fireEvent.change(definition, { target: { value: `${WORKFLOW.script}\n` } });
+      fireEvent.change(screen.getByLabelText('AI 生成定义'), { target: { value: '重写整个流程' } });
+
+      fireEvent.click(screen.getByRole('button', { name: '生成定义' }));
+      await screen.findByText(/已生成，请检查脚本后手动保存/);
+      assert.equal(definition.value, `${WORKFLOW.script}\n`);
+
+      confirmed = true;
+      fireEvent.click(screen.getByRole('button', { name: '生成定义' }));
+      await waitFor(() => assert.match(definition.value, /"start": "prepare"/));
+    } finally {
+      window.confirm = originalConfirm;
+    }
+  });
+
+  it('switches between canvas and script tabs and renders kind cards with decision branches', async () => {
+    const calls: Call[] = [];
+    installApi(calls);
+    render(<WorkflowManager wakerId="waker-one" notify={() => {}} />);
+    await screen.findByRole('heading', { name: WORKFLOW.name });
+    fireEvent.click(screen.getByRole('button', { name: '编辑' }));
+
+    const canvasTab = screen.getByRole('tab', { name: '画布' });
+    const scriptTab = screen.getByRole('tab', { name: '脚本' });
+    assert.equal(scriptTab.getAttribute('aria-selected'), 'true');
+    fireEvent.change(screen.getByLabelText('节点定义（JSON）'), {
+      target: { value: JSON.stringify(FULL_DEFINITION, null, 2) },
+    });
+    fireEvent.click(canvasTab);
+    assert.equal(canvasTab.getAttribute('aria-selected'), 'true');
+
+    const canvas = await screen.findByRole('list', { name: '流程画布' });
+    for (const label of ['动作', 'Codex', '判断', '等待', '人工输入', '子流程', '结束']) {
+      assert.ok(within(canvas).getByText(label), label);
+    }
+    assert.ok(within(canvas).getByText('起点'));
+    assert.ok(within(canvas).getByText(/写一段关于 \{\{topic\}\} 的草稿/));
+    assert.ok(within(canvas).getByText('等待 5 分钟'));
+    const reviewEdges = within(canvas).getByRole('list', { name: 'review 的出边' });
+    assert.ok(within(reviewEdges).getByText('verdict = "ok"'));
+    assert.ok(within(reviewEdges).getByText('verdict = "redo"'));
+    assert.ok(within(reviewEdges).getByText('默认'));
+    assert.ok(within(reviewEdges).getByText('polish'));
+
+    fireEvent.click(scriptTab);
+    assert.ok(screen.getByLabelText('节点定义（JSON）'));
+    assert.equal(screen.queryByRole('list', { name: '流程画布' }), null);
+  });
+
+  it('shows a fallback in the canvas tab when the script cannot be parsed', async () => {
+    const calls: Call[] = [];
+    installApi(calls);
+    render(<WorkflowManager wakerId="waker-one" notify={() => {}} />);
+    await screen.findByRole('heading', { name: WORKFLOW.name });
+    fireEvent.click(screen.getByRole('button', { name: '编辑' }));
+    fireEvent.change(screen.getByLabelText('节点定义（JSON）'), {
+      target: { value: '{"schemaVersion": 1' },
+    });
+    fireEvent.click(screen.getByRole('tab', { name: '画布' }));
+    assert.ok(await screen.findByText(/脚本暂无法解析为图形/));
+    fireEvent.click(screen.getByRole('tab', { name: '脚本' }));
+    assert.ok(screen.getByText('流程定义不是有效的 JSON'));
+  });
+
+  it('renders the read-only canvas in the detail view', async () => {
+    const calls: Call[] = [];
+    installApi(calls);
+    render(<WorkflowManager wakerId="waker-one" notify={() => {}} />);
+    await screen.findByRole('heading', { name: WORKFLOW.name });
+    const section = screen.getByRole('heading', { name: '节点路径图' }).closest('section');
+    assert.ok(section);
+    const canvas = within(section).getByRole('list', { name: '流程画布' });
+    assert.ok(within(canvas).getByText('人工输入'));
+    assert.ok(within(canvas).getByText('结束'));
+    assert.ok(within(canvas).getByText('起点'));
+    assert.ok(within(canvas).getByText('请输入主题'));
   });
 });
 

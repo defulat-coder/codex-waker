@@ -35,7 +35,12 @@ export function ExploreAgents({ onOpenChat }: ExploreAgentsProps) {
               onClick={() => onOpenChat(agent.id)}
             >
               <span className="agent-card-head">
-                <AgentChip mark={agent.mark} className="medium" />
+                <AgentChip
+                  mark={agent.mark}
+                  className="medium"
+                  agentId={agent.id}
+                  hasAvatar={agent.hasAvatar}
+                />
                 <span className="agent-card-title">
                   <strong>{agent.name}</strong>
                   <small>{agent.tagline}</small>

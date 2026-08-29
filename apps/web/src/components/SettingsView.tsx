@@ -1,7 +1,11 @@
 import { motion } from 'motion/react';
 import type { SettingsResponse } from '@waker/contracts';
 import { GearSix } from '@phosphor-icons/react/dist/icons/GearSix';
-import type { UiPreferences } from '../lib/preferences.js';
+import type {
+  AgentOutputLanguagePreference,
+  ThemePreference,
+  UiPreferences,
+} from '../lib/preferences.js';
 import { cx } from '../lib/cx.js';
 import { MOTION_EASE } from '../lib/motion.js';
 
@@ -15,11 +19,26 @@ const THINKING_LABELS: Record<string, string> = {
   ultra: '极限',
 };
 
+const THEME_OPTIONS: Array<{ value: ThemePreference; label: string }> = [
+  { value: 'auto', label: '自动' },
+  { value: 'light', label: '浅色' },
+  { value: 'dark', label: '深色' },
+];
+
+const AGENT_OUTPUT_LANGUAGE_OPTIONS: Array<{
+  value: AgentOutputLanguagePreference;
+  label: string;
+}> = [
+  { value: '', label: '不指定' },
+  { value: 'zh-CN', label: '中文' },
+  { value: 'en-US', label: 'English' },
+];
+
 export type SettingsViewProps = {
   settings: SettingsResponse | null;
   loading: boolean;
   preferences: UiPreferences;
-  onPreferenceChange: (key: keyof UiPreferences, value: boolean) => void;
+  onPreferenceChange: <K extends keyof UiPreferences>(key: K, value: UiPreferences[K]) => void;
 };
 
 function Toggle({
@@ -42,6 +61,35 @@ function Toggle({
     >
       <span className="toggle-thumb" aria-hidden="true" />
     </button>
+  );
+}
+
+function OptionGroup<T extends string>({
+  value,
+  options,
+  onChange,
+  label,
+}: {
+  value: T;
+  options: Array<{ value: T; label: string }>;
+  onChange: (value: T) => void;
+  label: string;
+}) {
+  return (
+    <div className="settings-options" role="radiogroup" aria-label={label}>
+      {options.map((option) => (
+        <button
+          key={option.value || 'unset'}
+          type="button"
+          role="radio"
+          aria-checked={value === option.value}
+          className={cx('settings-option', value === option.value && 'active')}
+          onClick={() => onChange(option.value)}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -172,6 +220,30 @@ export function SettingsView({
           <section className="settings-card">
             <h4>界面偏好</h4>
             <dl className="settings-rows">
+              <div className="settings-row">
+                <dt>主题亮暗</dt>
+                <dd className="settings-row-toggle">
+                  <span className="settings-row-hint">自动跟随系统亮暗，立即生效</span>
+                  <OptionGroup
+                    label="主题亮暗"
+                    value={preferences.theme}
+                    options={THEME_OPTIONS}
+                    onChange={(value) => onPreferenceChange('theme', value)}
+                  />
+                </dd>
+              </div>
+              <div className="settings-row">
+                <dt>AI 回复语言</dt>
+                <dd className="settings-row-toggle">
+                  <span className="settings-row-hint">设置新会话中 AI 默认使用的回复语言</span>
+                  <OptionGroup
+                    label="AI 回复语言"
+                    value={preferences.agentOutputLanguage}
+                    options={AGENT_OUTPUT_LANGUAGE_OPTIONS}
+                    onChange={(value) => onPreferenceChange('agentOutputLanguage', value)}
+                  />
+                </dd>
+              </div>
               <div className="settings-row">
                 <dt>消息紧凑模式</dt>
                 <dd className="settings-row-toggle">

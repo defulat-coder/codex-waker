@@ -56,6 +56,15 @@ export const PreferenceUpdateSchema = Type.Object({
   value: Type.Unknown(),
 });
 
+// 关于我区块（我最擅长 / 工作风格）：模板可选携带，条目必须是 {title, text}。
+const AgentProfileSectionSchema = Type.Array(
+  Type.Object({
+    title: Type.String({ minLength: 1, maxLength: 80 }),
+    text: Type.String({ minLength: 1, maxLength: 400 }),
+  }),
+  { maxItems: 8 },
+);
+
 // maxLength counts UTF-16 code units; createAgent re-checks the 32KB byte cap.
 export const CreateAgentSchema = Type.Object({
   id: Type.Optional(AgentIdSchema),
@@ -68,6 +77,8 @@ export const CreateAgentSchema = Type.Object({
     maxItems: 8,
   }),
   body: Type.String({ minLength: 1, maxLength: AGENT_BODY_MAX_BYTES }),
+  strengths: Type.Optional(AgentProfileSectionSchema),
+  workStyles: Type.Optional(AgentProfileSectionSchema),
 });
 
 export const UpdateAgentSchema = Type.Object({
@@ -87,6 +98,12 @@ export const ImportAgentSchema = Type.Object({
 });
 
 export const AgentParamsSchema = Type.Object({ agentId: AgentIdSchema });
+// 头像上传沿用会话附件的 Base64 JSON 模式；magic bytes 与 2MB 上限在路由层复核。
+export const UploadAgentAvatarSchema = Type.Object({
+  mimeType: Type.Union([Type.Literal('image/png'), Type.Literal('image/jpeg')]),
+  // 2MB 二进制展开约 2.8MB Base64。
+  dataBase64: Type.String({ minLength: 1, maxLength: 3 * 1024 * 1024 }),
+});
 export const SessionParamsSchema = Type.Object({
   agentId: AgentIdSchema,
   sessionId: SessionIdSchema,

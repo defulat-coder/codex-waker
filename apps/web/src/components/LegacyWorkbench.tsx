@@ -7,6 +7,7 @@ import {
   type FormEvent,
   type ReactNode,
 } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import type {
   AgentDeleteImpact,
   AgentSummary,
@@ -21,6 +22,8 @@ import type {
 } from '@waker/contracts';
 import { ChatCircle } from '@phosphor-icons/react/dist/icons/ChatCircle';
 import { CheckSquare } from '@phosphor-icons/react/dist/icons/CheckSquare';
+import { CaretDown } from '@phosphor-icons/react/dist/icons/CaretDown';
+import { DotsThree } from '@phosphor-icons/react/dist/icons/DotsThree';
 import { FlowArrow } from '@phosphor-icons/react/dist/icons/FlowArrow';
 import { GearSix } from '@phosphor-icons/react/dist/icons/GearSix';
 import { Globe } from '@phosphor-icons/react/dist/icons/Globe';
@@ -48,14 +51,18 @@ import {
   deleteAgent,
   fetchAgentDeleteImpact,
   importAgentDefinition,
+  markAllInboxRead,
 } from '../lib/api.js';
 import { cx } from '../lib/cx.js';
+import { MOTION_EASE } from '../lib/motion.js';
 import { AgentChip } from './AgentChip.js';
 import { NewAgentDialog } from './NewAgentDialog.js';
 import { useDialogFocus } from '../hooks/useDialogFocus.js';
+import { useDismissable } from '../hooks/useDismissable.js';
 
 export type LegacyView =
   | 'wakers'
+  | 'waker-home'
   | 'chat'
   | 'im'
   | 'workflows'
@@ -123,40 +130,69 @@ export function LegacyRail({
   );
 }
 
+type WakersTab = 'wakers' | 'groups';
+/** 'all' 或本机 hostname；本地模式只有一台机器，选择本机环境与全部环境结果相同但都是真实过滤。 */
+type WakerEnvironment = 'all' | (string & {});
+
+const WAKER_PAGE_SIZE = 12;
+
 export function WakersView({
   agents,
+  hostName,
   onChat,
   onConfigure,
   onMemory,
   onCapabilities,
   onAutomation,
+  onOpenHome,
   onCreated,
   onDeleted,
+  onReadAll,
   notify,
   onboarding,
 }: {
   agents: AgentSummary[];
+  /** 本机 hostname，来自 GET /api/v1/workspace 的 host.name。 */
+  hostName: string;
   onChat: (id: string) => void;
   onConfigure: (id: string) => void;
   onMemory: (id: string) => void;
   onCapabilities: (id: string) => void;
   onAutomation: (id: string) => void;
+  /** 卡片上半区的角色详情入口：打开该 Waker 的 Home 视图。 */
+  onOpenHome: (id: string) => void;
   onCreated: (id: string) => void;
   onDeleted: (id: string) => void;
+  /** 全部标为已读成功后由 App 刷新 workspace + inbox。 */
+  onReadAll: () => void;
   notify: (message: string) => void;
   onboarding?: ReactNode;
 }) {
   const [creating, setCreating] = useState(false);
+  const [tab, setTab] = useState<WakersTab>('wakers');
+  const [onlineOnly, setOnlineOnly] = useState(false);
+  const [environment, setEnvironment] = useState<WakerEnvironment>('all');
+  const [envMenuOpen, setEnvMenuOpen] = useState(false);
+  const [menuAgentId, setMenuAgentId] = useState<string | null>(null);
+  const [markingAll, setMarkingAll] = useState(false);
+  const [page, setPage] = useState(1);
   const [deleteTarget, setDeleteTarget] = useState<AgentSummary | null>(null);
   const [deleteConfirmation, setDeleteConfirmation] = useState('');
   const [deleteImpact, setDeleteImpact] = useState<AgentDeleteImpact | null>(null);
   const [deleteImpactError, setDeleteImpactError] = useState('');
   const deleteImpactGenerationRef = useRef(0);
   const deleteTargetIdRef = useRef<string | null>(null);
-  const deleteTriggerRef = useRef<HTMLButtonElement>(null);
+  const deleteTriggerRef = useRef<HTMLButtonElement | null>(null);
   const deleteWasOpen = useRef(false);
   const importRef = useRef<HTMLInputElement>(null);
+  const envMenuRef = useRef<HTMLDivElement>(null);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
+  const moreTriggerRef = useRef<HTMLButtonElement>(null);
   const [query, setQuery] = useState('');
+  const closeEnvMenu = useCallback(() => setEnvMenuOpen(false), []);
+  const closeMoreMenu = useCallback(() => setMenuAgentId(null), []);
+  useDismissable(envMenuRef, closeEnvMenu, envMenuOpen);
+  useDismissable(moreMenuRef, closeMoreMenu, menuAgentId !== null);
   const closeDeleteDialog = useCallback(() => {
     deleteImpactGenerationRef.current += 1;
     deleteTargetIdRef.current = null;
@@ -195,143 +231,405 @@ export function WakersView({
       setDeleteImpactError(cause instanceof Error ? cause.message : 'Waker 删除影响暂时无法读取');
     }
   }, []);
+  // 本地语义：每个 Waker 都由本机 Codex runtime 承载，因此全部在线且同属于本机环境；
+  // 「仅在线」与环境过滤是真实条件过滤，只是本地数据集里这两个集合恒等于全集。
+  const isOnline = useCallback((_agent: AgentSummary) => true, []);
+  const environmentOf = useCallback((_agent: AgentSummary) => hostName, [hostName]);
   const visibleAgents = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
-    if (!normalized) return agents;
-    return agents.filter((agent) =>
-      [agent.name, agent.tagline, agent.description].some((value) =>
-        value.toLocaleLowerCase().includes(normalized),
-      ),
-    );
-  }, [agents, query]);
+    let list = agents;
+    if (onlineOnly) list = list.filter((agent) => isOnline(agent));
+    if (environment !== 'all') list = list.filter((agent) => environmentOf(agent) === environment);
+    if (normalized)
+      list = list.filter((agent) =>
+        [agent.name, agent.tagline, agent.description].some((value) =>
+          value.toLocaleLowerCase().includes(normalized),
+        ),
+      );
+    return list;
+  }, [agents, query, onlineOnly, environment, isOnline, environmentOf]);
+  const totalUnread = useMemo(
+    () => agents.reduce((sum, agent) => sum + (agent.unreadCount ?? 0), 0),
+    [agents],
+  );
+  const pageCount = Math.max(1, Math.ceil(visibleAgents.length / WAKER_PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount);
+  const pagedAgents = visibleAgents.slice(
+    (currentPage - 1) * WAKER_PAGE_SIZE,
+    currentPage * WAKER_PAGE_SIZE,
+  );
+  useEffect(() => {
+    setPage(1);
+  }, [query, onlineOnly, environment, tab]);
+  const markAllRead = useCallback(async () => {
+    setMarkingAll(true);
+    try {
+      await markAllInboxRead();
+      onReadAll();
+    } catch (cause) {
+      notify(cause instanceof Error ? cause.message : '全部标为已读失败');
+    } finally {
+      setMarkingAll(false);
+    }
+  }, [notify, onReadAll]);
   return (
     <section className="legacy-page" aria-labelledby="wakers-title">
-      <PageHeader title="Waker" detail="创建并管理运行在本机的 Codex 智能体。">
-        <button type="button" className="legacy-button" onClick={() => importRef.current?.click()}>
-          <UploadSimple size={15} />
-          导入 Markdown
-        </button>
-        <input
-          ref={importRef}
-          className="visually-hidden"
-          type="file"
-          accept=".md,text/markdown"
-          onChange={async (event) => {
-            const file = event.target.files?.[0];
-            if (!file) return;
-            try {
-              const created = await importAgentDefinition({
-                id: file.name.replace(/\.md$/i, ''),
-                content: await file.text(),
-              });
-              onCreated(created.id);
-            } catch (cause) {
-              notify(cause instanceof Error ? cause.message : '导入失败');
-            } finally {
-              event.target.value = '';
-            }
-          }}
-        />
-        <button type="button" className="legacy-button primary" onClick={() => setCreating(true)}>
-          <Plus size={16} /> 新建 Waker
-        </button>
+      <PageHeader
+        id="wakers-title"
+        title="我的Wakers"
+        detail="跨云端、本地与其他设备管理你的 Waker，快速发起对话任务和自动任务。"
+      >
+        {tab === 'wakers' && (
+          <>
+            <button
+              type="button"
+              className="legacy-button"
+              onClick={() => importRef.current?.click()}
+            >
+              <UploadSimple size={15} />
+              导入 Markdown
+            </button>
+            <input
+              ref={importRef}
+              className="visually-hidden"
+              type="file"
+              accept=".md,text/markdown"
+              onChange={async (event) => {
+                const file = event.target.files?.[0];
+                if (!file) return;
+                try {
+                  const created = await importAgentDefinition({
+                    id: file.name.replace(/\.md$/i, ''),
+                    content: await file.text(),
+                  });
+                  onCreated(created.id);
+                } catch (cause) {
+                  notify(cause instanceof Error ? cause.message : '导入失败');
+                } finally {
+                  event.target.value = '';
+                }
+              }}
+            />
+            <button
+              type="button"
+              className="legacy-button primary"
+              onClick={() => setCreating(true)}
+            >
+              <Plus size={16} /> 新建 Waker
+            </button>
+          </>
+        )}
       </PageHeader>
       {onboarding}
-      {agents.length > 0 && (
-        <div className="waker-toolbar">
-          <MagnifyingGlass size={16} aria-hidden="true" />
-          <input
-            aria-label="搜索 Waker"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="搜索 Waker 名称、角色或描述…"
-          />
-          <span>
-            {visibleAgents.length}/{agents.length}
-          </span>
+      <div className="waker-tabs" role="tablist" aria-label="管理分类">
+        <button
+          type="button"
+          role="tab"
+          id="wakers-tab-wakers"
+          aria-selected={tab === 'wakers'}
+          aria-controls="wakers-panel"
+          className={cx('waker-tab', tab === 'wakers' && 'active')}
+          onClick={() => setTab('wakers')}
+        >
+          我的Waker
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id="wakers-tab-groups"
+          aria-selected={tab === 'groups'}
+          aria-controls="wakers-panel"
+          className={cx('waker-tab', tab === 'groups' && 'active')}
+          onClick={() => setTab('groups')}
+        >
+          我的群组
+        </button>
+      </div>
+      {tab === 'groups' ? (
+        <div
+          className="waker-groups-notice"
+          role="tabpanel"
+          id="wakers-panel"
+          aria-labelledby="wakers-tab-groups"
+        >
+          <h2>云端多 Waker 群组在本地模式不可用</h2>
+          <p>
+            「我的群组」是 QoderWake 云端的多 Waker
+            群聊，依赖云端账号与同步服务；本地工作区不连接云端，因此这里没有群组数据，也不提供「新建群组」。
+          </p>
+          <p>
+            本地聊天以单个 Waker 为单位：在「我的Waker」中选择一个 Waker 创建对话任务或自动任务。
+          </p>
         </div>
-      )}
-      {visibleAgents.length ? (
-        <div className="waker-grid">
-          {visibleAgents.map((agent) => (
-            <article className="waker-card" key={agent.id}>
-              <div className="waker-card-head">
-                <AgentChip mark={agent.mark} className="large" />
-                <span className="status-dot">本地可用</span>
-              </div>
-              <h2>{agent.name}</h2>
-              <p>{agent.tagline || agent.description || '本地 Codex Waker'}</p>
-              <div className="waker-actions">
+      ) : (
+        <div role="tabpanel" id="wakers-panel" aria-labelledby="wakers-tab-wakers">
+          {agents.length > 0 && (
+            <div className="waker-toolbar">
+              <button
+                type="button"
+                className={cx('waker-toggle', onlineOnly && 'active')}
+                aria-pressed={onlineOnly}
+                onClick={() => setOnlineOnly((value) => !value)}
+              >
+                <i aria-hidden="true" />
+                仅在线
+              </button>
+              <div className="waker-env" ref={envMenuRef}>
                 <button
                   type="button"
-                  className="legacy-button primary"
-                  onClick={() => onChat(agent.id)}
+                  className="waker-env-button"
+                  aria-haspopup="menu"
+                  aria-expanded={envMenuOpen}
+                  onClick={() => setEnvMenuOpen((open) => !open)}
                 >
-                  <ChatCircle size={15} /> 创建对话
+                  环境 / {environment === 'all' ? '全部环境' : environment}
+                  <CaretDown size={12} aria-hidden="true" />
                 </button>
+                <AnimatePresence>
+                  {envMenuOpen && (
+                    <motion.div
+                      className="waker-env-menu"
+                      role="menu"
+                      aria-label="环境"
+                      initial={{ opacity: 0, scale: 0.98, y: -3 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.98, y: -3 }}
+                      transition={{ duration: 0.12, ease: MOTION_EASE }}
+                      style={{ transformOrigin: 'top left' }}
+                    >
+                      <button
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={environment === hostName}
+                        onClick={() => {
+                          setEnvironment(hostName);
+                          setEnvMenuOpen(false);
+                        }}
+                      >
+                        <span className="waker-env-name">
+                          {hostName}
+                          <small>当前机器</small>
+                        </span>
+                        <span className="waker-env-meta">
+                          在线 {agents.length} 名<small>本地</small>
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={environment === 'all'}
+                        onClick={() => {
+                          setEnvironment('all');
+                          setEnvMenuOpen(false);
+                        }}
+                      >
+                        <span className="waker-env-name">全部环境</span>
+                        <span className="waker-env-meta">{agents.length} 名员工</span>
+                      </button>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+              <div className="waker-toolbar-search">
+                <MagnifyingGlass size={16} aria-hidden="true" />
+                <input
+                  aria-label="搜索 Waker"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="搜索员工或者设备..."
+                />
+                <span>
+                  {visibleAgents.length}/{agents.length}
+                </span>
+              </div>
+              {totalUnread > 0 && (
                 <button
                   type="button"
                   className="legacy-button"
-                  onClick={() => onAutomation(agent.id)}
+                  disabled={markingAll}
+                  onClick={() => void markAllRead()}
                 >
-                  <FlowArrow size={15} /> 管理自动任务
+                  {markingAll ? '正在标记…' : '全部标为已读'}
                 </button>
-                <button
-                  type="button"
-                  className="legacy-text-button"
-                  onClick={() => onConfigure(agent.id)}
-                >
-                  配置
-                </button>
-                <button
-                  type="button"
-                  className="legacy-text-button"
-                  onClick={() => onMemory(agent.id)}
-                >
-                  记忆
-                </button>
-                <button
-                  type="button"
-                  className="legacy-text-button"
-                  onClick={() => onCapabilities(agent.id)}
-                >
-                  能力
-                </button>
-                <a
-                  className="legacy-text-button"
-                  href={`/api/v1/agents/${encodeURIComponent(agent.id)}/source`}
-                  download={`${agent.id}.md`}
-                >
-                  导出
-                </a>
-                <button
-                  type="button"
-                  className="legacy-text-button danger"
-                  onClick={(event) => {
-                    event.currentTarget.focus();
-                    deleteTriggerRef.current = event.currentTarget;
-                    setDeleteTarget(agent);
-                    void loadDeleteImpact(agent);
-                  }}
-                >
-                  删除
-                </button>
-              </div>
-            </article>
-          ))}
+              )}
+            </div>
+          )}
+          {visibleAgents.length ? (
+            <div className="waker-grid">
+              {pagedAgents.map((agent) => (
+                <article className="waker-card" key={agent.id}>
+                  <button
+                    type="button"
+                    className="waker-card-open"
+                    aria-label={`查看 ${agent.name} 的角色详情`}
+                    onClick={() => onOpenHome(agent.id)}
+                  >
+                    <div className="waker-card-head">
+                      <AgentChip
+                        mark={agent.mark}
+                        className="large"
+                        agentId={agent.id}
+                        hasAvatar={agent.hasAvatar}
+                      />
+                      <span className="waker-card-side">
+                        {(agent.unreadCount ?? 0) > 0 && (
+                          <b className="waker-unread" aria-label={`${agent.unreadCount} 个未读会话`}>
+                            {agent.unreadCount}
+                          </b>
+                        )}
+                        <span className="status-dot">在线</span>
+                      </span>
+                    </div>
+                    <h2>
+                      {agent.name}
+                      {agent.tagline && <span className="waker-card-role">{agent.tagline}</span>}
+                    </h2>
+                    <div className="waker-card-device">本机 {hostName}</div>
+                    <p>{agent.description || agent.tagline || '本地 Codex Waker'}</p>
+                  </button>
+                  <div className="waker-actions">
+                    <button
+                      type="button"
+                      className="legacy-button primary"
+                      onClick={() => onChat(agent.id)}
+                    >
+                      <ChatCircle size={15} /> 创建对话任务
+                    </button>
+                    <button
+                      type="button"
+                      className="legacy-button"
+                      onClick={() => onAutomation(agent.id)}
+                    >
+                      <FlowArrow size={15} /> 创建自动任务
+                    </button>
+                    <div
+                      className="waker-more"
+                      ref={menuAgentId === agent.id ? moreMenuRef : undefined}
+                    >
+                      <button
+                        type="button"
+                        className="legacy-button"
+                        ref={menuAgentId === agent.id ? moreTriggerRef : undefined}
+                        aria-haspopup="menu"
+                        aria-expanded={menuAgentId === agent.id}
+                        aria-label={`${agent.name} 的更多操作`}
+                        onClick={() =>
+                          setMenuAgentId((current) => (current === agent.id ? null : agent.id))
+                        }
+                      >
+                        <DotsThree size={16} aria-hidden="true" />
+                      </button>
+                      <AnimatePresence>
+                        {menuAgentId === agent.id && (
+                          <motion.div
+                            className="waker-more-menu"
+                            role="menu"
+                            aria-label={`${agent.name} 的更多操作`}
+                            initial={{ opacity: 0, scale: 0.98, y: -3 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.98, y: -3 }}
+                            transition={{ duration: 0.12, ease: MOTION_EASE }}
+                            style={{ transformOrigin: 'top right' }}
+                          >
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => {
+                                setMenuAgentId(null);
+                                onConfigure(agent.id);
+                              }}
+                            >
+                              配置
+                            </button>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => {
+                                setMenuAgentId(null);
+                                onMemory(agent.id);
+                              }}
+                            >
+                              记忆
+                            </button>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => {
+                                setMenuAgentId(null);
+                                onCapabilities(agent.id);
+                              }}
+                            >
+                              能力
+                            </button>
+                            <a
+                              role="menuitem"
+                              href={`/api/v1/agents/${encodeURIComponent(agent.id)}/source`}
+                              download={`${agent.id}.md`}
+                              onClick={() => setMenuAgentId(null)}
+                            >
+                              导出
+                            </a>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              className="danger"
+                              onClick={() => {
+                                // 菜单项随菜单关闭卸载，焦点恢复落到「更多操作」触发按钮上。
+                                deleteTriggerRef.current = moreTriggerRef.current;
+                                setMenuAgentId(null);
+                                setDeleteTarget(agent);
+                                void loadDeleteImpact(agent);
+                              }}
+                            >
+                              删除
+                            </button>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : agents.length ? (
+            <EmptyState title="没有匹配的 Waker。" detail="调整搜索词，或清空搜索查看全部 Waker。" />
+          ) : (
+            <EmptyState
+              image="/legacy/waker-builtin-icon.svg"
+              title="暂无 Waker"
+              detail="创建一个 Waker，让它承接任务、自动化和项目上下文。"
+            />
+          )}
+          {pageCount > 1 && (
+            <nav className="waker-pagination" aria-label="Waker 分页">
+              <button
+                type="button"
+                className="legacy-button"
+                disabled={currentPage <= 1}
+                onClick={() => setPage(currentPage - 1)}
+              >
+                上一页
+              </button>
+              <span>
+                {currentPage} / {pageCount}
+              </span>
+              <button
+                type="button"
+                className="legacy-button"
+                disabled={currentPage >= pageCount}
+                onClick={() => setPage(currentPage + 1)}
+              >
+                下一页
+              </button>
+            </nav>
+          )}
         </div>
-      ) : agents.length ? (
-        <EmptyState title="没有匹配的 Waker" detail="调整搜索词，或清空搜索查看全部 Waker。" />
-      ) : (
-        <EmptyState
-          image="/legacy/waker-builtin-icon.svg"
-          title="还没有 Waker"
-          detail="新建一个本地 Waker，开始第一段对话。"
-        />
       )}
       <NewAgentDialog
         open={creating}
         onClose={() => setCreating(false)}
+        hostName={hostName}
+        onAvatarError={notify}
         onCreated={(id) => {
           setCreating(false);
           onCreated(id);
@@ -993,10 +1291,12 @@ export function KnowledgeView({
 }
 
 function PageHeader({
+  id,
   title,
   detail,
   children,
 }: {
+  id?: string;
   title: string;
   detail: string;
   children?: ReactNode;
@@ -1004,7 +1304,7 @@ function PageHeader({
   return (
     <header className="legacy-page-header">
       <div>
-        <h1 id={title === 'Waker' ? 'wakers-title' : undefined}>{title}</h1>
+        <h1 id={id}>{title}</h1>
         <p>{detail}</p>
       </div>
       {children && <div className="page-actions">{children}</div>}

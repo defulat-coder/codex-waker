@@ -27,6 +27,7 @@ import {
   fetchKnowledgeBindings,
   fetchKnowledgeDocuments,
   fetchKnowledgeNotebooks,
+  importKnowledgeUrls,
   rebuildKnowledge,
   searchKnowledge,
   updateKnowledgeDocument,
@@ -35,6 +36,7 @@ import {
 import { cx } from '../lib/cx.js';
 import { useDialogFocus } from '../hooks/useDialogFocus.js';
 import { prepareKnowledgeFiles, type RejectedKnowledgeFile } from './knowledgeFileImport.js';
+import { MAX_KNOWLEDGE_IMPORT_URLS, parseKnowledgeUrls } from './knowledgeUrlImport.js';
 
 type AuditEntry = {
   id?: number;
@@ -105,6 +107,7 @@ export function KnowledgeManagementView({
   const [detailReload, setDetailReload] = useState(0);
   const [needsCheck, setNeedsCheck] = useState(false);
   const [importReport, setImportReport] = useState<ImportReport | null>(null);
+  const [urlInput, setUrlInput] = useState('');
   const [deleteDocumentTarget, setDeleteDocumentTarget] = useState<KnowledgeDocument | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const editorTriggerRef = useRef<HTMLButtonElement>(null);
@@ -181,6 +184,7 @@ export function KnowledgeManagementView({
   useEffect(() => {
     setResults(null);
     setImportReport(null);
+    setUrlInput('');
     setNeedsCheck(false);
     setDocuments([]);
     setAudits([]);
@@ -371,6 +375,51 @@ export function KnowledgeManagementView({
           ? `已导入 ${imported.length} 个，${rejected.length} 个失败`
           : `已导入 ${imported.length} 个文件`,
       );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const validUrls = useMemo(() => parseKnowledgeUrls(urlInput), [urlInput]);
+  const urlOverLimit = validUrls.length > MAX_KNOWLEDGE_IMPORT_URLS;
+
+  const importUrls = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!wakerId || !selectedId || !canWrite || busy || !validUrls.length || urlOverLimit) return;
+    setBusy(true);
+    try {
+      const response = await importKnowledgeUrls({
+        notebookId: selectedId,
+        urls: validUrls,
+        scope: scopeFor(wakerId),
+      });
+      const imported: string[] = [];
+      const rejected: RejectedKnowledgeFile[] = [];
+      for (const result of response.results) {
+        if (result.ok) imported.push(result.url);
+        else rejected.push({ fileName: result.url, reason: result.error ?? '抓取失败' });
+      }
+      setImportReport({ imported, rejected });
+      if (imported.length) {
+        setUrlInput('');
+        try {
+          await refreshSelected();
+          await loadCatalog();
+        } catch {
+          rejected.push({ fileName: '索引状态', reason: '导入成功，但刷新结果失败' });
+          setImportReport({ imported, rejected });
+        }
+      }
+      setNeedsCheck(rejected.length > 0);
+      notify(
+        imported.length
+          ? rejected.length
+            ? `已导入 ${imported.length} 个，${rejected.length} 个失败`
+            : '网页链接已导入'
+          : '无法导入网页链接，请稍后重试。',
+      );
+    } catch (cause) {
+      notify(cause instanceof Error ? cause.message : '无法导入网页链接，请稍后重试。');
     } finally {
       setBusy(false);
     }
@@ -629,6 +678,35 @@ export function KnowledgeManagementView({
                   </div>
                 ) : (
                   <>
+                    <form className="knowledge-url-import" onSubmit={importUrls}>
+                      <label htmlFor="knowledge-url-input">网页链接</label>
+                      <textarea
+                        id="knowledge-url-input"
+                        rows={3}
+                        value={urlInput}
+                        disabled={!canWrite || busy}
+                        placeholder="粘贴网页链接，多个链接可用空格或换行分隔"
+                        onChange={(event) => setUrlInput(event.target.value)}
+                      />
+                      <div className="knowledge-url-import-meta">
+                        <span aria-live="polite">
+                          {validUrls.length}/{MAX_KNOWLEDGE_IMPORT_URLS} 个有效链接
+                        </span>
+                        {urlOverLimit && (
+                          <span className="over-limit" role="alert">
+                            最多允许 {MAX_KNOWLEDGE_IMPORT_URLS} 个链接
+                          </span>
+                        )}
+                        <button
+                          className="legacy-button"
+                          disabled={!canWrite || busy || !validUrls.length || urlOverLimit}
+                          title={!canWrite ? '需要可写连接才能导入链接' : undefined}
+                        >
+                          {busy ? '导入中…' : '导入链接'}
+                        </button>
+                      </div>
+                    </form>
+
                     <form className="knowledge-search" onSubmit={runSearch}>
                       <MagnifyingGlass size={18} aria-hidden="true" />
                       <input

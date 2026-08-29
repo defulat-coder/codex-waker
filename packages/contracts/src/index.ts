@@ -25,6 +25,16 @@ export interface AgentSummary {
   suggestions: string[];
   /** Persisted session count; only populated by the workspace endpoint. */
   sessionCount?: number;
+  /** Unread attention sessions (needsAttention && !completedAt && !read); workspace endpoint only. */
+  unreadCount?: number;
+  /** True when .codex/agents/<id>.avatar.<ext> exists; the avatar is served at /agents/<id>/avatar. */
+  hasAvatar?: boolean;
+}
+
+/** One titled item of the optional 关于我 profile sections (我最擅长 / 工作风格). */
+export interface AgentProfileSectionItem {
+  title: string;
+  text: string;
 }
 
 /** Payload for POST /api/v1/agents; creates .codex/agents/<id>.md. */
@@ -38,6 +48,10 @@ export interface CreateAgentRequest {
   suggestions: string[];
   /** System-prompt body written after the YAML frontmatter. */
   body: string;
+  /** Optional 我最擅长 section items carried by role templates. */
+  strengths?: AgentProfileSectionItem[];
+  /** Optional 工作风格 section items carried by role templates. */
+  workStyles?: AgentProfileSectionItem[];
 }
 
 /** Payload for POST /api/v1/agents/import; imports one complete Markdown definition file. */
@@ -63,8 +77,21 @@ export interface UpdateAgentRequest {
 export interface AgentDetail extends AgentSummary {
   /** Markdown body of .codex/agents/<id>.md; used as the agent's system prompt. */
   body: string;
+  /** Optional avatar file name (`.codex/agents/<id>.avatar.<ext>`), kept in the frontmatter. */
+  avatar?: string;
+  /** Optional 我最擅长 section items from the frontmatter; rendered on the Waker home view. */
+  strengths?: AgentProfileSectionItem[];
+  /** Optional 工作风格 section items from the frontmatter; rendered on the Waker home view. */
+  workStyles?: AgentProfileSectionItem[];
   /** Project-relative path of the definition file. */
   path: string;
+}
+
+/** Payload of PUT /api/v1/agents/:agentId/avatar; the image is validated by magic bytes (PNG/JPG, ≤2MB). */
+export interface UploadAgentAvatarRequest {
+  mimeType: 'image/png' | 'image/jpeg';
+  /** Base64-encoded image bytes; 2MB binary expands to roughly 2.8MB Base64. */
+  dataBase64: string;
 }
 
 export interface AgentDeleteImpact {
@@ -85,6 +112,22 @@ export interface AgentDeleteImpact {
     connectors: 'delete';
     skills: 'shared-preserve';
   };
+}
+
+/** Payload of GET /api/v1/agents/:agentId/home; real per-agent stats for the Waker home view. */
+export interface AgentHomeResponse {
+  /** Birthtime of the agent definition file; null when the filesystem cannot provide it. */
+  createdAt: string | null;
+  counts: {
+    sessions: number;
+    questions: number;
+    automations: number;
+    projects: number;
+    workflows: number;
+    tasks: number;
+  };
+  /** Per-day counts of sessions by updated_at (SQLite date()), ascending by date. */
+  activity: Array<{ date: string; count: number }>;
 }
 
 export interface SessionSummary {
@@ -134,6 +177,11 @@ export interface InboxResponse {
 export interface UpdateInboxStateRequest {
   read?: boolean;
   completed?: boolean;
+}
+
+/** Payload of POST /api/v1/inbox/read-all; 被标记已读的未读 attention 会话数。 */
+export interface InboxReadAllResponse {
+  updated: number;
 }
 
 /** Payload of PATCH /api/v1/agents/:agentId/sessions/:sessionId. */
@@ -205,6 +253,16 @@ export interface ChatProcess {
   status: ChatProcessStatus;
 }
 
+/** Stable server-side classification of a failed chat turn (QoderWake-style red card kinds). */
+export type ChatErrorKind =
+  | 'quota'
+  | 'rate_limit'
+  | 'auth'
+  | 'timeout'
+  | 'network'
+  | 'startup'
+  | 'generic';
+
 /** One message replayed from a persisted Codex rollout session. */
 export interface SessionMessage {
   id: string;
@@ -216,6 +274,10 @@ export interface SessionMessage {
   /** Codex turn status of assistant messages; 'error' / 'aborted' mark failed turns. */
   stopReason?: string;
   errorMessage?: string;
+  /** Classification of the failed turn, derived from the persisted error message. */
+  errorKind?: ChatErrorKind;
+  /** Quota reset hint extracted from the provider message, when present. */
+  errorResetAt?: string;
   /** Knowledge chunks used for this assistant turn, reconstructed from the persisted prompt. */
   sources?: ChatCitationSource[];
   /** Tool and plan activity reconstructed from the persisted Codex rollout. */
@@ -248,7 +310,7 @@ export type ChatStreamEvent =
       isError?: boolean;
     }
   | { type: 'done'; answer: string; usage?: ChatUsage }
-  | { type: 'error'; error: string };
+  | { type: 'error'; error: string; kind?: ChatErrorKind; resetAt?: string };
 
 /** Project resources visible to an agent plus its persisted run statistics. */
 export interface AgentResources {
@@ -492,6 +554,8 @@ export interface FileContentResponse {
 export interface WorkspaceResponse {
   agents: AgentSummary[];
   prompts: PromptSummary[];
+  /** 本机环境信息：本地模式只有一台机器，即 API 进程所在主机。 */
+  host: { name: string };
   models: {
     current: { provider?: string; model?: string };
     available: Array<{ id: string; name: string }>;
@@ -564,7 +628,7 @@ export interface SettingsResponse {
   };
 }
 
-/** Payload of GET /api/v1/templates; each entry creates .codex/agents/<id>.md when used. */
+/** Payload of GET /api/v1/agent-templates (and /api/v1/templates); parsed from .codex/agent-templates/<id>.md. */
 export interface AgentTemplate {
   id: string;
   name: string;
@@ -573,6 +637,10 @@ export interface AgentTemplate {
   description: string;
   suggestions: string[];
   body: string;
+  /** Optional 我最擅长 section items; carried over when an agent is created from the template. */
+  strengths?: AgentProfileSectionItem[];
+  /** Optional 工作风格 section items; carried over when an agent is created from the template. */
+  workStyles?: AgentProfileSectionItem[];
 }
 
 export interface AgentTemplatesResponse {
@@ -664,6 +732,27 @@ export interface UpsertKnowledgeDocumentRequest {
   sourceType?: KnowledgeDocument['sourceType'];
   content: string;
   expectedVersion?: number;
+}
+
+/** Payload of POST /api/v1/knowledge/documents/import-url; the API fetches each URL itself. */
+export interface ImportKnowledgeUrlsRequest {
+  notebookId: string;
+  urls: string[];
+  scope?: KnowledgeScope;
+}
+
+export interface KnowledgeUrlImportResult {
+  url: string;
+  ok: boolean;
+  documentId?: string;
+  title?: string;
+  error?: string;
+}
+
+export interface ImportKnowledgeUrlsResponse {
+  results: KnowledgeUrlImportResult[];
+  imported: number;
+  failed: number;
 }
 
 export interface KnowledgeSearchRequest {
@@ -844,6 +933,15 @@ export interface WorkflowValidationRequest {
   wakerId: string;
   workflowId?: string;
   script: string;
+}
+
+export interface WorkflowGenerateDefinitionRequest {
+  description: string;
+  model?: string;
+}
+
+export interface WorkflowGenerateDefinitionResponse {
+  definition: WorkflowDefinition;
 }
 
 export interface WorkflowMutationResponse {

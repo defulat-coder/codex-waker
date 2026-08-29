@@ -9,13 +9,15 @@ import type {
   SessionSummary,
 } from '@waker/contracts';
 import {
+  classifyTurnError,
+  CodexTurnAbortedError,
+  CodexTurnError,
   codexThreadRegistry,
   getAgent,
   getCodexModelConfig,
   getCodexReasoningEffort,
   listCodexModels,
   redactPrivateRoots,
-  runAgentTurn,
   SessionBindingError,
   type AgentInput,
 } from '@waker/codex-runtime';
@@ -232,7 +234,7 @@ export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void 
             )}\n</developer-instructions>\n\n${knowledgeContext.prompt}`
           : knowledgeContext.prompt;
         const input = withAttachments(ctx.artifacts, session.id, turnAttachmentIds, prompt);
-        const result = await runAgentTurn(agent.id, session.id, input, {
+        const result = await ctx.runTurn(agent.id, session.id, input, {
           reasoningEffort: request.body.thinking,
           sources: knowledgeContext.sources,
           ...(request.body.model ? { model: request.body.model } : {}),
@@ -255,14 +257,46 @@ export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void 
           answer: result.answer,
           ...(result.usage ? { usage: result.usage } : {}),
         });
+        // turn 成功后的后台 memory 提取（memory dream）：fire-and-forget，
+        // 不阻塞完成帧，失败只 log。门控只是成本闸门，语义判定由提取器做。
+        ctx.memoryDream.trigger({
+          agentId: agent.id,
+          sessionId: session.id,
+          userMessage: request.body.message,
+          assistantAnswer: result.answer,
+          // 与本轮 turn 同一个模型（modelLabel.model 已是解析默认值后的最终值），
+          // 否则提取会落到默认模型上——provider 无凭据时提取静默 401，memory 永不产出。
+          ...(modelLabel.model ? { model: modelLabel.model } : {}),
+        });
       } catch (error) {
+        const message =
+          error instanceof Error
+            ? redactPrivateRoots(error.message, [ctx.cwd, workingDirectory])
+            : '流式响应失败';
+        const classified = classifyTurnError({
+          ...(error instanceof CodexTurnError ? { code: error.code } : {}),
+          message,
+        });
         sse.send({
           type: 'error',
-          error:
-            error instanceof Error
-              ? redactPrivateRoots(error.message, [ctx.cwd, workingDirectory])
-              : '流式响应失败',
+          error: message,
+          kind: classified.kind,
+          ...(classified.resetAt ? { resetAt: classified.resetAt } : {}),
         });
+        // rollout 没有 error 记录的失败（如 provider 401 直接拒流）在这里补记到本地库，
+        // 回放端点 merge 后刷新仍能渲染分类红卡；中断走 rollout 的 turn_aborted，不补记。
+        if (!(error instanceof CodexTurnAbortedError)) {
+          try {
+            ctx.sessions.recordTurnFailure(session.id, agent.id, {
+              timestamp: new Date().toISOString(),
+              errorMessage: message,
+              kind: classified.kind,
+              ...(classified.resetAt ? { resetAt: classified.resetAt } : {}),
+            });
+          } catch {
+            // 本地补记失败不影响已经发出的错误帧。
+          }
+        }
       } finally {
         sse.close();
       }

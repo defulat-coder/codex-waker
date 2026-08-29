@@ -9,6 +9,8 @@ import {
   type WorkflowRunListResponse,
   type WorkflowRunEventRecord,
   type WorkflowRunRecord,
+  type WorkflowGenerateDefinitionRequest,
+  type WorkflowGenerateDefinitionResponse,
   type WorkflowValidationResponse,
   type WorkflowValidationRequest,
   type WorkflowVersionListResponse,
@@ -16,6 +18,7 @@ import {
 } from '@waker/contracts';
 import {
   serializeWorkflowDefinition,
+  validateWorkflowDefinition,
   WorkflowConflictError,
   type Workflow,
   type WorkflowDeleteImpact,
@@ -27,6 +30,10 @@ import {
 import { listCodexModels } from '@waker/codex-runtime';
 import type { AppContext } from '../context.js';
 import { agentOr404, rejectDeletingAgent } from '../context.js';
+import {
+  buildWorkflowDefinitionPrompt,
+  parseWorkflowDefinitionOutput,
+} from '../workflow-generate.js';
 
 const id = Type.String({ minLength: 1, maxLength: 160 });
 const wakerQuery = Type.Object({ wakerId: id }, { additionalProperties: false });
@@ -243,6 +250,55 @@ export function registerWorkflowRoutes(app: FastifyInstance, ctx: AppContext): v
       if (!agentOr404(ctx, wakerId, reply)) return;
       if (workflowId && !ownedWorkflow(ctx, reply, wakerId, workflowId)) return;
       return validateDefinition(ctx, wakerId, script, workflowId);
+    },
+  );
+
+  // AI 生成定义（矩阵行 75）：无状态一次性调用；输出经服务端 DSL 校验后才返回。
+  app.post(
+    '/workflows/generate-definition',
+    {
+      schema: {
+        body: Type.Object(
+          {
+            description: Type.String({ minLength: 1, maxLength: 2_000 }),
+            model: Type.Optional(id),
+          },
+          { additionalProperties: false },
+        ),
+      },
+    },
+    async (request, reply) => {
+      const { description, model } = request.body as WorkflowGenerateDefinitionRequest;
+      if (model) {
+        const available = new Set(listCodexModels(ctx.cwd).map((entry) => entry.id));
+        if (!available.has(model))
+          return reply.code(400).send({ error: `模型不在可用列表中：${model}` });
+      }
+      let raw: string;
+      try {
+        raw = await ctx.generateWorkflowDefinition(
+          buildWorkflowDefinitionPrompt(description),
+          model,
+        );
+      } catch (error) {
+        return reply.code(502).send({
+          error: `AI 生成定义失败：${error instanceof Error ? error.message : '模型调用失败'}`,
+        });
+      }
+      let source: unknown;
+      try {
+        source = parseWorkflowDefinitionOutput(raw);
+      } catch {
+        return reply.code(502).send({ error: 'AI 未返回有效的 JSON 定义，请重试' });
+      }
+      const result = validateWorkflowDefinition(source);
+      if (!result.definition) {
+        return reply
+          .code(422)
+          .send({ error: '生成的定义未通过校验，请调整描述后重试', errors: result.errors });
+      }
+      const response: WorkflowGenerateDefinitionResponse = { definition: result.definition };
+      return response;
     },
   );
 

@@ -5,8 +5,14 @@ import type {
   KnowledgeDocument,
   KnowledgeNotebook,
   KnowledgeSearchResponse,
+  KnowledgeUrlImportResult,
 } from '@waker/contracts';
 import type { AppContext } from '../context.js';
+import {
+  checkImportUrl,
+  fetchUrlMarkdown,
+  MAX_KNOWLEDGE_IMPORT_URLS,
+} from '../lib/knowledge-url-import.js';
 
 const id = Type.String({ minLength: 1, maxLength: 160, pattern: '^[a-zA-Z0-9._:-]+$' });
 const scope = Type.Object({
@@ -192,6 +198,64 @@ export function registerKnowledgeRoutes(app: FastifyInstance, ctx: AppContext): 
       } catch (error) {
         return handleKnowledgeError(reply, error);
       }
+    },
+  );
+
+  app.post(
+    '/knowledge/documents/import-url',
+    {
+      schema: {
+        body: Type.Object({
+          notebookId: id,
+          urls: Type.Array(Type.String({ minLength: 1, maxLength: 2000 }), {
+            minItems: 1,
+            maxItems: MAX_KNOWLEDGE_IMPORT_URLS,
+          }),
+          scope: Type.Optional(scope),
+        }),
+      },
+    },
+    async (request, reply) => {
+      const body = request.body as {
+        notebookId: string;
+        urls: string[];
+        scope?: { kind: 'waker' | 'project'; id: string };
+      };
+      const results: KnowledgeUrlImportResult[] = [];
+      let fetched = 0;
+      for (const raw of body.urls) {
+        const check = checkImportUrl(raw);
+        if (!check.ok) {
+          results.push({ url: raw, ok: false, error: check.reason });
+          continue;
+        }
+        fetched += 1;
+        try {
+          const page = await fetchUrlMarkdown(check.url);
+          const created = await ctx.knowledge.createDocument({
+            notebookId: body.notebookId,
+            title: page.title,
+            content: page.markdown,
+            sourceUri: page.finalUrl,
+            metadata: { mimeType: 'text/markdown', sourceType: 'web' },
+            binding: binding(body.scope),
+          });
+          results.push({ url: check.url, ok: true, documentId: created.id, title: created.title });
+        } catch (error) {
+          if (error instanceof KnowledgeError) return handleKnowledgeError(reply, error);
+          results.push({
+            url: check.url,
+            ok: false,
+            error: error instanceof Error ? error.message : '抓取失败',
+          });
+        }
+      }
+      const imported = results.filter((result) => result.ok).length;
+      const failed = results.length - imported;
+      const payload = { results, imported, failed };
+      if (imported > 0) return reply.code(200).send(payload);
+      // 全部失败：全是校验问题算客户端错误，否则算上游抓取失败。
+      return reply.code(fetched === 0 ? 400 : 502).send(payload);
     },
   );
 

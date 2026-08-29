@@ -21,6 +21,13 @@ export function templateToCreateRequest(template: AgentTemplate, id?: string): C
     description: template.description,
     suggestions: [...template.suggestions],
     body: template.body,
+    // 关于我区块随模板带入新 Agent；没有则不传（不造数据）。
+    ...(template.strengths
+      ? { strengths: template.strengths.map((item) => ({ ...item })) }
+      : {}),
+    ...(template.workStyles
+      ? { workStyles: template.workStyles.map((item) => ({ ...item })) }
+      : {}),
   };
 }
 
@@ -29,11 +36,12 @@ export function blankAgentRequest(
   name: string,
   description: string,
   id?: string,
+  mark?: string,
 ): CreateAgentRequest {
   const cleanName = name.trim();
   const cleanDescription = description.trim();
   const words = cleanName.split(/\s+/).filter(Boolean);
-  const mark =
+  const derivedMark =
     words.length > 1
       ? words
           .slice(0, 2)
@@ -45,7 +53,7 @@ export function blankAgentRequest(
   return {
     ...(id?.trim() ? { id: id.trim() } : {}),
     name: cleanName,
-    mark,
+    mark: mark?.trim() || derivedMark,
     tagline: cleanDescription || '自定义 Agent',
     description: summary,
     suggestions: ['介绍一下你能做什么', '从哪里开始最合适？'],

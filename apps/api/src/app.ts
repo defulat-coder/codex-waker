@@ -8,6 +8,8 @@ import {
   agentSessionStoreFor,
   getCodexProjectRoot,
   loadAgents,
+  runAgentTurn,
+  runCodexOneShot,
 } from '@waker/codex-runtime';
 import { ArtifactStore } from '@waker/artifacts';
 import { KnowledgeStore } from '@waker/knowledge';
@@ -15,6 +17,7 @@ import { MemoryStore } from '@waker/memory';
 import { WorkspaceStore } from '@waker/workspace-data';
 import { loadConfig, type AppConfig } from './config.js';
 import { type AppContext } from './context.js';
+import { MemoryDreamer } from './memory-dream.js';
 import { registerAgentRoutes } from './routes/agents.js';
 import { registerChatRoutes } from './routes/chat.js';
 import { registerFileRoutes } from './routes/files.js';
@@ -49,6 +52,12 @@ type AppDependencies = {
     WorkflowExecutorOptions,
     'runTurn' | 'abortTurn' | 'now' | 'setTimer' | 'clearTimer'
   >;
+  /** Chat 路由的轮次执行替身（测试用，默认真实 runAgentTurn）。 */
+  chatRuntime?: Pick<AppContext, 'runTurn'>;
+  /** memory dream 替身（测试用，默认真实 MemoryDreamer）。 */
+  memoryDream?: AppContext['memoryDream'];
+  /** AI 生成流程定义的一次性调用替身（测试用，默认 runCodexOneShot）。 */
+  generateWorkflowDefinition?: AppContext['generateWorkflowDefinition'];
 };
 
 export function buildApp(
@@ -90,6 +99,14 @@ export function buildApp(
       sessions,
       ...dependencies.workflowRuntime,
     });
+  const app = Fastify({
+    logger: {
+      level: config.LOG_LEVEL,
+      redact: ['req.headers.authorization', '*.password', '*.apiKey'],
+    },
+    genReqId: () => `req_${crypto.randomUUID().slice(0, 8)}`,
+  });
+
   const ctx: AppContext = {
     config,
     cwd,
@@ -100,15 +117,19 @@ export function buildApp(
     artifacts,
     automationExecutor,
     workflowExecutor,
+    runTurn: dependencies.chatRuntime?.runTurn ?? runAgentTurn,
+    memoryDream:
+      dependencies.memoryDream ??
+      new MemoryDreamer({
+        memory,
+        enabled: config.WAKER_MEMORY_DREAM?.trim().toLowerCase() !== 'off',
+        extract: (prompt, model) => runCodexOneShot(prompt, { cwd, ...(model ? { model } : {}) }),
+        logger: { warn: (message) => app.log.warn(message) },
+      }),
+    generateWorkflowDefinition:
+      dependencies.generateWorkflowDefinition ??
+      ((prompt, model) => runCodexOneShot(prompt, { cwd, ...(model ? { model } : {}) })),
   };
-
-  const app = Fastify({
-    logger: {
-      level: config.LOG_LEVEL,
-      redact: ['req.headers.authorization', '*.password', '*.apiKey'],
-    },
-    genReqId: () => `req_${crypto.randomUUID().slice(0, 8)}`,
-  });
 
   // Web 走 vite proxy 同源访问，不需要携带凭证的跨域。
   app.register(cors, { origin: config.WEB_ORIGIN });

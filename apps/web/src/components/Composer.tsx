@@ -57,7 +57,9 @@ function ModelMenu({
 
   useDismissable(ref, onClose);
 
-  const currentName = models.current.model ?? '默认';
+  // workspace 拉取异常时 models 可能是数组/undefined：防御性归一，不让 Composer 白屏。
+  const available = Array.isArray(models?.available) ? models.available : [];
+  const currentName = models?.current?.model ?? '默认';
   return (
     <motion.div
       ref={ref}
@@ -83,7 +85,7 @@ function ModelMenu({
         <span className="model-option-name">默认（{currentName}）</span>
         <Check size={14} weight="bold" />
       </button>
-      {models.available.map((model) => (
+      {available.map((model) => (
         <button
           type="button"
           role="option"
@@ -99,6 +101,7 @@ function ModelMenu({
           <Check size={14} weight="bold" />
         </button>
       ))}
+      {!available.length && <p className="model-menu-empty">暂无更多可用模型</p>}
     </motion.div>
   );
 }
@@ -139,9 +142,10 @@ export function Composer({
     setActivePrompt(0);
   }, [promptQuery]);
 
+  const availableModels = Array.isArray(models?.available) ? models.available : [];
   const modelLabel = selectedModel
-    ? (models.available.find((model) => model.id === selectedModel)?.name ?? selectedModel)
-    : (models.current.model ?? '默认');
+    ? (availableModels.find((model) => model.id === selectedModel)?.name ?? selectedModel)
+    : (models?.current?.model ?? '默认');
 
   const applyPrompt = async (name: string) => {
     setLoadingPrompt(true);

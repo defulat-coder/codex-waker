@@ -18,4 +18,16 @@ describe('AgentChip', () => {
     assert.equal(chip.textContent, 'Fl');
     assert.ok(chip.className.includes('agent-chip--large'));
   });
+
+  it('有头像时渲染图片，否则回退到 mark', () => {
+    const { container, rerender } = render(
+      <AgentChip mark="译" agentId="translator-pro" hasAvatar />,
+    );
+    const img = container.querySelector('.agent-chip img');
+    assert.ok(img);
+    assert.equal(img.getAttribute('src'), '/api/v1/agents/translator-pro/avatar');
+    rerender(<AgentChip mark="译" agentId="translator-pro" hasAvatar={false} />);
+    assert.equal(container.querySelector('.agent-chip img'), null);
+    assert.equal(container.querySelector('.agent-chip')?.textContent, '译');
+  });
 });

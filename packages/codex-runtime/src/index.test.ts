@@ -5,14 +5,17 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   AgentSessionStore,
+  agentOutputLanguageInstruction,
   CodexTurnAbortedError,
   CodexTurnError,
   CodexThreadRegistry,
   KeyedExecutor,
   runAgentTurn,
+  wrapThreadWithPersona,
   type CodexAgentSession,
   type CodexAgentSessionOptions,
 } from './index.js';
+import type { AgentDefinition } from './agents.js';
 import type { CodexThreadEvent } from './events.js';
 
 const roots: string[] = [];
@@ -509,6 +512,88 @@ describe('runAgentTurn', () => {
       if (saved === undefined) delete process.env.CODEX_AGENT_ENABLED;
       else process.env.CODEX_AGENT_ENABLED = saved;
     }
+  });
+});
+
+describe('首 turn 人设与 AI 回复语言注入', () => {
+  const agent = { name: '测试 Waker', body: '你是测试人设。' } as AgentDefinition;
+
+  function fakeThread() {
+    const inputs: unknown[] = [];
+    const thread = {
+      id: null,
+      run: (input: unknown) => {
+        inputs.push(input);
+        return Promise.resolve({});
+      },
+      runStreamed: (input: unknown) => {
+        inputs.push(input);
+        return Promise.resolve({ events: (async function* () {})() });
+      },
+    };
+    return { thread: thread as unknown as Parameters<typeof wrapThreadWithPersona>[0], inputs };
+  }
+
+  it('agentOutputLanguageInstruction 只认 zh-CN/en-US，未设置或非法值不注入', () => {
+    assert.match(agentOutputLanguageInstruction('zh-CN') ?? '', /简体中文 \(zh-CN\)/);
+    assert.match(agentOutputLanguageInstruction('zh-CN') ?? '', /默认输出语言/);
+    assert.match(agentOutputLanguageInstruction('en-US') ?? '', /English \(en-US\)/);
+    assert.equal(agentOutputLanguageInstruction(undefined), undefined);
+    assert.equal(agentOutputLanguageInstruction(''), undefined);
+    assert.equal(agentOutputLanguageInstruction('fr-FR'), undefined);
+  });
+
+  it('设置语言时首 turn developer-instructions 含对应文案，后续 turn 不重复', async () => {
+    const { thread, inputs } = fakeThread();
+    const wrapped = wrapThreadWithPersona(
+      thread,
+      agent,
+      true,
+      agentOutputLanguageInstruction('zh-CN'),
+    );
+    await wrapped.run('你好');
+    await wrapped.run('再说一次');
+    const first = inputs[0] as string;
+    assert.match(first, /<developer-instructions>/);
+    assert.match(first, /# Agent: 测试 Waker/);
+    assert.match(first, /你是测试人设。/);
+    assert.match(first, /默认使用简体中文回复/);
+    assert.match(first, /不要翻译代码、日志、命令、API 字段/);
+    assert.ok(first.endsWith('你好'));
+    assert.equal(inputs[1], '再说一次');
+  });
+
+  it('英文偏好注入英文文案', async () => {
+    const { thread, inputs } = fakeThread();
+    const wrapped = wrapThreadWithPersona(
+      thread,
+      agent,
+      true,
+      agentOutputLanguageInstruction('en-US'),
+    );
+    await wrapped.run('hello');
+    assert.match(inputs[0] as string, /reply in English by default/);
+  });
+
+  it('未设置语言时首 turn 只注入人设，不含输出语言指令', async () => {
+    const { thread, inputs } = fakeThread();
+    const wrapped = wrapThreadWithPersona(thread, agent, true);
+    await wrapped.run('你好');
+    const first = inputs[0] as string;
+    assert.match(first, /# Agent: 测试 Waker/);
+    assert.doesNotMatch(first, /默认输出语言|Output Language/);
+  });
+
+  it('resume 会话（injectOnFirstTurn=false）完全不注入', async () => {
+    const { thread, inputs } = fakeThread();
+    const wrapped = wrapThreadWithPersona(
+      thread,
+      agent,
+      false,
+      agentOutputLanguageInstruction('zh-CN'),
+    );
+    await wrapped.run('继续');
+    assert.equal(inputs[0], '继续');
   });
 });
 

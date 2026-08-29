@@ -29,6 +29,7 @@ const WORKSPACE: WorkspaceContextValue = {
       { id: 'agent-one', name: 'Nova', mark: 'No', tagline: '', description: '', suggestions: [] },
     ],
     prompts: [],
+    host: { name: 'test-host' },
     models: { current: {}, available: [] },
   },
   sessionsByAgent: {},

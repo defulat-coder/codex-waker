@@ -33,6 +33,8 @@ const schema = Type.Object({
     ]),
   ),
   CODEX_API_KEY: Type.Optional(Type.String({ minLength: 1, maxLength: 240 })),
+  // 对话后自动 memory 提取（memory dream）：'off' 时整体禁用，默认启用。
+  WAKER_MEMORY_DREAM: Type.Optional(Type.String()),
   LOG_LEVEL: Type.Union(
     [
       Type.Literal('trace'),

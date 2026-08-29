@@ -13,6 +13,7 @@ import { join, resolve } from 'node:path';
 import {
   AGENT_ID_PATTERN,
   type ChatCitationSource,
+  type ChatErrorKind,
   type SessionMessage,
   type SessionSummary,
 } from '@waker/contracts';
@@ -94,6 +95,42 @@ function rowParams(id: string, entry: WorkbenchSessionEntry): unknown[] {
   ];
 }
 
+/** 一次 turn 失败的本地补记：rollout 没有 error 记录时（如 provider 直接拒流）由 API 写入。 */
+export interface TurnFailureRecord {
+  timestamp: string;
+  errorMessage: string;
+  kind?: ChatErrorKind;
+  resetAt?: string;
+}
+
+interface TurnFailureRow {
+  id: number;
+  created_at: string;
+  error_message: string;
+  kind: string | null;
+  reset_at: string | null;
+}
+
+const CHAT_ERROR_KINDS: ReadonlySet<string> = new Set([
+  'quota',
+  'rate_limit',
+  'auth',
+  'timeout',
+  'network',
+  'startup',
+  'generic',
+]);
+
+function failureFromRow(row: TurnFailureRow): TurnFailureRecord & { id: number } {
+  return {
+    id: row.id,
+    timestamp: row.created_at,
+    errorMessage: row.error_message,
+    ...(row.kind && CHAT_ERROR_KINDS.has(row.kind) ? { kind: row.kind as ChatErrorKind } : {}),
+    ...(row.reset_at ? { resetAt: row.reset_at } : {}),
+  };
+}
+
 /**
  * SQLite projection (better-sqlite3) for everything the Codex CLI does NOT own:
  * session ↔ agent bindings, inbox read/completed state, UI preferences. The CLI
@@ -134,6 +171,16 @@ export class WorkbenchStore {
         sources_json TEXT NOT NULL,
         PRIMARY KEY (session_id, turn_index)
       );
+      CREATE TABLE IF NOT EXISTS session_turn_failures (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL,
+        error_message TEXT NOT NULL,
+        kind TEXT,
+        reset_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_session_turn_failures_session
+        ON session_turn_failures(session_id);
     `);
     this.migrateLegacyJson();
   }
@@ -255,8 +302,49 @@ export class WorkbenchStore {
     return sources;
   }
 
-  getPreferences(): Record<string, unknown> {
-    const rows = this.db.prepare('SELECT key, value FROM preferences').all() as Array<{
+  /** 补记一次 turn 失败（rollout 未留下 error 记录的失败轮次）；时间戳由调用方给出。 */
+  recordTurnFailure(sessionId: string, failure: TurnFailureRecord): void {
+    this.db
+      .prepare(
+        `INSERT INTO session_turn_failures (session_id, created_at, error_message, kind, reset_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(
+        sessionId,
+        failure.timestamp,
+        failure.errorMessage,
+        failure.kind ?? null,
+        failure.resetAt ?? null,
+      );
+  }
+
+  /** 按时间升序列出一个会话的全部失败补记。 */
+  listTurnFailures(sessionId: string): Array<TurnFailureRecord & { id: number }> {
+    const rows = this.db
+      .prepare(
+        `SELECT id, created_at, error_message, kind, reset_at
+         FROM session_turn_failures WHERE session_id = ? ORDER BY created_at, id`,
+      )
+      .all(sessionId) as TurnFailureRow[];
+    return rows.map(failureFromRow);
+  }
+
+  /**
+   * 活跃度热力图数据：按 updated_at 的日期分组统计一个 Agent 的会话数。
+   * date() 直接解析 ISO 时间戳（UTC），只读单 Agent 的行，按日期升序返回。
+   */
+  sessionActivityByDay(agentId: string): Array<{ date: string; count: number }> {
+    const rows = this.db
+      .prepare(
+        `SELECT date(updated_at) AS day, COUNT(*) AS n
+         FROM sessions WHERE agent_id = ?
+         GROUP BY day ORDER BY day`,
+      )
+      .all(agentId) as Array<{ day: string; n: number }>;
+    return rows.map((row) => ({ date: row.day, count: row.n }));
+  }
+
+  getPreferences(): Record<string, unknown> {    const rows = this.db.prepare('SELECT key, value FROM preferences').all() as Array<{
       key: string;
       value: string;
     }>;
@@ -538,7 +626,13 @@ export class AgentSessionStore {
   async listMessages(id: string, agentId: string): Promise<SessionMessage[]> {
     const entry = this.requireEntry(id, agentId);
     const messages = entry.threadId ? this.messagesForThread(entry.threadId) : [];
-    return this.withTurnSources(id, messages);
+    return this.withTurnFailures(id, this.withTurnSources(id, messages));
+  }
+
+  /** 补记一次 turn 失败（API 在 turn 抛错时调用）；中断走 rollout 的 turn_aborted，不经过这里。 */
+  recordTurnFailure(id: string, agentId: string, failure: TurnFailureRecord): void {
+    this.requireEntry(id, agentId);
+    this.workbench.recordTurnFailure(id, failure);
   }
 
   /** Stores host-owned provenance for one serialized user turn; browser text never owns it. */
@@ -642,6 +736,41 @@ export class AgentSessionStore {
     }
     attach();
     return messages;
+  }
+
+  /**
+   * 把本地补记的 turn 失败按时间序 merge 进回放消息：rollout 没有 error 记录的失败
+   * （如 provider 直接拒流）刷新后仍能渲染错误卡。rollout 已落盘同一条错误
+   * （stopReason 'error' 且 errorMessage 相同）时跳过补记，避免重复出两张错误卡。
+   */
+  private withTurnFailures(id: string, messages: SessionMessage[]): SessionMessage[] {
+    const failures = this.workbench.listTurnFailures(id);
+    if (!failures.length) return messages;
+    const merged = [...messages];
+    for (const failure of failures) {
+      const duplicated = merged.some(
+        (message) =>
+          message.role === 'assistant' &&
+          message.stopReason === 'error' &&
+          message.errorMessage === failure.errorMessage,
+      );
+      if (duplicated) continue;
+      const record: SessionMessage = {
+        id: `turn_failure_${failure.id}`,
+        role: 'assistant',
+        content: '',
+        stopReason: 'error',
+        errorMessage: failure.errorMessage,
+        ...(failure.kind ? { errorKind: failure.kind } : {}),
+        ...(failure.resetAt ? { errorResetAt: failure.resetAt } : {}),
+        timestamp: failure.timestamp,
+      };
+      // ISO 时间戳可按字符串比较；空时间戳（''）最小，自然排在补记之前。
+      let index = merged.length;
+      while (index > 0 && merged[index - 1]!.timestamp > failure.timestamp) index -= 1;
+      merged.splice(index, 0, record);
+    }
+    return merged;
   }
 
   private recordFromEntry(id: string, entry: WorkbenchSessionEntry): SessionRecord {

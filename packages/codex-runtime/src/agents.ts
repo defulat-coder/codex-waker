@@ -5,12 +5,14 @@ import {
   readFileSync,
   renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import {
   AGENT_ID_PATTERN,
   type AgentDetail,
+  type AgentProfileSectionItem,
   type AgentResources,
   type AgentSummary,
   type CreateAgentRequest,
@@ -71,8 +73,27 @@ interface AgentFieldValues {
   mark: string;
   tagline: string;
   description: string;
+  /** Optional avatar file name (.codex/agents/<id>.avatar.<ext>); written only by writeAgentAvatar. */
+  avatar?: string;
   suggestions: string[];
   body: string;
+  /** Optional 关于我 sections (我最擅长 / 工作风格); round-tripped through the frontmatter. */
+  strengths?: AgentProfileSectionItem[];
+  workStyles?: AgentProfileSectionItem[];
+}
+
+/** Validates one optional profile section: every item must carry non-empty single-line title/text. */
+function validateProfileSection(
+  value: AgentProfileSectionItem[] | undefined,
+  field: string,
+): AgentProfileSectionItem[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value))
+    throw new AgentCreateError('INVALID_FIELD', `Agent 字段 ${field} 必须是条目数组`);
+  return value.map((item) => ({
+    title: assertSingleLine(item?.title, `${field}.title`),
+    text: assertSingleLine(item?.text, `${field}.text`),
+  }));
 }
 
 /** Applies the create-time validation rules (non-empty single-line fields, 32KB body cap). */
@@ -88,7 +109,30 @@ function validateAgentFields(input: AgentFieldValues): AgentFieldValues {
   if (!body) throw new AgentCreateError('INVALID_FIELD', 'Agent 定义缺少系统提示词正文');
   if (Buffer.byteLength(body, 'utf8') > AGENT_BODY_MAX_BYTES)
     throw new AgentCreateError('TOO_LARGE', `系统提示词正文超过 ${AGENT_BODY_MAX_BYTES} 字节上限`);
-  return { name, mark, tagline, description, suggestions, body };
+  const strengths = validateProfileSection(input.strengths, 'strengths');
+  const workStyles = validateProfileSection(input.workStyles, 'workStyles');
+  return {
+    name,
+    mark,
+    tagline,
+    description,
+    suggestions,
+    body,
+    ...(input.avatar ? { avatar: input.avatar } : {}),
+    ...(strengths?.length ? { strengths } : {}),
+    ...(workStyles?.length ? { workStyles } : {}),
+  };
+}
+
+/** Serializes one optional profile section as a YAML list of {title, text} maps. */
+function serializeProfileSection(field: string, items: AgentProfileSectionItem[]): string[] {
+  return [
+    `${field}:`,
+    ...items.flatMap((item) => [
+      `  - title: ${yamlScalar(item.title)}`,
+      `    text: ${yamlScalar(item.text)}`,
+    ]),
+  ];
 }
 
 /** Serializes validated fields to the .codex/agents/<id>.md file content. */
@@ -99,8 +143,11 @@ function serializeAgentFile(fields: AgentFieldValues): string {
     `mark: ${yamlScalar(fields.mark)}`,
     `tagline: ${yamlScalar(fields.tagline)}`,
     `description: ${yamlScalar(fields.description)}`,
+    ...(fields.avatar ? [`avatar: ${yamlScalar(fields.avatar)}`] : []),
     'suggestions:',
     ...fields.suggestions.map((item) => `  - ${yamlScalar(item)}`),
+    ...(fields.strengths?.length ? serializeProfileSection('strengths', fields.strengths) : []),
+    ...(fields.workStyles?.length ? serializeProfileSection('workStyles', fields.workStyles) : []),
     '---',
     '',
     fields.body,
@@ -154,8 +201,13 @@ export function updateAgent(cwd: string, id: string, patch: UpdateAgentRequest):
     mark: patch.mark ?? current.mark,
     tagline: patch.tagline ?? current.tagline,
     description: patch.description ?? current.description,
+    // 头像文件由 writeAgentAvatar 单独管理；普通 PATCH 不改动但必须保留该字段。
+    ...(current.avatar ? { avatar: current.avatar } : {}),
     suggestions: patch.suggestions ?? current.suggestions,
     body: patch.body ?? current.body,
+    // 关于我区块不由配置面板编辑；PATCH 时必须原样保留。
+    ...(current.strengths ? { strengths: current.strengths } : {}),
+    ...(current.workStyles ? { workStyles: current.workStyles } : {}),
   };
   const file = serializeAgentFile(validateAgentFields(merged));
   const temporary = join(directory, `.${id}.md.tmp-${process.pid}`);
@@ -176,7 +228,29 @@ function requiredString(value: unknown, field: string, path: string): string {
 function parseAgentFile(directory: string, fileName: string): AgentDefinition {
   const id = fileName.replace(/\.md$/i, '');
   const path = join(directory, fileName);
-  return parseAgentContent(id, path, readFileSync(path, 'utf8'));
+  const agent = parseAgentContent(id, path, readFileSync(path, 'utf8'));
+  // 头像引用指向缺失文件时按无头像处理（定义文件保持原样，不重写）。
+  if (agent.avatar && !existsSync(join(directory, agent.avatar))) {
+    const { avatar: _dropped, ...rest } = agent;
+    return rest;
+  }
+  return agent;
+}
+
+const AGENT_AVATAR_FILE = /^[a-z][a-z0-9-]{1,63}\.avatar\.(png|jpg)$/;
+
+/** Parses one optional frontmatter profile section; malformed entries drop the whole section. */
+function parseProfileSection(value: unknown): AgentProfileSectionItem[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const items: AgentProfileSectionItem[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object') return undefined;
+    const { title, text } = entry as Record<string, unknown>;
+    if (typeof title !== 'string' || !title.trim()) return undefined;
+    if (typeof text !== 'string' || !text.trim()) return undefined;
+    items.push({ title: title.trim(), text: text.trim() });
+  }
+  return items.length ? items : undefined;
 }
 
 function parseAgentContent(id: string, path: string, raw: string): AgentDefinition {
@@ -186,6 +260,12 @@ function parseAgentContent(id: string, path: string, raw: string): AgentDefiniti
   const mark = requiredString(frontmatter.mark, 'mark', path);
   const tagline = requiredString(frontmatter.tagline, 'tagline', path);
   const description = requiredString(frontmatter.description, 'description', path);
+  // avatar 是可选字段；只接受约定形状 <id>.avatar.(png|jpg)，其他取值按无头像处理。
+  const avatarValue = typeof frontmatter.avatar === 'string' ? frontmatter.avatar.trim() : '';
+  const avatar =
+    AGENT_AVATAR_FILE.test(avatarValue) && avatarValue.startsWith(`${id}.`) ? avatarValue : undefined;
+  const strengths = parseProfileSection(frontmatter.strengths);
+  const workStyles = parseProfileSection(frontmatter.workStyles);
   const suggestions = frontmatter.suggestions;
   if (
     !Array.isArray(suggestions) ||
@@ -202,8 +282,11 @@ function parseAgentContent(id: string, path: string, raw: string): AgentDefiniti
     mark,
     tagline,
     description,
+    ...(avatar ? { avatar } : {}),
     suggestions: suggestions.map((item) => item.trim()),
     body: systemPrompt,
+    ...(strengths ? { strengths } : {}),
+    ...(workStyles ? { workStyles } : {}),
     path: `.codex/agents/${id}.md`,
   };
 }
@@ -230,6 +313,8 @@ export function importAgent(cwd: string, input: ImportAgentRequest): AgentDefini
     description: parsed.description,
     suggestions: parsed.suggestions,
     body: parsed.body,
+    ...(parsed.strengths ? { strengths: parsed.strengths } : {}),
+    ...(parsed.workStyles ? { workStyles: parsed.workStyles } : {}),
   });
 }
 
@@ -242,21 +327,105 @@ export function readAgentSource(cwd: string, id: string): string {
   return readFileSync(target, 'utf8');
 }
 
-/** Removes one definition file. Session cleanup is coordinated by the API before this call. */
+/** 入职时间：定义文件的 birthtime；文件缺失或文件系统不提供 birthtime 时返回 null。 */
+export function agentCreatedAt(cwd: string, id: string): string | null {
+  if (!AGENT_ID_REGEX.test(id)) return null;
+  const target = join(cwd, '.codex', 'agents', `${id}.md`);
+  try {
+    const { birthtimeMs } = statSync(target);
+    // 部分文件系统 birthtime 为 0（不支持），按不可用处理。
+    return birthtimeMs > 0 ? new Date(birthtimeMs).toISOString() : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Removes one definition file and its avatar. Session cleanup is coordinated by the API before this call. */
 export function deleteAgent(cwd: string, id: string): void {
   if (!AGENT_ID_REGEX.test(id))
     throw new AgentCreateError('INVALID_ID', 'Agent id 需匹配 [a-z][a-z0-9-]{1,63}');
-  const target = join(cwd, '.codex', 'agents', `${id}.md`);
+  const directory = join(cwd, '.codex', 'agents');
+  const target = join(directory, `${id}.md`);
   if (!existsSync(target)) throw new AgentCreateError('NOT_FOUND', `Agent 不存在：${id}`);
   rmSync(target);
+  for (const ext of ['png', 'jpg']) rmSync(join(directory, `${id}.avatar.${ext}`), { force: true });
+}
+
+/** 头像上限与 legacy 一致：PNG / JPG，不超过 2 MB。 */
+export const AGENT_AVATAR_MAX_BYTES = 2 * 1024 * 1024;
+const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+
+/**
+ * Detects the avatar extension from the declared mime type plus magic bytes;
+ * returns undefined when the bytes do not match a real PNG/JPG.
+ */
+function avatarExtensionFor(mimeType: string, data: Buffer): 'png' | 'jpg' | undefined {
+  if (mimeType === 'image/png')
+    return PNG_MAGIC.every((byte, index) => data[index] === byte) ? 'png' : undefined;
+  if (mimeType === 'image/jpeg')
+    return data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff ? 'jpg' : undefined;
+  return undefined;
 }
 
 /**
- * File-first agent registry: every .codex/agents/<id>.md is an agent.
- * Adding a file adds an agent; no registry or capability profile is involved.
+ * Writes .codex/agents/<id>.avatar.<ext> and records it in the definition's
+ * frontmatter. Both writes are atomic (temp file + rename), and the frontmatter
+ * update goes through the shared serializer/validator.
  */
-export function loadAgents(cwd: string): AgentDefinition[] {
+export function writeAgentAvatar(
+  cwd: string,
+  id: string,
+  input: { mimeType: string; data: Buffer },
+): AgentDefinition {
+  if (!AGENT_ID_REGEX.test(id))
+    throw new AgentCreateError('INVALID_ID', 'Agent id 需匹配 [a-z][a-z0-9-]{1,63}');
   const directory = join(cwd, '.codex', 'agents');
+  if (!existsSync(join(directory, `${id}.md`)))
+    throw new AgentCreateError('NOT_FOUND', `Agent 不存在：${id}`);
+  if (!input.data.length || input.data.length > AGENT_AVATAR_MAX_BYTES)
+    throw new AgentCreateError('TOO_LARGE', `头像文件不能超过 ${AGENT_AVATAR_MAX_BYTES / 1024 / 1024} MB`);
+  const ext = avatarExtensionFor(input.mimeType, input.data);
+  if (!ext) throw new AgentCreateError('INVALID_FIELD', '头像仅支持 PNG / JPG 图片');
+
+  const current = parseAgentFile(directory, `${id}.md`);
+  const fileName = `${id}.avatar.${ext}`;
+  const temporary = join(directory, `.${fileName}.tmp-${process.pid}`);
+  writeFileSync(temporary, input.data);
+  renameSync(temporary, join(directory, fileName));
+  if (current.avatar && current.avatar !== fileName)
+    rmSync(join(directory, current.avatar), { force: true });
+
+  const file = serializeAgentFile(validateAgentFields({ ...current, avatar: fileName }));
+  const temporaryMd = join(directory, `.${id}.md.tmp-${process.pid}`);
+  writeFileSync(temporaryMd, file, 'utf8');
+  renameSync(temporaryMd, join(directory, `${id}.md`));
+  return parseAgentFile(directory, `${id}.md`);
+}
+
+/** Reads the avatar bytes and mime type; undefined when the agent has no avatar. */
+export function readAgentAvatar(
+  cwd: string,
+  id: string,
+): { data: Buffer; mimeType: string } | undefined {
+  if (!AGENT_ID_REGEX.test(id)) return undefined;
+  const directory = join(cwd, '.codex', 'agents');
+  if (!existsSync(join(directory, `${id}.md`))) return undefined;
+  const { avatar } = parseAgentFile(directory, `${id}.md`);
+  if (!avatar) return undefined;
+  const target = join(directory, avatar);
+  if (!existsSync(target)) return undefined;
+  return {
+    data: readFileSync(target),
+    mimeType: avatar.endsWith('.png') ? 'image/png' : 'image/jpeg',
+  };
+}
+
+/**
+ * File-first definition loader shared by agents (.codex/agents) and role
+ * templates (.codex/agent-templates): every <id>.md is parsed, bad files are
+ * skipped instead of failing the whole list.
+ */
+export function loadAgentDefinitions(directory: string): AgentDefinition[] {
   if (!existsSync(directory)) return [];
   const agents: AgentDefinition[] = [];
   for (const fileName of readdirSync(directory)
@@ -271,6 +440,14 @@ export function loadAgents(cwd: string): AgentDefinition[] {
   return agents;
 }
 
+/**
+ * File-first agent registry: every .codex/agents/<id>.md is an agent.
+ * Adding a file adds an agent; no registry or capability profile is involved.
+ */
+export function loadAgents(cwd: string): AgentDefinition[] {
+  return loadAgentDefinitions(join(cwd, '.codex', 'agents'));
+}
+
 export function getAgent(cwd: string, agentId: string): AgentDefinition {
   const agent = loadAgents(cwd).find((item) => item.id === agentId);
   if (!agent) throw new Error(`Agent 不存在：${agentId}`);
@@ -279,7 +456,15 @@ export function getAgent(cwd: string, agentId: string): AgentDefinition {
 
 export function agentSummary(agent: AgentDefinition): AgentSummary {
   const { id, name, mark, tagline, description, suggestions } = agent;
-  return { id, name, mark, tagline, description, suggestions };
+  return {
+    id,
+    name,
+    mark,
+    tagline,
+    description,
+    suggestions,
+    ...(agent.avatar ? { hasAvatar: true } : {}),
+  };
 }
 
 function previewOf(raw: string): string | undefined {

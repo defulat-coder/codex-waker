@@ -187,6 +187,55 @@ describe('agent session store', () => {
     );
   });
 
+  it('merges locally recorded turn failures into replay and dedupes rollout error records', async () => {
+    const { store } = fixture();
+    await store.createSession('codex-assistant', 'failure-session');
+    await store.bindThread('failure-session', 'codex-assistant', 'thread-failure');
+    writeRollout(store.sessionDir, 'thread-failure', [userMsg('第一句话')]);
+
+    // rollout 没有 error 记录的失败（如 provider 401 拒流）：补记按时间序插在 user 之后。
+    store.recordTurnFailure('failure-session', 'codex-assistant', {
+      timestamp: '2026-08-22T04:01:00.000Z',
+      errorMessage: 'HTTP 401 Unauthorized',
+      kind: 'auth',
+    });
+    let messages = await store.listMessages('failure-session', 'codex-assistant');
+    assert.deepEqual(
+      messages.map((message) => message.role),
+      ['user', 'assistant'],
+    );
+    assert.equal(messages[1]!.stopReason, 'error');
+    assert.equal(messages[1]!.errorMessage, 'HTTP 401 Unauthorized');
+    assert.equal(messages[1]!.errorKind, 'auth');
+
+    // rollout 落盘了同一条错误：补记被去重，不重复出第二张错误卡。
+    writeRollout(store.sessionDir, 'thread-failure', [
+      userMsg('第一句话'),
+      errorEvent('HTTP 401 Unauthorized'),
+    ]);
+    messages = await store.listMessages('failure-session', 'codex-assistant');
+    assert.equal(
+      messages.filter((message) => message.stopReason === 'error').length,
+      1,
+    );
+
+    // 不同的失败消息是新一轮失败：保留并按时间序排在 rollout 错误之后。
+    store.recordTurnFailure('failure-session', 'codex-assistant', {
+      timestamp: '2026-08-22T04:02:00.000Z',
+      errorMessage: 'quota exceeded，将于 2026-09-01T00:00:00Z 重置',
+      kind: 'quota',
+      resetAt: '2026-09-01T00:00:00Z',
+    });
+    messages = await store.listMessages('failure-session', 'codex-assistant');
+    const errors = messages.filter((message) => message.stopReason === 'error');
+    assert.equal(errors.length, 2);
+    assert.deepEqual(
+      errors.map((message) => message.errorKind),
+      ['auth', 'quota'],
+    );
+    assert.equal(errors[1]!.errorResetAt, '2026-09-01T00:00:00Z');
+  });
+
   it('overlays sanitized SQLite citation sidecars onto the matching final assistant turn', async () => {
     const { root, store } = fixture();
     await store.createSession('codex-assistant', 'source-session');

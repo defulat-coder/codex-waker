@@ -10,6 +10,7 @@ import { Composer } from './Composer.js';
 const workspace: WorkspaceResponse = {
   agents: [],
   prompts: [],
+  host: { name: 'test-host' },
   models: { current: {}, available: [] },
 };
 
@@ -117,5 +118,47 @@ describe('Composer attachments', () => {
       sent.map((item) => item.originalName),
       ['b.txt'],
     );
+  });
+});
+
+describe('Composer model menu', () => {
+  function renderComposerWithModels(models: WorkspaceResponse['models']) {
+    return render(
+      <WorkspaceProvider
+        value={{
+          workspace: { ...workspace, models },
+          sessionsByAgent: {},
+          notify: () => undefined,
+          reloadWorkspace: () => {},
+        }}
+      >
+        <Composer
+          disabled={false}
+          selectedModel={undefined}
+          onSelectModel={() => undefined}
+          onSend={() => true}
+          attachments={[]}
+          onAttachmentsChange={() => undefined}
+        />
+      </WorkspaceProvider>,
+    );
+  }
+
+  it('available 为空时模型菜单显示空态文案且不崩', () => {
+    renderComposerWithModels({ current: {}, available: [] });
+    assert.ok(screen.getByLabelText('消息输入框'), 'Composer 应正常渲染');
+    fireEvent.click(screen.getByRole('button', { name: '选择模型' }));
+    assert.ok(screen.getByText('默认（默认）'));
+    assert.ok(screen.getByText('暂无更多可用模型'));
+  });
+
+  it('models 为数组等异常形状时 Composer 不白屏', () => {
+    // 工作区响应异常（如旧缓存/接口降级返回数组）时也不能让整棵 Composer 抛 TypeError。
+    renderComposerWithModels([] as unknown as WorkspaceResponse['models']);
+    assert.ok(screen.getByLabelText('消息输入框'));
+    assert.ok(screen.getByText('默认'), '模型按钮回退到默认文案');
+    fireEvent.click(screen.getByRole('button', { name: '选择模型' }));
+    assert.ok(screen.getByText('默认（默认）'));
+    assert.ok(screen.getByText('暂无更多可用模型'));
   });
 });

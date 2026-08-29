@@ -459,7 +459,7 @@ export function Sidebar(props: SidebarProps) {
                         if (event.key === 'Enter') props.onSelectAgent(agent.id);
                       }}
                     >
-                      <AgentChip mark={agent.mark} />
+                      <AgentChip mark={agent.mark} agentId={agent.id} hasAvatar={agent.hasAvatar} />
                       <span className="agent-name">{agent.name}</span>
                       {(attentionByAgent[agent.id] ?? 0) > 0 && (
                         <span
@@ -586,6 +586,8 @@ export function Sidebar(props: SidebarProps) {
       <NewAgentDialog
         open={newAgentOpen}
         onClose={() => setNewAgentOpen(false)}
+        hostName={workspace.host.name}
+        onAvatarError={notify}
         onCreated={(agentId) => {
           setNewAgentOpen(false);
           notify('Agent 已创建');

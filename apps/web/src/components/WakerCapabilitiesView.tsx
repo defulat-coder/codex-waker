@@ -15,14 +15,17 @@ import { cx } from '../lib/cx.js';
 type Tab = 'connectors' | 'permissions' | 'actions';
 export function WakerCapabilitiesView({
   wakerId,
+  initialTab,
   onClose,
   notify,
 }: {
   wakerId: string;
+  /** 详情导航「连接器/权限」深链的目标页签；不传保持默认 connectors。 */
+  initialTab?: 'connectors' | 'permissions';
   onClose: () => void;
   notify: (text: string) => void;
 }) {
-  const [tab, setTab] = useState<Tab>('connectors');
+  const [tab, setTab] = useState<Tab>(initialTab ?? 'connectors');
   const [connectors, setConnectors] = useState<WakerConnector[] | null>(null);
   const [permissions, setPermissions] = useState<PermissionEnvelope | null>(null);
   const [actions, setActions] = useState<HumanActionRecord[] | null>(null);

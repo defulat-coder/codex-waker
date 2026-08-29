@@ -66,6 +66,11 @@ describe('blankAgentRequest', () => {
     assert.equal(request.tagline, '自定义 Agent');
     assert.match(request.description, /研究助手/);
   });
+
+  it('honors an explicit mark from the chosen template when provided', () => {
+    const request = blankAgentRequest('我的翻译', '', 'translator-pro', '译');
+    assert.equal(request.mark, '译');
+  });
 });
 
 describe('agentCardStats', () => {

@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import type { ChatRequest, ChatStreamEvent } from '@waker/contracts';
-import { fetchSessionMessages, streamChat } from '../lib/api.js';
+import { ChatStreamError, fetchSessionMessages, streamChat } from '../lib/api.js';
 import {
   createLiveTurn,
   reduceStreamEvent,
@@ -38,7 +38,11 @@ function toChatMessage(
     ...(item.usage ? { usage: item.usage } : {}),
     ...(item.tools?.length ? { tools: item.tools } : {}),
     ...(item.stopReason === 'error' || item.stopReason === 'aborted'
-      ? { error: item.errorMessage ?? '本轮回复失败' }
+      ? {
+          error: item.errorMessage ?? '本轮回复失败',
+          ...(item.errorKind ? { errorKind: item.errorKind } : {}),
+          ...(item.errorResetAt ? { errorResetAt: item.errorResetAt } : {}),
+        }
       : {}),
   };
 }
@@ -175,7 +179,13 @@ export function useChatController({ notify, onTurnSettled }: ChatControllerOptio
     updateLiveTurn({ ...progress.turn, messageId: assistantMessage.id });
 
     /** 把已确定的回答/错误落进线程消息；读取调用时刻的最新 progress。 */
-    const finalize = (answer: string, error: string | undefined, interrupted = false) => {
+    const finalize = (
+      answer: string,
+      error: string | undefined,
+      interrupted = false,
+      errorKind?: ChatMessage['errorKind'],
+      errorResetAt?: string,
+    ) => {
       progress.turn = settleLiveTools(
         progress.turn,
         interrupted ? 'cancelled' : error ? 'failed' : 'completed',
@@ -196,6 +206,8 @@ export function useChatController({ notify, onTurnSettled }: ChatControllerOptio
                     thinking: progress.turn.thinking || undefined,
                     streaming: false,
                     error,
+                    ...(errorKind ? { errorKind } : {}),
+                    ...(errorResetAt ? { errorResetAt } : {}),
                     ...(interrupted ? { interrupted: true } : {}),
                     ...(progress.turn.tools.length ? { tools: progress.turn.tools } : {}),
                     ...(progress.turn.sources.length ? { sources: progress.turn.sources } : {}),
@@ -256,7 +268,14 @@ export function useChatController({ notify, onTurnSettled }: ChatControllerOptio
           return;
         }
         const message = error.message || '流式响应失败';
-        finalize(progress.turn.answer, message);
+        const streamError = error instanceof ChatStreamError ? error : undefined;
+        finalize(
+          progress.turn.answer,
+          message,
+          false,
+          streamError?.kind,
+          streamError?.resetAt,
+        );
         if (progress.sessionId) {
           // 流中途断开时服务端 JSONL 可能已持久化更多内容：回放一次把线程与服务端对齐
           // （服务端持久化的 stopReason 会带出 error 标记）；重放失败则静默降级维持现状。

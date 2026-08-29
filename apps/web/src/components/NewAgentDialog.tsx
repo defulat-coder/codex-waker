@@ -1,14 +1,20 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { CaretDown } from '@phosphor-icons/react/dist/icons/CaretDown';
 import { CircleNotch } from '@phosphor-icons/react/dist/icons/CircleNotch';
 import { X } from '@phosphor-icons/react/dist/icons/X';
-import { createAgent } from '../lib/api.js';
+import type { AgentTemplate, CreateAgentRequest } from '@waker/contracts';
+import { createAgent, fetchAgentRoleTemplates, uploadAgentAvatar } from '../lib/api.js';
 import { blankAgentRequest } from '../lib/explore.js';
+import { readFileBase64 } from '../lib/composerAttachments.js';
+import { cx } from '../lib/cx.js';
 import { MOTION_EASE } from '../lib/motion.js';
 import { useDialogFocus } from '../hooks/useDialogFocus.js';
+import { AgentChip } from './AgentChip.js';
 
 const AGENT_ID = /^[a-z][a-z0-9-]{1,63}$/;
+const AVATAR_MAX_BYTES = 2 * 1024 * 1024;
+const AVATAR_MIME_TYPES = ['image/png', 'image/jpeg'];
 
 function suggestedId(name: string): string {
   return name
@@ -19,36 +25,103 @@ function suggestedId(name: string): string {
     .slice(0, 64);
 }
 
+interface AvatarDraft {
+  file: File;
+  previewUrl: string;
+}
+
 export function NewAgentDialog({
   open,
   onClose,
   onCreated,
+  hostName,
+  onAvatarError,
 }: {
   open: boolean;
   onClose: () => void;
   onCreated: (agentId: string) => void;
+  /** 本机 hostname，来自 GET /api/v1/workspace 的 host.name。 */
+  hostName: string;
+  /** 头像在 Agent 创建成功后上传失败时调用；Agent 本身已保留。 */
+  onAvatarError?: (message: string) => void;
 }) {
+  const [templates, setTemplates] = useState<AgentTemplate[]>([]);
+  const [templateId, setTemplateId] = useState('custom');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [id, setId] = useState('');
+  const [avatar, setAvatar] = useState<AvatarDraft | null>(null);
   const [advanced, setAdvanced] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const dialogRef = useDialogFocus<HTMLFormElement>(open, onClose);
 
   useEffect(() => {
     if (!open) return;
+    setTemplateId('custom');
     setName('');
     setDescription('');
     setId('');
+    setAvatar(null);
     setAdvanced(false);
     setSaving(false);
     setError('');
+    let cancelled = false;
+    fetchAgentRoleTemplates()
+      .then((items) => {
+        if (!cancelled) setTemplates(items);
+      })
+      .catch(() => {
+        // 模板加载失败不阻塞创建：画廊只剩「自定义角色」。
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [open]);
+
+  const selectedTemplate = templates.find((template) => template.id === templateId);
+
+  const selectTemplate = (template: AgentTemplate) => {
+    setTemplateId(template.id);
+    setName(template.name);
+    setDescription(template.description);
+    setId(template.id);
+    setError('');
+  };
+
+  const selectCustom = () => {
+    setTemplateId('custom');
+    setName('');
+    setDescription('');
+    setId('');
+    setError('');
+  };
+
+  const pickAvatar = async (file: File | undefined) => {
+    if (!file) return;
+    if (!AVATAR_MIME_TYPES.includes(file.type)) {
+      setError('头像仅支持 PNG / JPG 图片');
+      return;
+    }
+    if (file.size > AVATAR_MAX_BYTES) {
+      setError('头像文件不能超过 2 MB');
+      return;
+    }
+    try {
+      const previewUrl = `data:${file.type};base64,${await readFileBase64(file)}`;
+      setAvatar({ file, previewUrl });
+      setError('');
+    } catch {
+      setError('浏览器无法读取头像文件');
+    }
+  };
 
   const derived = suggestedId(name);
   const effectiveId = id.trim() || derived;
   const valid = Boolean(name.trim()) && AGENT_ID.test(effectiveId);
+  const markPreview =
+    selectedTemplate?.mark ?? (name.trim() ? blankAgentRequest(name, description).mark : '＋');
 
   const submit = async () => {
     if (!valid || saving) {
@@ -61,7 +134,35 @@ export function NewAgentDialog({
     setSaving(true);
     setError('');
     try {
-      const created = await createAgent(blankAgentRequest(name, description, effectiveId));
+      const request: CreateAgentRequest = selectedTemplate
+        ? {
+            id: effectiveId,
+            name: name.trim(),
+            mark: selectedTemplate.mark,
+            tagline: selectedTemplate.tagline,
+            description: description.trim() || selectedTemplate.description,
+            suggestions: [...selectedTemplate.suggestions],
+            body: selectedTemplate.body,
+            // 关于我区块随模板带入新 Agent；没有则不传（不造数据）。
+            ...(selectedTemplate.strengths
+              ? { strengths: selectedTemplate.strengths.map((item) => ({ ...item })) }
+              : {}),
+            ...(selectedTemplate.workStyles
+              ? { workStyles: selectedTemplate.workStyles.map((item) => ({ ...item })) }
+              : {}),
+          }
+        : blankAgentRequest(name, description, effectiveId);
+      const created = await createAgent(request);
+      if (avatar) {
+        try {
+          await uploadAgentAvatar(created.id, avatar.file);
+        } catch (cause) {
+          // Agent 已创建成功，只报告头像失败，不回滚。
+          onAvatarError?.(
+            `Waker 已创建，但头像上传失败：${cause instanceof Error ? cause.message : '未知错误'}`,
+          );
+        }
+      }
       onCreated(created.id);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Agent 暂时无法创建');
@@ -111,13 +212,65 @@ export function NewAgentDialog({
                 <X size={14} />
               </button>
             </div>
+            <div className="modal-field">
+              <span>选择一个角色</span>
+              <div className="agent-role-gallery" role="listbox" aria-label="选择一个角色">
+                <motion.button
+                  type="button"
+                  role="option"
+                  aria-selected={!selectedTemplate}
+                  className={cx('agent-role-card', !selectedTemplate && 'selected')}
+                  whileTap={{ scale: 0.97 }}
+                  onClick={selectCustom}
+                  disabled={saving}
+                >
+                  <AgentChip mark="＋" className="medium" />
+                  <span className="agent-role-card-title">
+                    <strong>自定义角色</strong>
+                    <small>从空白开始创建</small>
+                  </span>
+                </motion.button>
+                {templates.map((template) => (
+                  <motion.button
+                    key={template.id}
+                    type="button"
+                    role="option"
+                    aria-selected={templateId === template.id}
+                    className={cx('agent-role-card', templateId === template.id && 'selected')}
+                    whileTap={{ scale: 0.97 }}
+                    onClick={() => selectTemplate(template)}
+                    disabled={saving}
+                  >
+                    <AgentChip mark={template.mark} className="medium" />
+                    <span className="agent-role-card-title">
+                      <strong>{template.name}</strong>
+                      <small>{template.tagline || template.description}</small>
+                    </span>
+                  </motion.button>
+                ))}
+              </div>
+            </div>
+            <AnimatePresence initial={false}>
+              {selectedTemplate && (
+                <motion.div
+                  className="agent-persona-preview"
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.15, ease: MOTION_EASE }}
+                >
+                  <span>角色设定（来自模板，创建后可编辑）</span>
+                  <pre>{selectedTemplate.body}</pre>
+                </motion.div>
+              )}
+            </AnimatePresence>
             <label className="modal-field">
-              <span>Waker 名称 *</span>
+              <span>名称 *</span>
               <input
                 value={name}
                 autoFocus
                 maxLength={80}
-                placeholder="例如：支持工单分流"
+                placeholder="请输入 Waker 名称"
                 onChange={(event) => {
                   setName(event.target.value);
                   setError('');
@@ -126,7 +279,7 @@ export function NewAgentDialog({
               />
             </label>
             <label className="modal-field">
-              <span>描述</span>
+              <span>简介</span>
               <textarea
                 value={description}
                 rows={3}
@@ -136,6 +289,40 @@ export function NewAgentDialog({
                 disabled={saving}
               />
             </label>
+            <div className="modal-field">
+              <span>头像</span>
+              <div className="agent-avatar-row">
+                {avatar ? (
+                  <img className="agent-avatar-preview" src={avatar.previewUrl} alt="头像预览" />
+                ) : (
+                  <AgentChip mark={markPreview} className="medium" />
+                )}
+                <button
+                  type="button"
+                  className="header-button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={saving}
+                >
+                  上传头像
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg"
+                  hidden
+                  aria-label="选择头像文件"
+                  onChange={(event) => {
+                    void pickAvatar(event.target.files?.[0]);
+                    event.target.value = '';
+                  }}
+                />
+              </div>
+              <small>支持 PNG / JPG，文件大小不超过 2 MB</small>
+            </div>
+            <div className="modal-field agent-runtime-field">
+              <span>运行环境</span>
+              <p className="agent-runtime-value">本机 {hostName}（当前设备）· 在线</p>
+            </div>
             <button
               type="button"
               className="agent-create-advanced"
@@ -186,7 +373,7 @@ export function NewAgentDialog({
                 disabled={saving || !name.trim()}
               >
                 {saving ? <CircleNotch size={13} className="spinning" /> : null}
-                创建
+                保存并启用
               </button>
             </div>
           </motion.form>

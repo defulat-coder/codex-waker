@@ -1,11 +1,13 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { tmpdir, hostname } from 'node:os';
 import { join } from 'node:path';
 import {
   AgentSessionStore,
   agentSessionStoreFor,
+  CodexTurnAbortedError,
+  CodexTurnError,
   codexThreadRegistry,
   loadAgents,
 } from '@waker/codex-runtime';
@@ -549,6 +551,47 @@ describe('Waker API', () => {
     assert.equal(typeof plain.json().completedAt, 'string');
   });
 
+  it('workspace agents carry a real unreadCount and the host name', async () => {
+    await sessions.createSession('codex-assistant', 'ws-unread');
+    await bindRollout(sessions, 'ws-unread', 'codex-assistant', [
+      userRecord('未读问题'),
+      errorRecord('模型超时'),
+    ]);
+    const response = await app.inject({ method: 'GET', url: '/api/v1/workspace' });
+    assert.equal(response.statusCode, 200);
+    const body = response.json();
+    assert.equal(body.host.name, hostname());
+    const assistant = body.agents.find((agent: { id: string }) => agent.id === 'codex-assistant');
+    assert.ok(assistant.unreadCount >= 1, '未读 attention 会话计入 unreadCount');
+  });
+
+  it('POST /inbox/read-all marks every unread attention session as read', async () => {
+    await sessions.createSession('codex-assistant', 'read-all-failed');
+    await bindRollout(sessions, 'read-all-failed', 'codex-assistant', [
+      userRecord('全部标为已读'),
+      errorRecord('模型超时'),
+    ]);
+    const before = await app.inject({ method: 'GET', url: '/api/v1/inbox' });
+    const beforeUnread = before.json().unreadCount as number;
+    assert.ok(beforeUnread >= 1);
+
+    const response = await app.inject({ method: 'POST', url: '/api/v1/inbox/read-all' });
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.json().updated, beforeUnread);
+
+    const after = await app.inject({ method: 'GET', url: '/api/v1/inbox' });
+    assert.equal(after.json().unreadCount, 0);
+    // 已读不等于完成：attention 集合不变，只是全部 read=true。
+    assert.ok((after.json().items as Array<{ read: boolean }>).every((item) => item.read));
+    const workspace = await app.inject({ method: 'GET', url: '/api/v1/workspace' });
+    assert.ok(
+      workspace.json().agents.every((agent: { unreadCount: number }) => agent.unreadCount === 0),
+    );
+
+    const again = await app.inject({ method: 'POST', url: '/api/v1/inbox/read-all' });
+    assert.equal(again.json().updated, 0, '重复调用是空操作');
+  });
+
   it('replays persisted session messages and enforces the binding contract', async () => {
     await sessions.createSession('codex-assistant', 'replay-api-session');
     await bindRollout(sessions, 'replay-api-session', 'codex-assistant', [
@@ -966,6 +1009,137 @@ describe('Waker API', () => {
     });
     assert.equal(mismatch.statusCode, 409);
   });
+
+  it('chat error frames carry the classified kind (and quota resetAt)', async () => {
+    let nextError: Error = new CodexTurnError(
+      'CODEX_TURN_FAILED',
+      'HTTP 429 rate limit exceeded',
+    );
+    const failingApp = buildApp(
+      { ...config, CODEX_AGENT_ENABLED: true },
+      {
+        sessionStore: sessions,
+        cwd: root,
+        schedulerIntervalMs: false,
+        chatRuntime: {
+          runTurn: async () => {
+            throw nextError;
+          },
+        },
+      },
+    );
+    try {
+      await failingApp.ready();
+      const turn = async (message: string) =>
+        (
+          await failingApp.inject({
+            method: 'POST',
+            url: '/api/v1/chat',
+            payload: { agentId: 'codex-assistant', message },
+          })
+        ).body;
+
+      nextError = new CodexTurnError('CODEX_TURN_FAILED', 'HTTP 429 rate limit exceeded');
+      assert.match(await turn('触发限流'), /event: error\ndata: \{[^\n]*"kind":"rate_limit"/);
+
+      nextError = new CodexTurnError(
+        'CODEX_TURN_FAILED',
+        'quota exceeded，将于 2026-09-01T00:00:00Z 重置',
+      );
+      const quota = await turn('触发配额');
+      assert.match(quota, /"kind":"quota"/);
+      assert.match(quota, /"resetAt":"2026-09-01T00:00:00Z"/);
+
+      nextError = new CodexTurnError('CODEX_RUN_STREAM_START_FAILED', 'stream unavailable');
+      assert.match(await turn('启动失败'), /"kind":"startup"/);
+
+      nextError = new CodexTurnError('CODEX_TURN_FAILED', 'HTTP 401 Unauthorized');
+      assert.match(await turn('认证失效'), /"kind":"auth"/);
+
+      nextError = new Error('connect ECONNREFUSED 127.0.0.1:443');
+      assert.match(await turn('网络中断'), /"kind":"network"/);
+    } finally {
+      await failingApp.close();
+    }
+  });
+
+  it('persists turn failures so a later messages replay still returns the classified error', async () => {
+    let nextError: Error = new CodexTurnError('CODEX_TURN_FAILED', 'Request timeout after 30s');
+    const failingApp = buildApp(
+      { ...config, CODEX_AGENT_ENABLED: true },
+      {
+        sessionStore: sessions,
+        cwd: root,
+        schedulerIntervalMs: false,
+        chatRuntime: {
+          runTurn: async () => {
+            throw nextError;
+          },
+        },
+      },
+    );
+    try {
+      await failingApp.ready();
+      const turn = async (message: string) =>
+        (
+          await failingApp.inject({
+            method: 'POST',
+            url: '/api/v1/chat',
+            payload: { agentId: 'codex-assistant', message },
+          })
+        ).body;
+      const replay = async (body: string) => {
+        const sessionId = /"sessionId":"([^"]+)"/.exec(body)?.[1];
+        assert.ok(sessionId, 'start 帧应携带 sessionId');
+        const response = await failingApp.inject({
+          method: 'GET',
+          url: `/api/v1/agents/codex-assistant/sessions/${sessionId}/messages`,
+        });
+        assert.equal(response.statusCode, 200);
+        return response.json().items as Array<{
+          role: string;
+          stopReason?: string;
+          errorMessage?: string;
+          errorKind?: string;
+        }>;
+      };
+
+      // rollout 没有 error 记录的失败：刷新回放仍返回带 errorKind 的错误消息。
+      nextError = new CodexTurnError('CODEX_TURN_FAILED', 'Request timeout after 30s');
+      const failedItems = await replay(await turn('触发超时'));
+      const failed = failedItems.at(-1);
+      assert.equal(failed?.role, 'assistant');
+      assert.equal(failed?.stopReason, 'error');
+      assert.equal(failed?.errorMessage, 'Request timeout after 30s');
+      assert.equal(failed?.errorKind, 'timeout');
+
+      // 中断走 rollout 的 turn_aborted：不补记，回放里没有 error 消息。
+      nextError = new CodexTurnAbortedError();
+      const abortedItems = await replay(await turn('中断'));
+      assert.ok(abortedItems.every((item) => item.stopReason !== 'error'));
+    } finally {
+      await failingApp.close();
+    }
+  });
+
+  it('replays persisted error messages with the classified errorKind', async () => {
+    await sessions.createSession('codex-assistant', 'replay-error-kind');
+    await bindRollout(sessions, 'replay-error-kind', 'codex-assistant', [
+      userRecord('触发失败'),
+      errorRecord('Request timeout after 30s'),
+    ]);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/agents/codex-assistant/sessions/replay-error-kind/messages',
+    });
+    assert.equal(response.statusCode, 200);
+    const assistant = (
+      response.json().items as Array<{ stopReason?: string; errorKind?: string }>
+    ).at(-1);
+    assert.equal(assistant?.stopReason, 'error');
+    assert.equal(assistant?.errorKind, 'timeout');
+  });
 });
 
 describe('Usage and settings endpoints', () => {
@@ -1277,6 +1451,8 @@ describe('Explore endpoints', () => {
     assert.equal(response.json().id, 'translator-pro');
     const reloaded = loadAgents(root).find((agent) => agent.id === 'translator-pro');
     assert.equal(reloaded?.name, templateBody.name);
+    // mark 原样写入 frontmatter（模板画廊预选的角色标识）。
+    assert.equal(reloaded?.mark, templateBody.mark);
     assert.deepEqual(reloaded?.suggestions, templateBody.suggestions);
     assert.equal(reloaded?.body, templateBody.body);
   });
@@ -1479,21 +1655,129 @@ describe('Explore endpoints', () => {
     assert.equal(badSchema.statusCode, 400);
   });
 
-  it('serves the built-in agent templates', async () => {
-    const response = await app.inject({ method: 'GET', url: '/api/v1/templates' });
-    assert.equal(response.statusCode, 200);
-    const items = response.json().items as Array<{
-      id: string;
-      name: string;
-      body: string;
-      suggestions: string[];
-    }>;
-    assert.ok(items.length >= 4);
-    assert.ok(items.some((item) => item.id === 'translator-pro' && item.name === '翻译助手'));
-    for (const item of items) {
-      assert.match(item.id, /^[a-z][a-z0-9-]{1,63}$/);
-      assert.ok(item.body.trim().length > 0 && item.suggestions.length > 0);
+  it('serves the repo-backed agent templates on both routes', async () => {
+    mkdirSync(join(root, '.codex', 'agent-templates'), { recursive: true });
+    writeFileSync(
+      join(root, '.codex', 'agent-templates', 'translator-pro.md'),
+      [
+        '---',
+        'name: "翻译助手"',
+        'mark: "译"',
+        'tagline: "中英互译与润色"',
+        'description: "在中英文之间互译。"',
+        'suggestions:',
+        '  - "把这段话译成英文"',
+        '---',
+        '',
+        '你是翻译助手，专注中英互译。',
+        '',
+      ].join('\n'),
+    );
+    for (const url of ['/api/v1/templates', '/api/v1/agent-templates']) {
+      const response = await app.inject({ method: 'GET', url });
+      assert.equal(response.statusCode, 200);
+      const items = response.json().items as Array<{
+        id: string;
+        name: string;
+        body: string;
+        suggestions: string[];
+      }>;
+      assert.ok(items.some((item) => item.id === 'translator-pro' && item.name === '翻译助手'));
+      for (const item of items) {
+        assert.match(item.id, /^[a-z][a-z0-9-]{1,63}$/);
+        assert.ok(item.body.trim().length > 0 && item.suggestions.length > 0);
+      }
     }
+  });
+
+  it('uploads, serves, and deletes an agent avatar', async () => {
+    const pngBytes = Buffer.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+    ]);
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/v1/agents',
+      payload: { ...templateBody, id: 'avatar-bot' },
+    });
+    assert.equal(created.statusCode, 201);
+    assert.equal(
+      (await app.inject({ method: 'GET', url: '/api/v1/agents/avatar-bot/avatar' })).statusCode,
+      404,
+    );
+
+    const uploaded = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/agents/avatar-bot/avatar',
+      payload: { mimeType: 'image/png', dataBase64: pngBytes.toString('base64') },
+    });
+    assert.equal(uploaded.statusCode, 200);
+    assert.equal(uploaded.json().avatar, 'avatar-bot.avatar.png');
+
+    const served = await app.inject({ method: 'GET', url: '/api/v1/agents/avatar-bot/avatar' });
+    assert.equal(served.statusCode, 200);
+    assert.match(String(served.headers['content-type']), /^image\/png/);
+    assert.deepEqual(served.rawPayload, pngBytes);
+
+    const workspace = await app.inject({ method: 'GET', url: '/api/v1/workspace' });
+    const summary = (workspace.json().agents as Array<{ id: string; hasAvatar?: boolean }>).find(
+      (agent) => agent.id === 'avatar-bot',
+    );
+    assert.equal(summary?.hasAvatar, true);
+
+    const deleted = await app.inject({ method: 'DELETE', url: '/api/v1/agents/avatar-bot' });
+    assert.equal(deleted.statusCode, 204);
+    assert.equal(
+      (await app.inject({ method: 'GET', url: '/api/v1/agents/avatar-bot/avatar' })).statusCode,
+      404,
+    );
+    assert.equal(
+      existsSync(join(root, '.codex', 'agents', 'avatar-bot.avatar.png')),
+      false,
+    );
+  });
+
+  it('rejects bad avatar uploads with 400/413/404', async () => {
+    const pngMagic = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/v1/agents',
+      payload: { ...templateBody, id: 'avatar-guard' },
+    });
+    assert.equal(created.statusCode, 201);
+
+    const wrongMagic = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/agents/avatar-guard/avatar',
+      payload: { mimeType: 'image/png', dataBase64: Buffer.from('not a png').toString('base64') },
+    });
+    assert.equal(wrongMagic.statusCode, 400);
+    const badBase64 = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/agents/avatar-guard/avatar',
+      payload: { mimeType: 'image/png', dataBase64: '!!!not-base64!!!' },
+    });
+    assert.equal(badBase64.statusCode, 400);
+    const badMime = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/agents/avatar-guard/avatar',
+      payload: { mimeType: 'image/gif', dataBase64: pngMagic.toString('base64') },
+    });
+    assert.equal(badMime.statusCode, 400);
+    const oversized = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/agents/avatar-guard/avatar',
+      payload: {
+        mimeType: 'image/png',
+        dataBase64: Buffer.concat([pngMagic, Buffer.alloc(2 * 1024 * 1024)]).toString('base64'),
+      },
+    });
+    assert.equal(oversized.statusCode, 413);
+    const missing = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/agents/ghost-agent/avatar',
+      payload: { mimeType: 'image/png', dataBase64: pngMagic.toString('base64') },
+    });
+    assert.equal(missing.statusCode, 404);
   });
 
   it('lists skills: empty directory yields [], SKILL.md entries get parsed', async () => {

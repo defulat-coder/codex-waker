@@ -1,5 +1,6 @@
 import {
   isValidElement,
+  useContext,
   useEffect,
   useId,
   useRef,
@@ -18,9 +19,12 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { ChatMessage } from '../lib/types.js';
 import { cx } from '../lib/cx.js';
+import { highlightCode } from '../lib/highlight.js';
+import { MessageStreamingContext } from '../lib/messageStreaming.js';
 import { MOTION_EASE } from '../lib/motion.js';
 import { ProcessCards } from './ProcessCards.js';
 import { citationSourceId, CitationSources } from './CitationSources.js';
+import { MermaidBlock } from './MermaidBlock.js';
 
 const LONG_MESSAGE_CHARACTERS = 1_600;
 const LONG_MESSAGE_LINES = 24;
@@ -154,6 +158,9 @@ function CodeBlock({ children }: ComponentPropsWithoutRef<'pre'>) {
     : undefined;
   const language = code?.props.className?.match(/(?:^|\s)language-([^\s]+)/)?.[1] ?? 'text';
   const text = plainText(code?.props.children ?? children).replace(/\n$/, '');
+  const streaming = useContext(MessageStreamingContext);
+  const mermaid = language === 'mermaid';
+  const [highlight, setHighlight] = useState<{ source: string; html: string } | null>(null);
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -163,6 +170,22 @@ function CodeBlock({ children }: ComponentPropsWithoutRef<'pre'>) {
     },
     [],
   );
+
+  // 流式期间保持纯文本；消息完成后异步高亮，失败回退纯文本。
+  useEffect(() => {
+    if (streaming || mermaid) return;
+    let cancelled = false;
+    highlightCode(text, language)
+      .then((html) => {
+        if (!cancelled) setHighlight({ source: text, html });
+      })
+      .catch((error: unknown) => {
+        console.error('代码高亮失败，已回退为纯文本。', error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [text, language, streaming, mermaid]);
 
   const copy = async () => {
     try {
@@ -202,7 +225,16 @@ function CodeBlock({ children }: ComponentPropsWithoutRef<'pre'>) {
           </button>
         </div>
       </div>
-      <pre>{children}</pre>
+      {mermaid && !streaming ? (
+        <MermaidBlock code={text} />
+      ) : !streaming && highlight?.source === text ? (
+        <div
+          className="code-block-highlight"
+          dangerouslySetInnerHTML={{ __html: highlight.html }}
+        />
+      ) : (
+        <pre>{children}</pre>
+      )}
     </div>
   );
 }
@@ -270,6 +302,7 @@ function RecoveryCard({ message, onRetry, onContinue }: RecoveryProps) {
   const interrupted = Boolean(message.interrupted) && !message.error;
   const action = interrupted ? onContinue : onRetry;
   if (!action) return null;
+  const classified = interrupted ? undefined : recoveryCopyFor(message);
   return (
     <motion.div
       className="recovery-card"
@@ -279,16 +312,68 @@ function RecoveryCard({ message, onRetry, onContinue }: RecoveryProps) {
     >
       <div className="recovery-card-head">
         <WarningCircle size={14} weight="fill" aria-hidden="true" />
-        <h3>{interrupted ? '回复已中断' : '本轮回复失败'}</h3>
+        <h3>
+          {interrupted ? '回复已中断' : (classified?.title ?? '本轮回复失败')}
+        </h3>
       </div>
       <p className="recovery-card-desc">
-        {interrupted ? '会话仍然保留，可以让 Agent 从中断处继续回答。' : message.error}
+        {interrupted
+          ? '会话仍然保留，可以让 Agent 从中断处继续回答。'
+          : (classified?.desc ?? message.error)}
       </p>
       <button type="button" className="recovery-card-action" onClick={action}>
         {interrupted ? '继续' : '重试'}
       </button>
     </motion.div>
   );
+}
+
+/**
+ * QoderWake 0.4.2 红卡分类文案的本地移植：按服务端 errorKind 渲染分类标题/正文。
+ * 本地没有计费/登录语义，quota 的升级订阅与 auth 的重登动作统一降级为「重试」；
+ * 无 kind 的历史错误保持「本轮回复失败」+ 原文。
+ */
+function recoveryCopyFor(message: ChatMessage): { title: string; desc: ReactNode } | undefined {
+  switch (message.errorKind) {
+    case 'quota':
+      return {
+        title: '额度已用尽',
+        desc: message.errorResetAt
+          ? `当前订阅档位的 Agent 调用次数已用完，将于 ${message.errorResetAt} 重置。请稍后再试。`
+          : '当前订阅档位的 Agent 调用次数已用完，将于额度周期重置。请稍后再试。',
+      };
+    case 'auth':
+      return { title: '对话异常中断', desc: '认证已失效，请重新登录后继续。' };
+    case 'rate_limit':
+      return { title: '本轮回复失败', desc: '请求过于频繁或已达到调用上限，请稍后重试。' };
+    case 'timeout':
+      return {
+        title: '本轮回复失败',
+        desc: '与模型服务的连接长时间无响应，已自动中断。可能是网络不稳定或服务端临时繁忙，请稍后重试。',
+      };
+    case 'network':
+      return { title: '本轮回复失败', desc: '无法连接到模型服务，请检查网络后重试。' };
+    case 'startup':
+      return {
+        title: '启动失败',
+        desc: (
+          <>
+            现象：{message.error ?? '对话进程未能启动。'}
+            <br />
+            原因：模型服务未能正常启动。
+            <br />
+            建议：请稍后重试；如多次出现请检查模型服务配置。
+          </>
+        ),
+      };
+    case 'generic':
+      return {
+        title: '本轮回复失败',
+        desc: '对话因后台异常中断，请稍后重试；如多次出现请提交问题反馈。',
+      };
+    default:
+      return undefined;
+  }
 }
 
 type RecoveryProps = {
@@ -335,12 +420,14 @@ function MessageItem({
         )}
         {message.tools?.length ? <ProcessCards tools={message.tools} /> : null}
         <ReadableContent text={message.text} streaming={message.streaming} className="markdown">
-          <Markdown
-            remarkPlugins={[remarkGfm, citationRemarkPlugin(sourceIndexes, citationScope)]}
-            components={markdownComponents}
-          >
-            {message.text || (message.streaming ? '　' : '')}
-          </Markdown>
+          <MessageStreamingContext.Provider value={Boolean(message.streaming)}>
+            <Markdown
+              remarkPlugins={[remarkGfm, citationRemarkPlugin(sourceIndexes, citationScope)]}
+              components={markdownComponents}
+            >
+              {message.text || (message.streaming ? '　' : '')}
+            </Markdown>
+          </MessageStreamingContext.Provider>
         </ReadableContent>
         {!message.streaming && (
           <CitationSources

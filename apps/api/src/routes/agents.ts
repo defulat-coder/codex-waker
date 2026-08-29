@@ -1,27 +1,39 @@
 import type { FastifyInstance } from 'fastify';
 import type {
   AgentDeleteImpact,
+  AgentHomeResponse,
   CreateAgentRequest,
   ImportAgentRequest,
   UpdateAgentRequest,
+  UploadAgentAvatarRequest,
 } from '@waker/contracts';
 import {
   AgentCreateError,
+  agentCreatedAt,
   codexThreadRegistry,
   createAgent,
   deleteAgent,
   importAgent,
   listAgentResources,
+  readAgentAvatar,
   readAgentSource,
   updateAgent,
+  writeAgentAvatar,
 } from '@waker/codex-runtime';
 import {
   AgentParamsSchema,
   CreateAgentSchema,
   ImportAgentSchema,
   UpdateAgentSchema,
+  UploadAgentAvatarSchema,
 } from '../schemas.js';
 import { agentOr404, beginAgentDeletion, endAgentDeletion, type AppContext } from '../context.js';
+
+/** Same Base64 contract as session attachments; invalid input is a 400, not a 500. */
+function decodeAvatarBase64(value: string): Buffer | undefined {
+  if (value.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(value)) return undefined;
+  return Buffer.from(value, 'base64');
+}
 
 export function registerAgentRoutes(app: FastifyInstance, ctx: AppContext): void {
   app.post<{ Body: CreateAgentRequest }>(
@@ -89,6 +101,71 @@ export function registerAgentRoutes(app: FastifyInstance, ctx: AppContext): void
         .header('content-disposition', `attachment; filename="${request.params.agentId}.md"`)
         .type('text/markdown; charset=utf-8')
         .send(readAgentSource(ctx.cwd, request.params.agentId));
+    },
+  );
+
+  // 头像：JSON + Base64（与会话附件同一模式）；magic bytes 与 2MB 上限由 writeAgentAvatar 强制。
+  app.put<{ Params: { agentId: string }; Body: UploadAgentAvatarRequest }>(
+    '/agents/:agentId/avatar',
+    {
+      bodyLimit: 4 * 1024 * 1024,
+      schema: { params: AgentParamsSchema, body: UploadAgentAvatarSchema },
+    },
+    async (request, reply) => {
+      if (!agentOr404(ctx, request.params.agentId, reply)) return;
+      const data = decodeAvatarBase64(request.body.dataBase64);
+      if (!data) return reply.code(400).send({ error: 'dataBase64 不是合法 Base64' });
+      try {
+        return writeAgentAvatar(ctx.cwd, request.params.agentId, {
+          mimeType: request.body.mimeType,
+          data,
+        });
+      } catch (error) {
+        if (error instanceof AgentCreateError) {
+          const status =
+            error.code === 'NOT_FOUND' ? 404 : error.code === 'TOO_LARGE' ? 413 : 400;
+          return reply.code(status).send({ error: error.message });
+        }
+        throw error;
+      }
+    },
+  );
+
+  app.get<{ Params: { agentId: string } }>(
+    '/agents/:agentId/avatar',
+    { schema: { params: AgentParamsSchema } },
+    async (request, reply) => {
+      if (!agentOr404(ctx, request.params.agentId, reply)) return;
+      const avatar = readAgentAvatar(ctx.cwd, request.params.agentId);
+      if (!avatar) return reply.code(404).send({ error: '头像不存在' });
+      // no-cache：头像可被覆盖更新，<img> 需要拿到最新内容。
+      return reply.header('cache-control', 'no-cache').type(avatar.mimeType).send(avatar.data);
+    },
+  );
+
+  // Waker Home 数据：入职时间取定义文件 birthtime，计数与 delete-impact 同源，
+  // 活跃度按会话 updated_at 的日期分组（session store SQL 聚合，只扫该 Agent 的行）。
+  app.get<{ Params: { agentId: string } }>(
+    '/agents/:agentId/home',
+    { schema: { params: AgentParamsSchema } },
+    async (request, reply): Promise<AgentHomeResponse | void> => {
+      const agentId = request.params.agentId;
+      if (!agentOr404(ctx, agentId, reply)) return;
+      const sessions = await ctx.sessions.listSessions(agentId);
+      return {
+        createdAt: agentCreatedAt(ctx.cwd, agentId),
+        counts: {
+          sessions: sessions.length,
+          questions: sessions.reduce((sum, session) => sum + session.questionCount, 0),
+          automations: ctx.workspaceData.listAutomations(agentId).length,
+          projects: ctx.workspaceData
+            .listProjects(agentId)
+            .filter((project) => project.wakerId === agentId).length,
+          workflows: ctx.workspaceData.listWorkflows(agentId).length,
+          tasks: ctx.workspaceData.queryTasks(agentId).total,
+        },
+        activity: ctx.sessions.workbench.sessionActivityByDay(agentId),
+      };
     },
   );
 

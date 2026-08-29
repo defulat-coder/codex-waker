@@ -20,7 +20,12 @@ export function Welcome({
   return (
     <motion.div className="welcome" variants={group} initial="hidden" animate="show">
       <motion.div className="welcome-head" variants={item}>
-        <AgentChip mark={agent.mark} className="large" />
+        <AgentChip
+          mark={agent.mark}
+          className="large"
+          agentId={agent.id}
+          hasAvatar={agent.hasAvatar}
+        />
         <h1 className="welcome-title">开始与 {agent.name} 对话</h1>
         <p className="welcome-tagline">{agent.tagline || agent.description}</p>
       </motion.div>

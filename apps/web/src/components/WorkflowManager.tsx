@@ -16,6 +16,8 @@ import type {
   WorkflowRunListResponse,
   WorkflowRunRecord,
   WorkflowMutationResponse,
+  WorkflowGenerateDefinitionRequest,
+  WorkflowGenerateDefinitionResponse,
   WorkflowValidationRequest,
   WorkflowValidationResponse,
   WorkflowVersionListResponse,
@@ -28,6 +30,7 @@ import { FloppyDisk } from '@phosphor-icons/react/dist/icons/FloppyDisk';
 import { Pause } from '@phosphor-icons/react/dist/icons/Pause';
 import { Play } from '@phosphor-icons/react/dist/icons/Play';
 import { Plus } from '@phosphor-icons/react/dist/icons/Plus';
+import { Sparkle } from '@phosphor-icons/react/dist/icons/Sparkle';
 import { Trash } from '@phosphor-icons/react/dist/icons/Trash';
 import { X } from '@phosphor-icons/react/dist/icons/X';
 import { fetchLocalResources } from '../lib/api.js';
@@ -192,15 +195,100 @@ function formatTime(value?: string): string {
 function nodeEdges(node: WorkflowNode): Array<{ label: string; target: string }> {
   if (node.kind === 'terminal') return [];
   if (node.kind === 'decision') {
+    // 画布可能渲染尚未通过完整校验的草稿，branches 不一定是数组。
+    const branches = Array.isArray(node.branches) ? node.branches : [];
     return [
-      ...node.branches.map((branch) => ({
+      ...branches.map((branch) => ({
         label: `${node.key} = ${JSON.stringify(branch.equals)}`,
-        target: branch.next,
+        target: String(branch.next ?? ''),
       })),
-      { label: '默认', target: node.defaultNext },
+      { label: '默认', target: String(node.defaultNext ?? '') },
     ];
   }
-  return [{ label: '下一步', target: node.next }];
+  return [{ label: '下一步', target: String((node as { next?: unknown }).next ?? '') }];
+}
+
+const NODE_KIND_TEXT: Record<WorkflowNode['kind'], string> = {
+  action: '动作',
+  codex: 'Codex',
+  decision: '判断',
+  wait: '等待',
+  ask_user: '人工输入',
+  call_workflow: '子流程',
+  terminal: '结束',
+};
+
+function truncateText(text: string, limit = 80): string {
+  const single = text.replace(/\s+/g, ' ').trim();
+  return single.length > limit ? `${single.slice(0, limit)}…` : single;
+}
+
+function formatWait(durationMs: number): string {
+  if (!Number.isFinite(durationMs) || durationMs < 0) return '—';
+  if (durationMs >= 60_000 && durationMs % 60_000 === 0) return `${durationMs / 60_000} 分钟`;
+  if (durationMs >= 1_000 && durationMs % 1_000 === 0) return `${durationMs / 1_000} 秒`;
+  return `${durationMs} 毫秒`;
+}
+
+/** 节点卡片的关键摘要；输入可能来自未校验草稿，全部字段做防御读取。 */
+function nodeSummary(node: WorkflowNode): string {
+  switch (node.kind) {
+    case 'action':
+      return `设置 ${String(node.key ?? '')}`;
+    case 'codex':
+      return truncateText(String(node.prompt ?? ''));
+    case 'decision': {
+      const count = Array.isArray(node.branches) ? node.branches.length : 0;
+      return `按 ${String(node.key ?? '')} 判断 · ${count} 个条件分支`;
+    }
+    case 'wait':
+      return `等待 ${formatWait(Number(node.durationMs))}`;
+    case 'ask_user':
+      return truncateText(String(node.prompt ?? ''));
+    case 'call_workflow':
+      return `调用流程 ${String(node.workflowId ?? '')}`;
+    case 'terminal':
+      return node.status === 'failed' ? '失败结束' : '成功结束';
+  }
+}
+
+/** 卡片式只读流程图（对齐旧版画布模式；无拖拽与属性面板，属记录偏差）。 */
+function WorkflowCanvas({ definition }: { definition: WorkflowDefinition }) {
+  return (
+    <ol className="workflow-canvas" aria-label="流程画布">
+      {definition.nodes.map((node) => {
+        const edges = nodeEdges(node);
+        return (
+          <li className={cx('workflow-canvas-node', `kind-${node.kind}`)} key={node.id}>
+            <div className="workflow-canvas-node-head">
+              <span className={cx('workflow-canvas-kind', `kind-${node.kind}`)}>
+                {NODE_KIND_TEXT[node.kind] ?? node.kind}
+              </span>
+              <strong>{node.id}</strong>
+              {node.id === definition.start && (
+                <span className="workflow-canvas-start">起点</span>
+              )}
+              {node.name && <small>{node.name}</small>}
+            </div>
+            <p className="workflow-canvas-summary">{nodeSummary(node) || node.kind}</p>
+            {edges.length ? (
+              <ul className="workflow-canvas-edges" aria-label={`${node.id} 的出边`}>
+                {edges.map((edge, index) => (
+                  <li key={`${edge.label}-${edge.target}-${index}`}>
+                    <span>{edge.label}</span>
+                    <span aria-hidden="true">→</span>
+                    <strong>{edge.target || '？'}</strong>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="workflow-canvas-terminal">流程结束</p>
+            )}
+          </li>
+        );
+      })}
+    </ol>
+  );
 }
 
 function nodeStates(events: WorkflowRunEventRecord[]): Map<string, string> {
@@ -239,6 +327,10 @@ export function WorkflowManager({
   const [editor, setEditor] = useState<WorkflowEditor | null>(null);
   const [editorFocusNonce, setEditorFocusNonce] = useState(0);
   const [editorServerErrors, setEditorServerErrors] = useState<string[]>([]);
+  const [definitionView, setDefinitionView] = useState<'canvas' | 'script'>('script');
+  const [aiDescription, setAiDescription] = useState('');
+  const [aiStatus, setAiStatus] = useState<'' | 'generating' | 'generated' | 'failed'>('');
+  const [aiError, setAiError] = useState('');
   const [runs, setRuns] = useState<WorkflowRunRecord[]>([]);
   const [runTotal, setRunTotal] = useState(0);
   const [runsLoading, setRunsLoading] = useState(false);
@@ -268,6 +360,8 @@ export function WorkflowManager({
   const versionGenerationRef = useRef(0);
   const traceGenerationRef = useRef(0);
   const mutationGenerationRef = useRef(0);
+  const aiGenerationRef = useRef(0);
+  const editorBaselineRef = useRef('');
   const hasSnapshotRef = useRef(false);
   const ownerRef = useRef(wakerId);
   const selectedIdRef = useRef(selectedId);
@@ -287,9 +381,15 @@ export function WorkflowManager({
 
   const openEditor = (value: WorkflowEditor, trigger: EditorTrigger) => {
     editorTriggerRef.current = trigger;
+    editorBaselineRef.current = value.definitionText;
+    aiGenerationRef.current += 1;
     setActionError('');
     setConflictWorkflowId('');
     setEditorServerErrors([]);
+    setDefinitionView('script');
+    setAiDescription('');
+    setAiStatus('');
+    setAiError('');
     setEditor(value);
     setEditorFocusNonce((current) => current + 1);
   };
@@ -398,6 +498,11 @@ export function WorkflowManager({
     setEditor(null);
     editorTriggerRef.current = null;
     setEditorServerErrors([]);
+    aiGenerationRef.current += 1;
+    setDefinitionView('script');
+    setAiDescription('');
+    setAiStatus('');
+    setAiError('');
     setRuns([]);
     setRunTotal(0);
     setRunsLoading(false);
@@ -613,6 +718,43 @@ export function WorkflowManager({
       },
       editor.id,
     );
+  };
+
+  const generateDefinition = async () => {
+    if (!editor || !aiDescription.trim() || aiStatus === 'generating') return;
+    const owner = wakerId;
+    const generation = ++aiGenerationRef.current;
+    const request: WorkflowGenerateDefinitionRequest = { description: aiDescription.trim() };
+    setAiStatus('generating');
+    setAiError('');
+    try {
+      const result = await readJson<WorkflowGenerateDefinitionResponse>(
+        await fetch('/api/v1/workflows/generate-definition', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(request),
+        }),
+        'AI 生成定义失败',
+      );
+      if (generation !== aiGenerationRef.current || ownerRef.current !== owner) return;
+      const text = JSON.stringify(result.definition, null, 2);
+      // 不静默覆盖手动修改：definitionText 离开打开时的基线则先确认。
+      if (
+        editor.definitionText !== editorBaselineRef.current &&
+        !window.confirm('当前节点定义已有手动修改，用 AI 生成结果覆盖？')
+      ) {
+        setAiStatus('generated');
+        return;
+      }
+      editorBaselineRef.current = text;
+      setEditorServerErrors([]);
+      setEditor({ ...editor, definitionText: text });
+      setAiStatus('generated');
+    } catch (cause) {
+      if (generation !== aiGenerationRef.current || ownerRef.current !== owner) return;
+      setAiStatus('failed');
+      setAiError(cause instanceof Error ? cause.message : 'AI 生成定义失败');
+    }
   };
 
   const loadVersions = async (offset = 0) => {
@@ -988,19 +1130,82 @@ export function WorkflowManager({
                     onChange={(event) => setEditor({ ...editor, description: event.target.value })}
                   />
                 </label>
-                <label>
-                  节点定义（JSON）
-                  <textarea
-                    className="workflow-definition-input"
-                    spellCheck={false}
-                    aria-invalid={Boolean(parsedEditor?.errors.length || editorServerErrors.length)}
-                    value={editor.definitionText}
-                    onChange={(event) => {
-                      setEditorServerErrors([]);
-                      setEditor({ ...editor, definitionText: event.target.value });
-                    }}
-                  />
-                </label>
+                <div className="workflow-ai-generate">
+                  <label>
+                    AI 生成定义
+                    <textarea
+                      value={aiDescription}
+                      placeholder="描述这条 WakerFlow 的具体流程：需要哪些输入、分几步完成、期望产出是什么。"
+                      onChange={(event) => setAiDescription(event.target.value)}
+                    />
+                  </label>
+                  <div className="workflow-ai-generate-actions">
+                    <button
+                      className="legacy-button"
+                      type="button"
+                      disabled={!aiDescription.trim() || aiStatus === 'generating'}
+                      onClick={() => void generateDefinition()}
+                    >
+                      <Sparkle size={14} />
+                      {aiStatus === 'generating' ? '生成中…' : '生成定义'}
+                    </button>
+                    {aiStatus === 'generated' && (
+                      <span className="workflow-ai-generate-status" role="status">
+                        已生成，请检查脚本后手动保存
+                      </span>
+                    )}
+                    {aiStatus === 'failed' && (
+                      <span className="workflow-ai-generate-error" role="alert">
+                        生成失败：{aiError}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="workflow-definition-tabs" role="tablist" aria-label="定义视图">
+                  {(['canvas', 'script'] as const).map((view) => (
+                    <button
+                      key={view}
+                      id={`workflow-definition-tab-${view}`}
+                      type="button"
+                      role="tab"
+                      aria-selected={definitionView === view}
+                      aria-controls="workflow-definition-panel"
+                      onClick={() => setDefinitionView(view)}
+                    >
+                      {view === 'canvas' ? '画布' : '脚本'}
+                    </button>
+                  ))}
+                </div>
+                <div
+                  id="workflow-definition-panel"
+                  className="workflow-definition-panel"
+                  role="tabpanel"
+                  aria-labelledby={`workflow-definition-tab-${definitionView}`}
+                >
+                  {definitionView === 'script' ? (
+                    <label>
+                      节点定义（JSON）
+                      <textarea
+                        className="workflow-definition-input"
+                        spellCheck={false}
+                        aria-invalid={Boolean(
+                          parsedEditor?.errors.length || editorServerErrors.length,
+                        )}
+                        value={editor.definitionText}
+                        onChange={(event) => {
+                          setEditorServerErrors([]);
+                          setEditor({ ...editor, definitionText: event.target.value });
+                        }}
+                      />
+                    </label>
+                  ) : parsedEditor?.definition ? (
+                    <WorkflowCanvas definition={parsedEditor.definition} />
+                  ) : (
+                    <p className="workflow-canvas-invalid" role="status">
+                      脚本暂无法解析为图形，请切换到「脚本」标签修复定义。
+                    </p>
+                  )}
+                </div>
                 {parsedEditor?.errors.length || editorServerErrors.length ? (
                   <ul className="workflow-validation" aria-label="定义错误">
                     {[...(parsedEditor?.errors ?? []), ...editorServerErrors].map((message) => (
@@ -1071,29 +1276,10 @@ export function WorkflowManager({
                   <div className="workflow-section-heading">
                     <div>
                       <h3 id="workflow-map-title">节点路径图</h3>
-                      <p>每行表示一个节点；右侧明确列出下一步、条件分支与默认边。</p>
+                      <p>只读画布：卡片按节点类型着色，并列出下一步、条件分支与默认边。</p>
                     </div>
                   </div>
-                  <ol className="workflow-node-list">
-                    {definition.nodes.map((node) => (
-                      <li key={node.id}>
-                        <span className="workflow-node-index">
-                          {node.id === definition.start ? '起' : ''}
-                        </span>
-                        <span>
-                          <strong>{node.id}</strong>
-                          <small>{node.kind}</small>
-                        </span>
-                        <code aria-label={`${node.id} 的路径`}>
-                          {nodeEdges(node).length
-                            ? nodeEdges(node)
-                                .map((edge) => `${edge.label} → ${edge.target}`)
-                                .join(' · ')
-                            : '结束'}
-                        </code>
-                      </li>
-                    ))}
-                  </ol>
+                  <WorkflowCanvas definition={definition} />
                 </section>
 
                 <section className="workflow-section" aria-labelledby="workflow-versions-title">

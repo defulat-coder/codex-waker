@@ -72,7 +72,12 @@ function stubFetch(): FetchCall[] {
     if (url.includes('/api/v1/inbox'))
       return jsonResponse({ items: [INBOX_ITEM], total: 1, unreadCount: 1 });
     if (url.includes('/api/v1/workspace'))
-      return jsonResponse({ agents: [AGENT], prompts: [], models: { current: {}, available: [] } });
+      return jsonResponse({
+        agents: [AGENT],
+        prompts: [],
+        host: { name: 'test-host' },
+        models: { current: {}, available: [] },
+      });
     if (url.endsWith('/sessions')) return jsonResponse({ items: [S1, S2], total: 2 });
     if (url.includes('/api/v1/settings')) {
       return jsonResponse({
@@ -172,7 +177,7 @@ describe('App 会话视图', () => {
     const calls = stubFetch();
     render(<App />);
     fireEvent.click(await screen.findByRole('button', { name: 'Waker 管理' }));
-    fireEvent.click(await screen.findByRole('button', { name: '管理自动任务' }));
+    fireEvent.click(await screen.findByRole('button', { name: '创建自动任务' }));
 
     assert.ok(await screen.findByRole('heading', { name: '自动任务' }));
     assert.equal(
@@ -196,10 +201,12 @@ describe('App 会话视图', () => {
         created = true;
         return jsonResponse(createdAgent);
       }
+      if (url.includes('/api/v1/agent-templates')) return jsonResponse({ items: [] });
       if (url.includes('/api/v1/workspace'))
         return jsonResponse({
           agents: created ? [AGENT, createdAgent] : [AGENT],
           prompts: [],
+          host: { name: 'test-host' },
           models: { current: {}, available: [] },
         });
       if (url.includes('/api/v1/inbox'))
@@ -227,10 +234,10 @@ describe('App 会话视图', () => {
     render(<App />);
     fireEvent.click(await screen.findByRole('button', { name: 'Waker 管理' }));
     fireEvent.click(await screen.findByRole('button', { name: '新建 Waker' }));
-    fireEvent.change(screen.getByLabelText('Waker 名称 *'), {
+    fireEvent.change(screen.getByLabelText('名称 *'), {
       target: { value: 'Fresh Waker' },
     });
-    fireEvent.click(screen.getByRole('button', { name: '创建' }));
+    fireEvent.click(screen.getByRole('button', { name: '保存并启用' }));
 
     assert.ok(await screen.findByRole('region', { name: 'Waker 已创建' }));
     assert.ok(screen.getByRole('button', { name: /进入 Chat/ }));
@@ -250,6 +257,7 @@ describe('App 会话视图', () => {
         return jsonResponse({
           agents: [AGENT],
           prompts: [],
+          host: { name: 'test-host' },
           models: { current: {}, available: [] },
         });
       if (url.endsWith('/sessions')) return jsonResponse({ items: [], total: 0 });

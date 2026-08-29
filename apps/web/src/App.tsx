@@ -46,6 +46,7 @@ import {
   writeUiPreference,
   type UiPreferences,
 } from './lib/preferences.js';
+import { applyThemePreference } from './lib/theme.js';
 import { useAsyncData } from './hooks/useAsyncData.js';
 import { useChatController } from './hooks/useChatController.js';
 import { useVisiblePolling } from './hooks/useVisiblePolling.js';
@@ -78,6 +79,8 @@ import { WakerOnboardingPanel } from './components/WakerOnboardingPanel.js';
 import { ProjectManagementView } from './components/ProjectManagementView.js';
 import { KnowledgeManagementView } from './components/KnowledgeManagementView.js';
 import { WakerCapabilitiesView } from './components/WakerCapabilitiesView.js';
+import { WakerHomeView } from './components/WakerHomeView.js';
+import { WakerDetailNav, type WakerDetailNavKey } from './components/WakerDetailNav.js';
 import {
   LegacyRail,
   ResourcesView,
@@ -89,6 +92,19 @@ import {
 const TOAST_DURATION_MS = 4000;
 /** 收件箱轮询间隔：仅页面可见时兜底刷新（无服务端推送通道）。 */
 const INBOX_POLL_INTERVAL_MS = 60_000;
+
+/** 显示 Waker 详情导航的视图：进入某个 Waker 的页面时在主导航与内容区之间渲染。 */
+const DETAIL_NAV_VIEWS: ReadonlySet<LegacyView> = new Set([
+  'waker-home',
+  'projects',
+  'tasks',
+  'workflows',
+  'memory',
+  'skills',
+  'knowledge',
+  'capabilities',
+  'im',
+]);
 
 /**
  * 页头会话标题（Fleet 实测结构）：逐字母 inline-block span 拆分，
@@ -144,6 +160,12 @@ export default function App() {
   const [boardWorkflowId, setBoardWorkflowId] = useState<string | undefined>();
   const [memoryAgentId, setMemoryAgentId] = useState<string | null>(null);
   const [capabilitiesAgentId, setCapabilitiesAgentId] = useState<string | null>(null);
+  /** 详情导航「连接器/权限」深链的初始页签；seq 用于已挂载时强制重挂以切换页签。 */
+  const [capabilitiesTab, setCapabilitiesTab] = useState<'connectors' | 'permissions'>(
+    'connectors',
+  );
+  const [capabilitiesTabSeq, setCapabilitiesTabSeq] = useState(0);
+  const [wakerHomeAgentId, setWakerHomeAgentId] = useState<string | null>(null);
   const [onboardingAgentId, setOnboardingAgentId] = useState<string | null>(null);
   const [outputsOpen, setOutputsOpen] = useState(false);
   const [selectedAttachmentIds, setSelectedAttachmentIds] = useState<string[]>([]);
@@ -184,6 +206,10 @@ export default function App() {
   const currentAgent: AgentSummary | undefined = workspace?.agents.find(
     (agent) => agent.id === currentAgentId,
   );
+  /** Waker Home 目标 Agent；被删除时由 handleAgentDeleted 退回管理视图。 */
+  const wakerHomeAgent: AgentSummary | undefined = workspace?.agents.find(
+    (agent) => agent.id === wakerHomeAgentId,
+  );
   const sessions = useMemo(
     () => (currentAgentId ? sortSessions(sessionsByAgent[currentAgentId] ?? []) : []),
     [sessionsByAgent, currentAgentId],
@@ -220,13 +246,21 @@ export default function App() {
     },
   });
 
-  const handlePreferenceChange = (key: keyof UiPreferences, value: boolean) => {
+  const handlePreferenceChange = <K extends keyof UiPreferences>(
+    key: K,
+    value: UiPreferences[K],
+  ) => {
     setUiPreferences((current) => writeUiPreference(current, key, value));
     void savePreference(serverKeyForPreference(key), value).catch(() => {
       // 服务端写穿失败时 localStorage 仍是权威缓存，但让用户知道没有持久化。
       notify('偏好已在本机生效，但未能同步到服务端');
     });
   };
+
+  // 主题偏好立即落到 <html data-theme>；auto 时移除属性回退系统媒体查询。
+  useEffect(() => {
+    applyThemePreference(uiPreferences.theme);
+  }, [uiPreferences.theme]);
 
   /** 服务端偏好（SQLite）覆盖本地缓存；本地读不到时保持默认。 */
   const loadPreferences = useCallback(async () => {
@@ -412,6 +446,98 @@ export default function App() {
     if (target === 'settings') void settings.reload();
   };
 
+  /** 详情导航的 Agent 上下文：与管理卡片动作共用同一组 setter 写入。 */
+  const detailNavAgentId =
+    wakerHomeAgentId ?? capabilitiesAgentId ?? memoryAgentId ?? currentAgentId;
+  const detailNavAgent = workspace?.agents.find((agent) => agent.id === detailNavAgentId);
+  const showDetailNav = Boolean(detailNavAgent) && DETAIL_NAV_VIEWS.has(legacyView);
+  /** 当前视图（+ 任务面板/能力页签）映射回导航键；ConfigPanel 为该 Agent 打开时设置高亮。 */
+  const detailNavActive: WakerDetailNavKey | null = !showDetailNav
+    ? null
+    : configAgentId && configAgentId === detailNavAgentId
+      ? 'settings'
+      : legacyView === 'waker-home'
+        ? 'home'
+        : legacyView === 'projects'
+          ? 'projects'
+          : legacyView === 'tasks'
+            ? taskSurface === 'automations'
+              ? 'automations'
+              : null
+            : legacyView === 'workflows'
+              ? 'workflows'
+              : legacyView === 'memory'
+                ? 'memory'
+                : legacyView === 'skills'
+                  ? 'skills'
+                  : legacyView === 'knowledge'
+                    ? 'knowledge'
+                    : legacyView === 'capabilities'
+                      ? capabilitiesTab === 'permissions'
+                        ? 'permissions'
+                        : 'connectors'
+                      : legacyView === 'im'
+                        ? 'im'
+                        : null;
+
+  /** 详情导航点击：先统一 Agent 上下文（复用卡片动作的 setter），再切目标视图。 */
+  const navigateWakerDetail = (key: WakerDetailNavKey) => {
+    const agentId = detailNavAgentId;
+    if (!agentId) return;
+    switch (key) {
+      case 'home':
+        setWakerHomeAgentId(agentId);
+        setLegacyView('waker-home');
+        break;
+      case 'projects':
+        selectAgent(agentId);
+        setLegacyView('projects');
+        break;
+      case 'automations':
+        selectAgent(agentId);
+        setTaskSurface('automations');
+        setLegacyView('tasks');
+        break;
+      case 'chat-tasks':
+        selectAgent(agentId);
+        break;
+      case 'workflows':
+        selectAgent(agentId);
+        setLegacyView('workflows');
+        break;
+      case 'memory':
+        setMemoryAgentId(agentId);
+        setLegacyView('memory');
+        break;
+      case 'skills':
+        setLegacyView('skills');
+        break;
+      case 'knowledge':
+        selectAgent(agentId);
+        setLegacyView('knowledge');
+        break;
+      case 'connectors':
+        setCapabilitiesAgentId(agentId);
+        setCapabilitiesTab('connectors');
+        setCapabilitiesTabSeq((value) => value + 1);
+        setLegacyView('capabilities');
+        break;
+      case 'im':
+        selectAgent(agentId);
+        setLegacyView('im');
+        break;
+      case 'permissions':
+        setCapabilitiesAgentId(agentId);
+        setCapabilitiesTab('permissions');
+        setCapabilitiesTabSeq((value) => value + 1);
+        setLegacyView('capabilities');
+        break;
+      case 'settings':
+        setConfigAgentId(agentId);
+        break;
+    }
+  };
+
   const handleAgentCreated = async (agentId: string) => {
     try {
       const snapshot = await fetchWorkspace();
@@ -446,6 +572,10 @@ export default function App() {
       setSelectedModel(next ? readModelPreference(next.id) : undefined);
     }
     if (onboardingAgentId === agentId) setOnboardingAgentId(null);
+    if (wakerHomeAgentId === agentId) {
+      setWakerHomeAgentId(null);
+      setLegacyView('wakers');
+    }
   };
 
   const reloadWorkspace = useCallback(() => {
@@ -547,7 +677,8 @@ export default function App() {
     return (
       <div className="app-shell">
         <main className="app-fatal">
-          <p>{fatal}</p>
+          <p>Waker 加载失败。</p>
+          <p className="app-fatal-detail">{fatal}</p>
           <button
             type="button"
             onClick={() => {
@@ -566,7 +697,7 @@ export default function App() {
     return (
       <div className="app-shell">
         <main className="app-loading" aria-live="polite">
-          正在加载工作区…
+          正在加载 Waker...
         </main>
       </div>
     );
@@ -597,6 +728,15 @@ export default function App() {
             unreadCount={inbox.data?.unreadCount ?? 0}
             onChange={openLegacy}
           />
+
+          {showDetailNav && detailNavAgent && (
+            <WakerDetailNav
+              agentName={detailNavAgent.name}
+              active={detailNavActive}
+              onBack={() => setLegacyView('wakers')}
+              onNavigate={navigateWakerDetail}
+            />
+          )}
 
           {chatVisible && !exploreView && !systemView && !inboxOpen && currentAgent && (
             <InboxColumn
@@ -630,6 +770,7 @@ export default function App() {
               {legacyView === 'wakers' ? (
                 <WakersView
                   agents={workspace.agents}
+                  hostName={workspace.host.name}
                   onboarding={
                     onboardingAgentId ? (
                       <WakerOnboardingPanel
@@ -652,12 +793,17 @@ export default function App() {
                   }
                   onChat={selectAgent}
                   onConfigure={setConfigAgentId}
+                  onOpenHome={(agentId) => {
+                    setWakerHomeAgentId(agentId);
+                    setLegacyView('waker-home');
+                  }}
                   onMemory={(agentId) => {
                     setMemoryAgentId(agentId);
                     setLegacyView('memory');
                   }}
                   onCapabilities={(agentId) => {
                     setCapabilitiesAgentId(agentId);
+                    setCapabilitiesTab('connectors');
                     setLegacyView('capabilities');
                   }}
                   onAutomation={(agentId) => {
@@ -667,11 +813,22 @@ export default function App() {
                   }}
                   onCreated={(agentId) => void handleAgentCreated(agentId)}
                   onDeleted={(agentId) => void handleAgentDeleted(agentId)}
+                  onReadAll={() => {
+                    reloadWorkspace();
+                    void reloadInbox();
+                  }}
                   notify={notify}
+                />
+              ) : legacyView === 'waker-home' && wakerHomeAgent ? (
+                <WakerHomeView
+                  agent={wakerHomeAgent}
+                  onEdit={() => setConfigAgentId(wakerHomeAgent.id)}
                 />
               ) : legacyView === 'capabilities' && capabilitiesAgentId ? (
                 <WakerCapabilitiesView
+                  key={`${capabilitiesAgentId}:${capabilitiesTabSeq}`}
                   wakerId={capabilitiesAgentId}
+                  initialTab={capabilitiesTab}
                   onClose={() => setLegacyView('wakers')}
                   notify={notify}
                 />

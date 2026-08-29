@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { hostname } from 'node:os';
 import { basename, relative } from 'node:path';
 import type {
   AgentTemplatesResponse,
@@ -8,13 +9,13 @@ import type {
   UpdatePromptRequest,
 } from '@waker/contracts';
 import {
-  AGENT_TEMPLATES,
   AgentCreateError,
   agentSummary,
   getCodexModelConfig,
   getCodexReasoningEffort,
   getCodexSandboxConfig,
   listAgentResources,
+  listAgentTemplates,
   listCodexModels,
   listPrompts,
   listSkills,
@@ -30,16 +31,23 @@ import type { AppContext } from '../context.js';
 export function registerMetaRoutes(app: FastifyInstance, ctx: AppContext): void {
   app.get('/workspace', async () => {
     // 一次无参 listSessions 覆盖所有 Agent，按 agentId 分组计数，避免每个 Agent 全量扫一遍目录。
+    // unreadCount 与收件箱同源：needsAttention && !completedAt && !read。
     const sessionCounts = new Map<string, number>();
+    const unreadCounts = new Map<string, number>();
     for (const session of await ctx.sessions.listSessions()) {
       sessionCounts.set(session.agentId, (sessionCounts.get(session.agentId) ?? 0) + 1);
+      if (session.needsAttention && !session.completedAt && !session.read) {
+        unreadCounts.set(session.agentId, (unreadCounts.get(session.agentId) ?? 0) + 1);
+      }
     }
     return {
       agents: loadAgents(ctx.cwd).map((agent) => ({
         ...agentSummary(agent),
         sessionCount: sessionCounts.get(agent.id) ?? 0,
+        unreadCount: unreadCounts.get(agent.id) ?? 0,
       })),
       prompts: listPrompts(ctx.cwd),
+      host: { name: hostname() },
       models: { current: getCodexModelConfig({}, ctx.cwd), available: listCodexModels(ctx.cwd) },
     };
   });
@@ -49,8 +57,14 @@ export function registerMetaRoutes(app: FastifyInstance, ctx: AppContext): void 
     return { items, total: items.length };
   });
 
+  // 角色模板仓库：.codex/agent-templates/<id>.md，文件即模板（与 agents 同一格式）。
+  app.get('/agent-templates', async (): Promise<AgentTemplatesResponse> => ({
+    items: listAgentTemplates(ctx.cwd),
+  }));
+
+  // 与 /agent-templates 同源；Templates 页沿用这个较早的路径。
   app.get('/templates', async (): Promise<AgentTemplatesResponse> => ({
-    items: [...AGENT_TEMPLATES],
+    items: listAgentTemplates(ctx.cwd),
   }));
 
   // Non-sensitive configuration only; provider keys never leave this process.

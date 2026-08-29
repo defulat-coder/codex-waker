@@ -43,6 +43,7 @@ import { cx } from '../lib/cx.js';
 import { MOTION_EASE } from '../lib/motion.js';
 import { useWorkspace } from '../context/WorkspaceContext.js';
 import { AgentChip } from './AgentChip.js';
+import { AgentBodySections } from './AgentBodySections.js';
 
 /** Fleet configure 面板的通栏折叠节：48px 头 + 高度动画内容区。 */
 function ConfigSection({
@@ -89,22 +90,52 @@ function ConfigSection({
 
 function BasicSection({
   agent,
+  saving,
   onUseSuggestion,
+  onStartFullEdit,
+  onSaveBody,
 }: {
   agent: AgentDetail;
+  saving: boolean;
   onUseSuggestion: (text: string) => void;
+  onStartFullEdit: () => void;
+  onSaveBody: (nextBody: string) => Promise<boolean>;
 }) {
   return (
     <>
-      <div className="config-card">
-        <div className="config-identity">
-          <AgentChip mark={agent.mark} className="medium" />
-          <span>
-            <strong>{agent.name}</strong>
-            <small>{agent.tagline}</small>
-          </span>
-        </div>
-      </div>
+      <AgentBodySections
+        body={agent.body}
+        saving={saving}
+        onSaveBody={onSaveBody}
+        onStartFullEdit={onStartFullEdit}
+        identityHeader={
+          <>
+            <div className="config-identity">
+              <AgentChip
+                mark={agent.mark}
+                className="medium"
+                agentId={agent.id}
+                hasAvatar={agent.hasAvatar ?? Boolean(agent.avatar)}
+              />
+              <span>
+                <strong>{agent.name}</strong>
+                <small>{agent.tagline}</small>
+              </span>
+            </div>
+            <div className="config-edit-actions">
+              <button
+                type="button"
+                className="header-button"
+                onClick={onStartFullEdit}
+                disabled={saving}
+              >
+                <PencilSimple size={13} />
+                修改基本信息
+              </button>
+            </div>
+          </>
+        }
+      />
       {agent.description && (
         <div className="config-card">
           <p>{agent.description}</p>
@@ -125,14 +156,6 @@ function BasicSection({
           ))}
         </div>
       )}
-      <div className="config-card">
-        <p className="config-card-title">系统提示词</p>
-        {agent.body.trim() ? (
-          <pre className="config-prompt-body">{agent.body.trim()}</pre>
-        ) : (
-          <p>暂无系统提示词。</p>
-        )}
-      </div>
       <div className="config-card">
         <p className="config-card-title">定义文件</p>
         <span className="config-path">{agent.path}</span>
@@ -674,6 +697,24 @@ export function ConfigPanel({
     }
   };
 
+  /** 分段编辑保存：只 PATCH 拼回后的 body，frontmatter 字段不动；成功返回 true 让调用方退出编辑态。 */
+  const saveBody = async (body: string): Promise<boolean> => {
+    if (saving) return false;
+    setSaving(true);
+    try {
+      await updateAgent(agentId, { body });
+      notify('Agent 定义已保存');
+      void reloadDetail();
+      reloadWorkspace();
+      return true;
+    } catch (cause) {
+      notify(cause instanceof Error ? cause.message : 'Agent 暂时无法保存');
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <motion.aside
       role="complementary"
@@ -687,17 +728,6 @@ export function ConfigPanel({
       <div className="config-panel-frame">
         <div className="config-panel-header">
           <span className="config-title">{detail.data ? detail.data.name : 'Agent 配置'}</span>
-          {detail.data && !draft && (
-            <button
-              type="button"
-              className="header-button"
-              onClick={startEdit}
-              aria-label="编辑 Agent 定义"
-            >
-              <PencilSimple size={14} />
-              编辑
-            </button>
-          )}
           <button
             type="button"
             className="icon-button"
@@ -731,7 +761,13 @@ export function ConfigPanel({
                   onCancel={() => setDraft(null)}
                 />
               ) : (
-                <BasicSection agent={detail.data} onUseSuggestion={onUseSuggestion} />
+                <BasicSection
+                  agent={detail.data}
+                  saving={saving}
+                  onUseSuggestion={onUseSuggestion}
+                  onStartFullEdit={startEdit}
+                  onSaveBody={saveBody}
+                />
               )}
             </ConfigSection>
             <ConfigSection
