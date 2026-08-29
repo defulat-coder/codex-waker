@@ -42,10 +42,17 @@ describe('SettingsView 界面偏好', () => {
     assert.equal(options.length, 3);
     assert.ok(group.contains(options[0]!));
     assert.equal(options[0]!.getAttribute('aria-checked'), 'true');
+    assert.equal(options[0]!.tabIndex, 0);
+    assert.equal(options[1]!.tabIndex, -1);
     assert.equal(options[2]!.getAttribute('aria-checked'), 'false');
 
-    fireEvent.click(screen.getByRole('radio', { name: '深色' }));
-    assert.deepEqual(calls, [{ key: 'theme', value: 'dark' }]);
+    fireEvent.keyDown(options[0]!, { key: 'ArrowRight' });
+    assert.equal(document.activeElement, options[1]);
+    fireEvent.click(options[2]!);
+    assert.deepEqual(calls, [
+      { key: 'theme', value: 'light' },
+      { key: 'theme', value: 'dark' },
+    ]);
   });
 
   it('AI 回复语言选择写偏好，描述对齐旧版', () => {
@@ -55,10 +62,7 @@ describe('SettingsView 界面偏好', () => {
     });
 
     assert.ok(screen.getByText('设置新会话中 AI 默认使用的回复语言'));
-    assert.equal(
-      screen.getByRole('radio', { name: '中文' }).getAttribute('aria-checked'),
-      'true',
-    );
+    assert.equal(screen.getByRole('radio', { name: '中文' }).getAttribute('aria-checked'), 'true');
 
     fireEvent.click(screen.getByRole('radio', { name: 'English' }));
     assert.deepEqual(calls, [{ key: 'agentOutputLanguage', value: 'en-US' }]);
@@ -70,5 +74,15 @@ describe('SettingsView 界面偏好', () => {
       screen.getByRole('radio', { name: '不指定' }).getAttribute('aria-checked'),
       'true',
     );
+  });
+
+  it('消息紧凑模式使用可访问开关并写入新值', () => {
+    const { calls } = renderSettings();
+    const toggle = screen.getByRole('switch', { name: '消息紧凑模式' });
+    assert.equal(toggle.getAttribute('aria-checked'), 'false');
+
+    fireEvent.click(toggle);
+
+    assert.deepEqual(calls, [{ key: 'compactMessages', value: true }]);
   });
 });

@@ -1,4 +1,5 @@
 import { motion } from 'motion/react';
+import type { KeyboardEvent } from 'react';
 import type { SettingsResponse } from '@waker/contracts';
 import { GearSix } from '@phosphor-icons/react/dist/icons/GearSix';
 import type {
@@ -7,7 +8,7 @@ import type {
   UiPreferences,
 } from '../lib/preferences.js';
 import { cx } from '../lib/cx.js';
-import { MOTION_EASE } from '../lib/motion.js';
+import { MOTION_EASE, MOTION_LAYOUT_TRANSITION, MOTION_TRANSITION } from '../lib/motion.js';
 
 const THINKING_LABELS: Record<string, string> = {
   minimal: '极简',
@@ -51,18 +52,27 @@ function Toggle({
   label: string;
 }) {
   return (
-    <button
+    <motion.button
       type="button"
       role="switch"
       aria-checked={checked}
       aria-label={label}
       className={cx('toggle', checked && 'active')}
       onClick={() => onChange(!checked)}
+      whileTap={{ scale: 0.96 }}
+      transition={MOTION_TRANSITION.feedback}
     >
-      <span className="toggle-thumb" aria-hidden="true" />
-    </button>
+      <motion.span
+        className="toggle-thumb"
+        aria-hidden="true"
+        animate={{ x: checked ? 12 : 0 }}
+        transition={MOTION_TRANSITION.routine}
+      />
+    </motion.button>
   );
 }
+
+const RADIO_KEYS = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'];
 
 function OptionGroup<T extends string>({
   value,
@@ -83,10 +93,38 @@ function OptionGroup<T extends string>({
           type="button"
           role="radio"
           aria-checked={value === option.value}
+          tabIndex={value === option.value ? 0 : -1}
           className={cx('settings-option', value === option.value && 'active')}
           onClick={() => onChange(option.value)}
+          onKeyDown={(event: KeyboardEvent<HTMLButtonElement>) => {
+            if (!RADIO_KEYS.includes(event.key)) return;
+            event.preventDefault();
+            const current = options.indexOf(option);
+            const nextIndex =
+              event.key === 'Home'
+                ? 0
+                : event.key === 'End'
+                  ? options.length - 1
+                  : (current +
+                      (event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 1) +
+                      options.length) %
+                    options.length;
+            onChange(options[nextIndex]!.value);
+            const radios = event.currentTarget
+              .closest('[role="radiogroup"]')
+              ?.querySelectorAll<HTMLButtonElement>('[role="radio"]');
+            radios?.[nextIndex]?.focus();
+          }}
         >
-          {option.label}
+          {value === option.value && (
+            <motion.span
+              className="settings-option-active"
+              layoutId={`settings-option-${label}`}
+              transition={MOTION_LAYOUT_TRANSITION}
+              aria-hidden="true"
+            />
+          )}
+          <span className="settings-option-label">{option.label}</span>
         </button>
       ))}
     </div>
