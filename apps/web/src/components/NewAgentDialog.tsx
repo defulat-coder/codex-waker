@@ -13,7 +13,12 @@ import {
 import { blankAgentRequest } from '../lib/explore.js';
 import { readFileBase64 } from '../lib/composerAttachments.js';
 import { cx } from '../lib/cx.js';
-import { MOTION_EASE, MOTION_TRANSITION } from '../lib/motion.js';
+import {
+  MOTION_DIALOG_BACKDROP,
+  MOTION_DIALOG_SURFACE,
+  MOTION_EASE,
+  MOTION_TRANSITION,
+} from '../lib/motion.js';
 import { useDialogFocus } from '../hooks/useDialogFocus.js';
 import { AgentChip } from './AgentChip.js';
 import { MotionSpinner } from './MotionFeedback.js';
@@ -60,7 +65,12 @@ function navigateRoleOptions(event: KeyboardEvent<HTMLButtonElement>) {
       ? options[0]
       : event.key === 'End'
         ? options.at(-1)
-        : options[(current + (event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 1) + options.length) % options.length];
+        : options[
+            (current +
+              (event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 1) +
+              options.length) %
+              options.length
+          ];
   next?.focus();
   next?.click();
 }
@@ -258,14 +268,11 @@ export function NewAgentDialog({
   };
 
   return (
-    <AnimatePresence>
+    <>
       {open && (
         <motion.div
           className="modal-backdrop"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.15 }}
+          {...MOTION_DIALOG_BACKDROP}
           onMouseDown={(event) => {
             if (event.target === event.currentTarget && !saving) onClose();
           }}
@@ -277,10 +284,7 @@ export function NewAgentDialog({
             role="dialog"
             aria-modal="true"
             aria-labelledby="new-agent-title"
-            initial={{ opacity: 0, scale: 0.98, y: 8 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.98, y: 8 }}
-            transition={{ duration: 0.2, ease: MOTION_EASE }}
+            {...MOTION_DIALOG_SURFACE}
             onSubmit={(event) => {
               event.preventDefault();
               void submit();
@@ -508,26 +512,26 @@ export function NewAgentDialog({
                         exit={{ opacity: 0, x: avatarDirection * -8 }}
                         transition={MOTION_TRANSITION.routine}
                       >
-                      {visibleAvatars.map((entry) => (
-                        <motion.button
-                          type="button"
-                          role="option"
-                          aria-label={`头像 ${entry.id}`}
-                          aria-selected={selectedLibraryAvatar === entry.id}
-                          className={cx(selectedLibraryAvatar === entry.id && 'selected')}
-                          disabled={saving || Boolean(loadingLibraryAvatar)}
-                          onClick={() => void pickLibraryAvatar(entry)}
-                          key={entry.id}
-                          whileTap={{ scale: 0.94 }}
-                        >
-                          <img src={entry.url} alt="" loading="lazy" />
-                          {loadingLibraryAvatar === entry.id && (
-                            <MotionSpinner>
-                              <CircleNotch size={16} />
-                            </MotionSpinner>
-                          )}
-                        </motion.button>
-                      ))}
+                        {visibleAvatars.map((entry) => (
+                          <motion.button
+                            type="button"
+                            role="option"
+                            aria-label={`头像 ${entry.id}`}
+                            aria-selected={selectedLibraryAvatar === entry.id}
+                            className={cx(selectedLibraryAvatar === entry.id && 'selected')}
+                            disabled={saving || Boolean(loadingLibraryAvatar)}
+                            onClick={() => void pickLibraryAvatar(entry)}
+                            key={entry.id}
+                            whileTap={{ scale: 0.94 }}
+                          >
+                            <img src={entry.url} alt="" loading="lazy" />
+                            {loadingLibraryAvatar === entry.id && (
+                              <MotionSpinner>
+                                <CircleNotch size={16} />
+                              </MotionSpinner>
+                            )}
+                          </motion.button>
+                        ))}
                       </motion.div>
                     </AnimatePresence>
                   </motion.div>
@@ -598,6 +602,6 @@ export function NewAgentDialog({
           </motion.form>
         </motion.div>
       )}
-    </AnimatePresence>
+    </>
   );
 }

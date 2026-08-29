@@ -29,7 +29,7 @@ import {
 } from '../lib/api.js';
 import { formatInstallCount } from '../lib/explore.js';
 import { cx } from '../lib/cx.js';
-import { MOTION_EASE } from '../lib/motion.js';
+import { MOTION_DIALOG_BACKDROP, MOTION_DIALOG_SURFACE, MOTION_EASE } from '../lib/motion.js';
 import { useDialogFocus } from '../hooks/useDialogFocus.js';
 import { useVisiblePolling } from '../hooks/useVisiblePolling.js';
 import { MotionSpinner } from './MotionFeedback.js';
@@ -713,14 +713,15 @@ function Dialog({
   error?: string;
 }) {
   return (
-    <div className="modal-backdrop" onMouseDown={onClose}>
-      <div
+    <motion.div className="modal-backdrop" {...MOTION_DIALOG_BACKDROP} onMouseDown={onClose}>
+      <motion.div
         ref={refValue}
         className="skill-risk-dialog"
         role="dialog"
         aria-modal="true"
         aria-label={title}
         tabIndex={-1}
+        {...MOTION_DIALOG_SURFACE}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <h2>{title}</h2>
@@ -748,7 +749,7 @@ function Dialog({
             {action}
           </button>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }

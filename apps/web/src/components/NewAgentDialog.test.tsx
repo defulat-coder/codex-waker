@@ -83,6 +83,21 @@ function submitDialog() {
 }
 
 describe('NewAgentDialog', () => {
+  it('removes the dialog from the accessibility tree immediately when closed', async () => {
+    installApi([]);
+    const props = {
+      onClose: () => {},
+      onCreated: () => {},
+      hostName: 'test-host',
+    };
+    const { rerender } = render(<NewAgentDialog {...props} open />);
+    await screen.findByRole('dialog', { name: '新建 Waker' });
+
+    rerender(<NewAgentDialog {...props} open={false} />);
+
+    assert.equal(screen.queryByRole('dialog'), null);
+  });
+
   it('renders the role gallery from API data with legacy copy and the runtime section', async () => {
     const calls: Call[] = [];
     installApi(calls);
