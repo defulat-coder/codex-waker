@@ -19,6 +19,30 @@
 | Lint            | `pnpm lint`                                                                                                                      |
 | Project Skills  | `npx skills list --json`                                                                                                         |
 
+## Development Startup Procedure
+
+- Run all commands from the repository root. The supported prerequisites are Node.js 20+, pnpm 12, and an installed, authenticated Codex CLI.
+- On a fresh checkout, run `pnpm install`. If `.env` is absent, copy `.env.example` to `.env`; never overwrite an existing `.env`. Real chat turns require `CODEX_AGENT_ENABLED=true` plus either the Codex CLI login or `CODEX_API_KEY`. Run `pnpm seed` only when demo data is explicitly wanted; it is not required to start the app.
+- Before starting another process, probe the standard instance:
+
+  ```bash
+  curl -fsS https://api.waker.localhost/healthz
+  curl -fsS https://waker.localhost >/dev/null
+  ```
+
+  If both probes pass, reuse the running instance instead of launching a duplicate.
+- Otherwise run `pnpm dev` in a long-running terminal. The root script runs `turbo run dev`; Turbo starts `@waker/api` and `@waker/web`; each package uses portless to expose its fixed app port:
+
+  | Service | Public URL                    | App port | Underlying command          |
+  | ------- | ----------------------------- | -------- | --------------------------- |
+  | Web     | `https://waker.localhost`     | `5210`   | `vite --host 0.0.0.0`       |
+  | API     | `https://api.waker.localhost` | `4410`   | `tsx watch src/server.ts`   |
+
+- A long-running `pnpm dev` process is the expected success state. Keep its terminal/session alive while the user inspects the app. If portless reports that either hostname is already registered, run both probes again; healthy responses mean startup is already complete. If a probe still fails, inspect the reported PID and confirm it belongs to this repository before stopping it. Do not use `--force` or kill an unrelated process blindly.
+- Use `pnpm dev:direct` only when the user requests direct ports or portless is unavailable. It starts Web at `http://127.0.0.1:5210` and API at `http://127.0.0.1:4410`; the Vite proxy sends `/api` requests to the API using `WAKER_API_ORIGIN` when set.
+- After startup, require `GET /healthz` to return a successful response, open the Web URL with Ego Lite, confirm the workbench renders, exercise the relevant interaction, and inspect browser console errors. Report the URLs and whether an existing or new process is serving them.
+- Stop a process started for the task with `Ctrl-C` in its owning terminal so the API can run its shutdown handlers. Do not stop a pre-existing healthy instance unless the user asks.
+
 - Before handoff run `git diff --check` and `git status --short`; preserve unrelated dirty files.
 - All GitHub operations — PRs, issues, CI runs, releases, repo API queries — go through the `gh` CLI; never hand-craft `curl` calls to api.github.com or ask the user to check the web UI for something `gh` can answer.
 - `.agents/skills/` and `skills-lock.json` are managed by the Skills CLI; restore with `npx skills experimental_install`, add with `npx skills add <owner/repo> --skill <name> -a universal -y`, and do not hand-edit installed third-party skill files.
@@ -36,7 +60,7 @@
 ## Codex Integration Contract
 
 - Use `@openai/codex-sdk` through `packages/codex-runtime` only; the Web app must not import the Codex SDK.
-- Sessions are Codex threads. `CODEX_HOME` is pointed at the project `.codex/` directory so thread rollouts persist in `.codex/sessions/`; threads run with `workingDirectory` = repo root and `skipGitRepoCheck: true`.
+- Sessions are Codex threads. Each project gets a runtime Codex home under user `~/.codex/waker-projects/<hash>` so login credentials remain outside the repository; its `sessions`, `skills`, and `config.toml` entries map to project `.codex/`, preserving rollout and project-skill ownership. Threads run with `workingDirectory` = repo root and `skipGitRepoCheck: true`.
 - Bind every persisted Session to one immutable `agentId` via `.codex/workbench.sqlite` (better-sqlite3, gitignored); reject attempts to reuse that Session through another Agent, and key in-process runtimes by `agentId + sessionId`. Sessions without a valid binding are invalid and must not be migrated or inferred.
 - Sidebar session grouping (QoderWake 0.4.2 `sidebar-sections`: two-level sections + assignments/entryOrder/collapsed, per Agent) persists in the same `workbench.sqlite` (`sidebar_sections` table) behind `GET/PUT /api/v1/agents/:agentId/sidebar-sections`; PUT is a full replace that validates structure and rejects sessionIds not bound to that Agent (400).
 - Agents are defined as Markdown + YAML frontmatter files under `.codex/agents/`: name, mark, tagline, description, suggestions, and the body as the persona prompt, injected into the first turn of each new Codex thread as wrapped `<developer-instructions>`. An optional `avatar` frontmatter field references a sidecar image `.codex/agents/<id>.avatar.<ext>` (PNG/JPG ≤2MB, uploaded and served at `/api/v1/agents/<id>/avatar`, deleted with the Agent). Adding a file adds an Agent. The host controls `sandboxMode`/`approvalPolicy` (defaults `read-only`/`never`, env-configurable via `CODEX_SANDBOX_MODE`/`CODEX_APPROVAL_POLICY`); never let an Agent file declare or expand tools.
@@ -81,9 +105,9 @@
 
 - The Web UI follows the observable QoderWake 0.4.2 product at the archived source path recorded in `PRODUCT.md`.
 - Use Ego Lite against the running legacy daemon and local app to verify navigation, labels, states and computed layout. Record feature evidence in `docs/audit/legacy-0.4.2-feature-matrix.md`.
-- Preserve the narrow icon rail, contextual work surface, light/dark tokens, green status accent, responsive states and supplied legacy assets. Do not carry forward the copied Fleet visual identity.
+- Preserve the original narrow icon rail, contextual sidebars, desktop information density, light/dark tokens, status accents and supplied QoderWake assets. Do not introduce UI, routes or interaction patterns without original-product evidence.
 - CSS must use the token variables defined in `apps/web/src/styles.css` (`--bg-*`, `--text-*`, `--border-*`, `--radius-*`, `--space-*`, `--duration-*`, `--popover-shadow`); do not introduce variables that do not exist (e.g. shadcn-style `--foreground`/`--popover`). `--popover-shadow` is a `filter: drop-shadow(...)` group, never a `box-shadow`.
-- Skip Fleet features that have no local semantic (Integrations, billing/quota progress bars); note the deviation instead of forcing it.
+- Qoder cloud-only features without a local semantic must be recorded as explicit deviations instead of being replaced with features from another product.
 
 ## References
 

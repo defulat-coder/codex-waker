@@ -7,31 +7,20 @@ import type {
 } from '@waker/contracts';
 import { AnimatePresence, MotionConfig, motion } from 'motion/react';
 import { Plus } from '@phosphor-icons/react/dist/icons/Plus';
-import { Folder } from '@phosphor-icons/react/dist/icons/Folder';
-import { SlidersHorizontal } from '@phosphor-icons/react/dist/icons/SlidersHorizontal';
+import { ClockCounterClockwise } from '@phosphor-icons/react/dist/icons/ClockCounterClockwise';
 import {
-  deleteSession,
   fetchInbox,
   fetchPreferences,
-  fetchSessionMessages,
   fetchSessionContext,
   fetchSessions,
   fetchSettings,
   fetchUsage,
   fetchWorkspace,
   fetchLocalResources,
-  renameSession,
+  markAllInboxRead,
   savePreference,
 } from './lib/api.js';
-import { cx } from './lib/cx.js';
-import {
-  buildInboxResumeText,
-  INBOX_CONTINUE_TEXT,
-  type InboxResumeMode,
-} from './lib/inboxResume.js';
 import { sortSessions } from './lib/sessions.js';
-import type { ExploreView } from './lib/explore.js';
-import type { SystemView, ViewState } from './lib/types.js';
 import {
   mergeServerModelPreferences,
   mergeServerThinkingPreferences,
@@ -52,20 +41,14 @@ import { useChatController } from './hooks/useChatController.js';
 import { useVisiblePolling } from './hooks/useVisiblePolling.js';
 import { WorkspaceProvider } from './context/WorkspaceContext.js';
 import { Toasts, type Toast } from './components/Toasts.js';
-import { InboxColumn, type SessionFilter } from './components/InboxColumn.js';
-import { CommandPalette } from './components/CommandPalette.js';
-import { ShortcutsModal } from './components/ShortcutsModal.js';
-import type { PaletteAction } from './lib/palette.js';
-import { UsageBar } from './components/UsageBar.js';
 import { Welcome } from './components/Welcome.js';
 import { Composer } from './components/Composer.js';
 import { ThreadView } from './components/ThreadView.js';
 import { TurnProgress } from './components/TurnProgress.js';
 import { ConfigPanel } from './components/ConfigPanel.js';
-import { FilesPanel } from './components/FilesPanel.js';
-import { InboxView } from './components/InboxView.js';
-import { ExploreAgents } from './components/ExploreAgents.js';
-import { TemplatesView } from './components/TemplatesView.js';
+import { AgentChip } from './components/AgentChip.js';
+import { QoderChatSidebar } from './components/QoderChatSidebar.js';
+import { QoderTaskPanel } from './components/QoderTaskPanel.js';
 import { SkillsView } from './components/SkillsView.js';
 import { UsageView } from './components/UsageView.js';
 import { SettingsView } from './components/SettingsView.js';
@@ -106,37 +89,6 @@ const DETAIL_NAV_VIEWS: ReadonlySet<LegacyView> = new Set([
   'im',
 ]);
 
-/**
- * 页头会话标题（Fleet 实测结构）：逐字母 inline-block span 拆分，
- * variants stagger 逐个入场；reducedMotion 由全局 MotionConfig「user」接管。
- */
-function HeaderTitle({ title }: { title: string }) {
-  return (
-    <motion.span
-      className="thread-header-title"
-      aria-label={title}
-      initial="hidden"
-      animate="visible"
-      variants={{ visible: { transition: { staggerChildren: 0.02 } } }}
-    >
-      {[...title].map((char, index) => (
-        <motion.span
-          key={`${index}-${char}`}
-          className="thread-header-title-char"
-          aria-hidden="true"
-          variants={{
-            hidden: { opacity: 0, y: 4 },
-            visible: { opacity: 1, y: 0 },
-          }}
-          transition={{ duration: 0.15, ease: MOTION_EASE }}
-        >
-          {char}
-        </motion.span>
-      ))}
-    </motion.span>
-  );
-}
-
 export default function App() {
   const [workspace, setWorkspace] = useState<WorkspaceResponse | null>(null);
   const [fatal, setFatal] = useState('');
@@ -144,17 +96,8 @@ export default function App() {
   const [sessionsByAgent, setSessionsByAgent] = useState<Record<string, SessionSummary[]>>({});
   const [selectedModel, setSelectedModel] = useState<string | undefined>(undefined);
   const [uiPreferences, setUiPreferences] = useState<UiPreferences>(() => readUiPreferences());
-  const [, setSidebarCollapsed] = useState(() => readUiPreferences().sidebarCollapsed);
-  const [inboxColumnCollapsed, setInboxColumnCollapsed] = useState(true);
-  const [paletteOpen, setPaletteOpen] = useState(false);
-  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [configAgentId, setConfigAgentId] = useState<string | null>(null);
-  /** 右侧 Files 面板开关（项目文件浏览器，与配置面板并列）。 */
-  const [filesOpen, setFilesOpen] = useState(false);
-  const [sessionFilter, setSessionFilter] = useState<SessionFilter>('all');
-  /** 主区域互斥视图：chat / inbox / explore / system 由 union 类型保证同一时刻只有一个。 */
-  const [view, setView] = useState<ViewState>({ kind: 'chat' });
-  const [legacyView, setLegacyView] = useState<LegacyView>('chat');
+  const [legacyView, setLegacyView] = useState<LegacyView>('wakers');
   const [taskSurface, setTaskSurface] = useState<'board' | 'automations'>('board');
   const [boardAutomationId, setBoardAutomationId] = useState<string | undefined>();
   const [boardWorkflowId, setBoardWorkflowId] = useState<string | undefined>();
@@ -168,6 +111,7 @@ export default function App() {
   const [wakerHomeAgentId, setWakerHomeAgentId] = useState<string | null>(null);
   const [onboardingAgentId, setOnboardingAgentId] = useState<string | null>(null);
   const [outputsOpen, setOutputsOpen] = useState(false);
+  const [taskListOpen, setTaskListOpen] = useState(false);
   const [selectedAttachmentIds, setSelectedAttachmentIds] = useState<string[]>([]);
   const [draftAttachments, setDraftAttachments] = useState<DraftComposerAttachment[]>([]);
   const draftAttachmentsRef = useRef<DraftComposerAttachment[]>([]);
@@ -197,11 +141,6 @@ export default function App() {
     }, TOAST_DURATION_MS);
     toastTimers.current.add(timer);
   }, []);
-
-  // 派生布尔值保持既有判断语义；写入一律走 setView。
-  const inboxOpen = view.kind === 'inbox';
-  const exploreView = view.kind === 'explore' ? view.view : null;
-  const systemView = view.kind === 'system' ? view.view : null;
 
   const currentAgent: AgentSummary | undefined = workspace?.agents.find(
     (agent) => agent.id === currentAgentId,
@@ -268,7 +207,6 @@ export default function App() {
       const items = await fetchPreferences();
       const merged = mergeServerUiPreferences(items);
       setUiPreferences(merged);
-      setSidebarCollapsed(merged.sidebarCollapsed);
       mergeServerThinkingPreferences(items);
       mergeServerModelPreferences(items);
     } catch {
@@ -385,7 +323,7 @@ export default function App() {
   const continueLastTurn = () => send('请继续');
 
   const selectAgent = (agentId: string) => {
-    if (agentId === currentAgentId && legacyView === 'chat' && !exploreView && !systemView) return;
+    if (agentId === currentAgentId && legacyView === 'chat') return;
     chat.interrupt();
     discardDraftAttachments('已清除原 Waker 中尚未发送的附件');
     setCurrentAgentId(agentId);
@@ -393,62 +331,46 @@ export default function App() {
     setSelectedModel(readModelPreference(agentId));
     chat.closeSession();
     setConfigAgentId(null);
-    setView({ kind: 'chat' });
     setLegacyView('chat');
     setSelectedAttachmentIds([]);
     setOutputsOpen(false);
+    setTaskListOpen(false);
     if (!sessionsByAgent[agentId]) void loadSessions(agentId);
   };
 
   const selectSession = (sessionId: string) => {
-    if (sessionId === chat.currentSessionId && !exploreView && !systemView) return;
-    setView({ kind: 'chat' });
+    if (sessionId === chat.currentSessionId) return;
     setLegacyView('chat');
     discardDraftAttachments('已清除上一会话中尚未发送的附件');
     if (currentAgentId) chat.openSession(currentAgentId, sessionId);
   };
 
   const newSession = () => {
-    setView({ kind: 'chat' });
     setLegacyView('chat');
     chat.closeSession();
     discardDraftAttachments('已清除上一会话中尚未发送的附件');
     setConfigAgentId(null);
   };
 
-  const openExplore = (target: ExploreView) => {
-    setConfigAgentId(null);
-    if (target === 'skills') {
-      setLegacyView('skills');
-      setView({ kind: 'chat' });
-      return;
-    }
-    setView({ kind: 'explore', view: target });
-  };
-
-  const openSystem = (target: SystemView) => {
-    setConfigAgentId(null);
-    setView({ kind: 'system', view: target });
-    if (target === 'usage') void usage.reload();
-    else void settings.reload();
-  };
-
   const openLegacy = (target: LegacyView) => {
     setLegacyView(target);
-    setView({ kind: 'chat' });
+    if (target !== 'chat') setTaskListOpen(false);
+    setWakerHomeAgentId(null);
+    setCapabilitiesAgentId(null);
+    setMemoryAgentId(null);
     if (target === 'tasks') {
       setTaskSurface('board');
       setBoardAutomationId(undefined);
     }
     if (target === 'workflows') setBoardWorkflowId(undefined);
     setConfigAgentId(null);
-    setFilesOpen(false);
     if (target === 'settings') void settings.reload();
+    if (target === 'usage') void usage.reload();
   };
 
   /** 详情导航的 Agent 上下文：与管理卡片动作共用同一组 setter 写入。 */
   const detailNavAgentId =
-    wakerHomeAgentId ?? capabilitiesAgentId ?? memoryAgentId ?? currentAgentId;
+    wakerHomeAgentId ?? capabilitiesAgentId ?? memoryAgentId;
   const detailNavAgent = workspace?.agents.find((agent) => agent.id === detailNavAgentId);
   const showDetailNav = Boolean(detailNavAgent) && DETAIL_NAV_VIEWS.has(legacyView);
   /** 当前视图（+ 任务面板/能力页签）映射回导航键；ConfigPanel 为该 Agent 打开时设置高亮。 */
@@ -547,7 +469,6 @@ export default function App() {
       setSessionsByAgent((current) => ({ ...current, [agentId]: [] }));
       chat.closeSession();
       setConfigAgentId(null);
-      setView({ kind: 'chat' });
       setLegacyView('wakers');
       setOnboardingAgentId(agentId);
     } catch {
@@ -586,93 +507,6 @@ export default function App() {
       });
   }, []);
 
-  const openInboxItem = (agentId: string, sessionId: string) => {
-    setView({ kind: 'chat' });
-    setLegacyView('chat');
-    discardDraftAttachments('已清除上一会话中尚未发送的附件');
-    if (agentId !== currentAgentId) {
-      chat.interrupt();
-      setCurrentAgentId(agentId);
-      if (!sessionsByAgent[agentId]) void loadSessions(agentId);
-    }
-    setConfigAgentId(null);
-    chat.openSession(agentId, sessionId);
-  };
-
-  /**
-   * 收件箱「恢复闭环」：先把会话打开到聊天视图，再就地发起一轮——
-   * retry 重发该会话最后一条用户消息，continue 发固定文本「请继续」。
-   * 成功后由 onTurnSettled 触发收件箱刷新，后端自动转 Completed。
-   */
-  const handleInboxResume = async (agentId: string, sessionId: string, mode: InboxResumeMode) => {
-    // 先清掉可能进行中的 turn：否则 send 会被 liveTurn 守卫吞掉（openInboxItem 只在跨 Agent 时 interrupt）。
-    chat.interrupt();
-    openInboxItem(agentId, sessionId);
-    let text: string | null = INBOX_CONTINUE_TEXT;
-    if (mode === 'retry') {
-      text = await fetchSessionMessages(agentId, sessionId)
-        .then((messages) => buildInboxResumeText(messages, 'retry'))
-        .catch(() => null);
-    }
-    if (!text) {
-      notify('没有可重试的消息');
-      return;
-    }
-    chat.send(text, agentId, selectedModel, sessionId);
-  };
-
-  /** 收件箱内变更（已读/删除）后：刷新徽标数据，并同步当前 Agent 的会话列表。 */
-  const handleInboxChanged = () => {
-    void reloadInbox();
-    if (currentAgentId) void loadSessions(currentAgentId);
-  };
-
-  const handlePaletteAction = (action: PaletteAction) => {
-    switch (action.kind) {
-      case 'chat':
-        setView({ kind: 'chat' });
-        break;
-      case 'inbox':
-        setView({ kind: 'inbox' });
-        void inbox.reload();
-        break;
-      case 'explore':
-        openExplore(action.view);
-        break;
-      case 'system':
-        openSystem(action.view);
-        break;
-      case 'agent':
-        selectAgent(action.agentId);
-        break;
-      case 'session':
-        openInboxItem(action.agentId, action.sessionId);
-        break;
-    }
-  };
-
-  const handleRename = async (sessionId: string, title: string) => {
-    if (!currentAgentId) return;
-    try {
-      await renameSession(currentAgentId, sessionId, title);
-      await loadSessions(currentAgentId);
-    } catch {
-      notify('会话名称暂时无法保存');
-    }
-  };
-
-  const handleDelete = async (sessionId: string) => {
-    if (!currentAgentId) return;
-    try {
-      await deleteSession(currentAgentId, sessionId);
-      chat.removeThread(sessionId);
-      await loadSessions(currentAgentId);
-      void inbox.reload();
-    } catch {
-      notify('会话暂时无法删除');
-    }
-  };
-
   if (fatal) {
     return (
       <div className="app-shell">
@@ -709,13 +543,7 @@ export default function App() {
     (session) => session.id === chat.currentSessionId,
   )?.title;
   /** 视图级 key：只有跨视图切换才重放入场动画，Agent/会话切换不重挂载主区。 */
-  const viewKey = exploreView
-    ? `explore-${exploreView}`
-    : systemView
-      ? `system-${systemView}`
-      : inboxOpen
-        ? 'inbox'
-        : 'chat';
+  const viewKey = legacyView;
 
   const chatVisible = legacyView === 'chat';
 
@@ -738,23 +566,66 @@ export default function App() {
             />
           )}
 
-          {chatVisible && !exploreView && !systemView && !inboxOpen && currentAgent && (
-            <InboxColumn
-              title={currentAgent.name}
-              sessions={sessions}
-              currentSessionId={chat.currentSessionId}
-              runningSessionId={chat.liveTurn ? chat.currentSessionId : null}
-              filter={sessionFilter}
-              collapsed={inboxColumnCollapsed}
-              onToggleCollapsed={() => setInboxColumnCollapsed((value) => !value)}
-              onSelectSession={selectSession}
-              onRenameSession={(id, title) => void handleRename(id, title)}
-              onDeleteSession={(id) => void handleDelete(id)}
-              onFilterChange={setSessionFilter}
+          {chatVisible && currentAgent && (
+            <QoderChatSidebar
+              agents={workspace.agents}
+              currentAgentId={currentAgent.id}
+              onSelectAgent={selectAgent}
+              onMarkAllRead={() => {
+                void markAllInboxRead()
+                  .then(() => {
+                    reloadWorkspace();
+                    return reloadInbox();
+                  })
+                  .catch(() => notify('一键已读失败'));
+              }}
             />
           )}
 
           <main className="main-area">
+            {chatVisible && currentAgent && (
+              <header className="qoder-chat-header">
+                <button
+                  type="button"
+                  className="qoder-chat-agent"
+                  aria-label="查看 Waker 详情"
+                  onClick={() => {
+                    setWakerHomeAgentId(currentAgent.id);
+                    setLegacyView('waker-home');
+                  }}
+                >
+                  <AgentChip
+                    mark={currentAgent.mark}
+                    className="qoder-chat-header-avatar"
+                    agentId={currentAgent.id}
+                    hasAvatar={currentAgent.hasAvatar}
+                  />
+                  <strong>{currentAgent.name}</strong>
+                  <span aria-hidden="true">›</span>
+                </button>
+                <div className="qoder-chat-header-actions">
+                  <button type="button" onClick={newSession}>
+                    <Plus size={14} /> 对话任务
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTaskSurface('automations');
+                      setLegacyView('tasks');
+                    }}
+                  >
+                    <Plus size={14} /> 自动任务
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={taskListOpen}
+                    onClick={() => setTaskListOpen((open) => !open)}
+                  >
+                    <ClockCounterClockwise size={14} /> 任务列表
+                  </button>
+                </div>
+              </header>
+            )}
             {/* 视图切换入场淡入：key 到视图级，切换即时（无 exit），不随 Agent/会话变化重挂载 */}
             <motion.div
               key={viewKey}
@@ -763,10 +634,6 @@ export default function App() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.15, ease: MOTION_EASE }}
             >
-              {chatVisible && !exploreView && !systemView && !inboxOpen && (
-                <UsageBar agent={currentAgent} sessions={sessions} />
-              )}
-
               {legacyView === 'wakers' ? (
                 <WakersView
                   agents={workspace.agents}
@@ -861,6 +728,7 @@ export default function App() {
                     notify={notify}
                     onOpenSession={selectSession}
                     initialWorkflowId={boardWorkflowId}
+                    startAtList={!showDetailNav && !boardWorkflowId}
                   />
                 ) : (
                   <div className="legacy-page">
@@ -916,90 +784,14 @@ export default function App() {
                   preferences={uiPreferences}
                   onPreferenceChange={handlePreferenceChange}
                 />
-              ) : exploreView === 'agents' ? (
-                <ExploreAgents onOpenChat={selectAgent} />
-              ) : exploreView === 'templates' ? (
-                <TemplatesView onCreated={(agentId) => void handleAgentCreated(agentId)} />
-              ) : exploreView === 'skills' ? (
-                <SkillsView />
-              ) : systemView === 'usage' ? (
+              ) : legacyView === 'usage' ? (
                 <UsageView
                   usage={usage.data}
                   loading={usage.loading}
                   onRefresh={() => void usage.reload()}
                 />
-              ) : systemView === 'settings' ? (
-                <SettingsView
-                  settings={settings.data}
-                  loading={settings.loading}
-                  preferences={uiPreferences}
-                  onPreferenceChange={handlePreferenceChange}
-                />
-              ) : inboxOpen ? (
-                <InboxView
-                  onOpen={openInboxItem}
-                  onResume={(agentId, sessionId, mode) =>
-                    void handleInboxResume(agentId, sessionId, mode)
-                  }
-                  onInboxChanged={handleInboxChanged}
-                />
               ) : (
                 <>
-                  {!showWelcome && (
-                    <div className="thread-header">
-                      {currentSessionTitle && (
-                        <HeaderTitle key={currentSessionTitle} title={currentSessionTitle} />
-                      )}
-                      <button type="button" className="header-button primary" onClick={newSession}>
-                        <Plus size={13} weight="bold" />
-                        新会话
-                      </button>
-                      <button
-                        type="button"
-                        className={cx('header-button', filesOpen && 'active')}
-                        onClick={() => setFilesOpen((prev) => !prev)}
-                      >
-                        <Folder size={13} />
-                        文件
-                      </button>
-                      <label className="chat-project-select">
-                        项目
-                        <select
-                          aria-label="对话项目"
-                          value={selectedProjectId}
-                          onChange={(event) => setSelectedProjectId(event.target.value)}
-                        >
-                          <option value="">当前仓库根（由服务端控制）</option>
-                          {projects.map((project) => (
-                            <option key={project.id} value={project.id}>
-                              {project.name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <button
-                        type="button"
-                        className={cx('header-button', outputsOpen && 'active')}
-                        onClick={() => setOutputsOpen((value) => !value)}
-                      >
-                        附件与结果
-                        {selectedAttachmentIds.length + draftAttachments.length
-                          ? ` (${selectedAttachmentIds.length + draftAttachments.length})`
-                          : ''}
-                      </button>
-                      {currentAgentId && (
-                        <button
-                          type="button"
-                          className={cx('header-button', configAgentId && 'active')}
-                          onClick={() => setConfigAgentId((prev) => (prev ? null : currentAgentId))}
-                        >
-                          <SlidersHorizontal size={13} />
-                          配置
-                        </button>
-                      )}
-                    </div>
-                  )}
-
                   {/* Welcome 淡出完成后再挂载会话区，避免两棵子树共存撑开布局 */}
                   <AnimatePresence mode="wait" initial={false}>
                     {showWelcome && currentAgent ? (
@@ -1010,27 +802,22 @@ export default function App() {
                         transition={{ duration: 0.15, ease: MOTION_EASE }}
                       >
                         <Welcome agent={currentAgent} onSuggestion={send} />
-                        <div className="draft-outputs-note" role="note">
-                          <span>
-                            可使用输入框下方的回形针、拖放或粘贴，附件会随首轮对话一起保存。
-                          </span>
-                        </div>
-                        <label className="draft-project-select">
-                          工作目录
-                          <select
-                            aria-label="新会话项目"
-                            value={selectedProjectId}
-                            onChange={(event) => setSelectedProjectId(event.target.value)}
-                          >
-                            <option value="">当前仓库根（由服务端控制）</option>
-                            {projects.map((project) => (
-                              <option key={project.id} value={project.id}>
-                                {project.name}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
                         <div className="composer-wrap welcome-composer">
+                          <label className="qoder-composer-project">
+                            <span>选择工作目录</span>
+                            <select
+                              aria-label="新会话项目"
+                              value={selectedProjectId}
+                              onChange={(event) => setSelectedProjectId(event.target.value)}
+                            >
+                              <option value="">当前仓库根（由服务端控制）</option>
+                              {projects.map((project) => (
+                                <option key={project.id} value={project.id}>
+                                  {project.name}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
                           <Composer
                             disabled={Boolean(chat.liveTurn)}
                             selectedModel={selectedModel}
@@ -1061,6 +848,21 @@ export default function App() {
                           <div className="composer-inner">
                             {chat.liveTurn && <TurnProgress turn={chat.liveTurn} />}
                             {chat.liveTurn && <StopTurnButton running onStop={chat.interrupt} />}
+                            <label className="qoder-composer-project">
+                              <span>选择工作目录</span>
+                              <select
+                                aria-label="对话项目"
+                                value={selectedProjectId}
+                                onChange={(event) => setSelectedProjectId(event.target.value)}
+                              >
+                                <option value="">当前仓库根（由服务端控制）</option>
+                                {projects.map((project) => (
+                                  <option key={project.id} value={project.id}>
+                                    {project.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
                             <Composer
                               disabled={Boolean(chat.liveTurn)}
                               selectedModel={selectedModel}
@@ -1080,24 +882,21 @@ export default function App() {
             </motion.div>
           </main>
 
-          <AnimatePresence>
-            {paletteOpen && (
-              <CommandPalette
-                open={paletteOpen}
-                onAction={handlePaletteAction}
-                onClose={() => setPaletteOpen(false)}
-              />
-            )}
-          </AnimatePresence>
-          <AnimatePresence>
-            {shortcutsOpen && (
-              <ShortcutsModal open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
-            )}
-          </AnimatePresence>
-
-          <AnimatePresence>
-            {filesOpen && <FilesPanel onClose={() => setFilesOpen(false)} />}
-          </AnimatePresence>
+          {taskListOpen && chatVisible && currentAgent && (
+            <QoderTaskPanel
+              sessions={sessions}
+              currentSessionId={chat.currentSessionId}
+              onOpenSession={(sessionId) => {
+                selectSession(sessionId);
+                setTaskListOpen(false);
+              }}
+              onOpenAutomations={() => {
+                setTaskListOpen(false);
+                setTaskSurface('automations');
+                setLegacyView('tasks');
+              }}
+            />
+          )}
 
           {outputsOpen && currentAgentId && chat.currentSessionId && (
             <SessionOutputsPanel

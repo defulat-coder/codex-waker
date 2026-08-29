@@ -31,7 +31,7 @@ export function templateToCreateRequest(template: AgentTemplate, id?: string): C
   };
 }
 
-/** Fleet blank-create defaults projected onto the required local Markdown fields. */
+/** 旧实现 blank-create defaults projected onto the required local Markdown fields. */
 export function blankAgentRequest(
   name: string,
   description: string,
@@ -84,7 +84,7 @@ export function librarySkillOwner(source: string): string {
 
 /**
  * skills.sh 没有分类数据：技能库弹窗的「来源」分组改用当前结果集的 owner
- * （Fleet 的 CATEGORIES 在本地无语义，此为记录在案的偏差）。按数量降序、同名按字典序。
+ * （旧实现 的 CATEGORIES 在本地无语义，此为记录在案的偏差）。按数量降序、同名按字典序。
  */
 export function groupLibraryOwners(
   items: LibrarySkillSummary[],

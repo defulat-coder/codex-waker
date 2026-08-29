@@ -26,14 +26,13 @@ import { CaretDown } from '@phosphor-icons/react/dist/icons/CaretDown';
 import { DotsThree } from '@phosphor-icons/react/dist/icons/DotsThree';
 import { FlowArrow } from '@phosphor-icons/react/dist/icons/FlowArrow';
 import { GearSix } from '@phosphor-icons/react/dist/icons/GearSix';
+import { Gauge } from '@phosphor-icons/react/dist/icons/Gauge';
 import { Globe } from '@phosphor-icons/react/dist/icons/Globe';
 import { Robot } from '@phosphor-icons/react/dist/icons/Robot';
 import { BookOpenText } from '@phosphor-icons/react/dist/icons/BookOpenText';
 import { Plus } from '@phosphor-icons/react/dist/icons/Plus';
 import { Plugs } from '@phosphor-icons/react/dist/icons/Plugs';
-import { PuzzlePiece } from '@phosphor-icons/react/dist/icons/PuzzlePiece';
 import { MagnifyingGlass } from '@phosphor-icons/react/dist/icons/MagnifyingGlass';
-import { UploadSimple } from '@phosphor-icons/react/dist/icons/UploadSimple';
 import {
   createKnowledgeNotebook,
   createKnowledgeBinding,
@@ -50,7 +49,6 @@ import {
   upsertKnowledgeDocument,
   deleteAgent,
   fetchAgentDeleteImpact,
-  importAgentDefinition,
   markAllInboxRead,
 } from '../lib/api.js';
 import { cx } from '../lib/cx.js';
@@ -72,17 +70,21 @@ export type LegacyView =
   | 'skills'
   | 'memory'
   | 'capabilities'
+  | 'usage'
   | 'settings';
 
-const NAV: { id: LegacyView; label: string; icon: ReactNode }[] = [
+const PRIMARY_NAV: { id: LegacyView; label: string; icon: ReactNode }[] = [
   { id: 'wakers', label: 'Waker 管理', icon: <Robot size={22} /> },
   { id: 'chat', label: 'Chat', icon: <ChatCircle size={22} /> },
   { id: 'im', label: 'IM', icon: <Plugs size={22} /> },
   { id: 'workflows', label: 'WakerFlow', icon: <FlowArrow size={22} /> },
   { id: 'tasks', label: '任务看板', icon: <CheckSquare size={22} /> },
-  { id: 'projects', label: '项目', icon: <Globe size={22} /> },
+  { id: 'projects', label: '公开项目', icon: <Globe size={22} /> },
   { id: 'knowledge', label: '知识库', icon: <BookOpenText size={22} /> },
-  { id: 'skills', label: 'Skills', icon: <PuzzlePiece size={22} /> },
+];
+
+const UTILITY_NAV: { id: LegacyView; label: string; icon: ReactNode }[] = [
+  { id: 'usage', label: '用量', icon: <Gauge size={22} /> },
   { id: 'settings', label: '设置', icon: <GearSix size={22} /> },
 ];
 
@@ -106,7 +108,7 @@ export function LegacyRail({
         <img src="/legacy/qoderwake-icon-cn.svg" alt="" />
       </button>
       <div className="legacy-rail-links">
-        {NAV.map((item) => (
+        {PRIMARY_NAV.map((item) => (
           <button
             type="button"
             key={item.id}
@@ -123,6 +125,22 @@ export function LegacyRail({
                 {unreadCount}
               </b>
             )}
+          </button>
+        ))}
+      </div>
+      <div className="legacy-rail-utilities">
+        {UTILITY_NAV.map((item) => (
+          <button
+            type="button"
+            key={item.id}
+            className={cx('legacy-rail-button', active === item.id && 'active')}
+            aria-current={active === item.id ? 'page' : undefined}
+            aria-label={item.label}
+            title={item.label}
+            onClick={() => onChange(item.id)}
+          >
+            {item.icon}
+            <span>{item.label}</span>
           </button>
         ))}
       </div>
@@ -184,7 +202,6 @@ export function WakersView({
   const deleteTargetIdRef = useRef<string | null>(null);
   const deleteTriggerRef = useRef<HTMLButtonElement | null>(null);
   const deleteWasOpen = useRef(false);
-  const importRef = useRef<HTMLInputElement>(null);
   const envMenuRef = useRef<HTMLDivElement>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const moreTriggerRef = useRef<HTMLButtonElement>(null);
@@ -280,44 +297,13 @@ export function WakersView({
         detail="跨云端、本地与其他设备管理你的 Waker，快速发起对话任务和自动任务。"
       >
         {tab === 'wakers' && (
-          <>
-            <button
-              type="button"
-              className="legacy-button"
-              onClick={() => importRef.current?.click()}
-            >
-              <UploadSimple size={15} />
-              导入 Markdown
-            </button>
-            <input
-              ref={importRef}
-              className="visually-hidden"
-              type="file"
-              accept=".md,text/markdown"
-              onChange={async (event) => {
-                const file = event.target.files?.[0];
-                if (!file) return;
-                try {
-                  const created = await importAgentDefinition({
-                    id: file.name.replace(/\.md$/i, ''),
-                    content: await file.text(),
-                  });
-                  onCreated(created.id);
-                } catch (cause) {
-                  notify(cause instanceof Error ? cause.message : '导入失败');
-                } finally {
-                  event.target.value = '';
-                }
-              }}
-            />
-            <button
-              type="button"
-              className="legacy-button primary"
-              onClick={() => setCreating(true)}
-            >
-              <Plus size={16} /> 新建 Waker
-            </button>
-          </>
+          <button
+            type="button"
+            className="legacy-button primary"
+            onClick={() => setCreating(true)}
+          >
+            <Plus size={16} /> 新建Waker
+          </button>
         )}
       </PageHeader>
       {onboarding}
@@ -464,28 +450,30 @@ export function WakersView({
                     aria-label={`查看 ${agent.name} 的角色详情`}
                     onClick={() => onOpenHome(agent.id)}
                   >
-                    <div className="waker-card-head">
+                    <div className="waker-card-identity">
                       <AgentChip
                         mark={agent.mark}
-                        className="large"
+                        className="qoderwake-avatar"
                         agentId={agent.id}
                         hasAvatar={agent.hasAvatar}
                       />
-                      <span className="waker-card-side">
-                        {(agent.unreadCount ?? 0) > 0 && (
-                          <b className="waker-unread" aria-label={`${agent.unreadCount} 个未读会话`}>
-                            {agent.unreadCount}
-                          </b>
-                        )}
-                        <span className="status-dot">在线</span>
-                      </span>
+                      <div className="waker-card-copy">
+                        <h2>
+                          {agent.name}
+                          {agent.tagline && <span className="waker-card-role">{agent.tagline}</span>}
+                        </h2>
+                        <div className="waker-card-presence">
+                          <span className="waker-card-device">本机</span>
+                          <span className="status-dot">在线</span>
+                          {(agent.unreadCount ?? 0) > 0 && (
+                            <b className="waker-unread" aria-label={`${agent.unreadCount} 个未读会话`}>
+                              {agent.unreadCount}
+                            </b>
+                          )}
+                        </div>
+                        <p>{agent.description || agent.tagline || '本地 Waker'}</p>
+                      </div>
                     </div>
-                    <h2>
-                      {agent.name}
-                      {agent.tagline && <span className="waker-card-role">{agent.tagline}</span>}
-                    </h2>
-                    <div className="waker-card-device">本机 {hostName}</div>
-                    <p>{agent.description || agent.tagline || '本地 Codex Waker'}</p>
                   </button>
                   <div className="waker-actions">
                     <button
@@ -683,6 +671,10 @@ export function WakersView({
                   {deleteImpact.automations} 个 Automation、{deleteImpact.workflows} 个 Workflow、
                   {deleteImpact.tasks} 条 Task 与 {deleteImpact.humanActions} 条 Human Action
                   将保留审计数据但不再对同 ID Waker 可见。
+                </p>
+                <p>
+                  {deleteImpact.memories} 条 Memory 将软删除，{deleteImpact.knowledgeBindings}{' '}
+                  个 Knowledge binding 将解除。
                 </p>
                 <p>{deleteImpact.sharedSkills} 个工作区共享 Skill 不受影响。</p>
               </div>

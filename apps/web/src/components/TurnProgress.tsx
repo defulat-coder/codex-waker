@@ -19,7 +19,7 @@ function RowStatusIcon({ tool }: { tool: LiveToolCall }) {
 }
 
 /**
- * 工具执行进度条（Fleet 任务进度条的本地语义替换）：
+ * 工具执行进度条（旧实现 任务进度条的本地语义替换）：
  * liveTurn 存在时钉在 composer 上方，展示当前运行中的工具；点击展开列出本轮全部工具。
  */
 export function TurnProgress({ turn }: { turn: LiveTurn }) {

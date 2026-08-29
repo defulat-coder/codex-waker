@@ -297,7 +297,7 @@ function ThinkingBlock({ text, streaming }: { text: string; streaming?: boolean 
   );
 }
 
-/** 中断/出错恢复卡（Fleet 认证卡的本地语义替换）：仅最后一条 assistant 消息带中断/错误标记时渲染。 */
+/** 中断/出错恢复卡（旧实现 认证卡的本地语义替换）：仅最后一条 assistant 消息带中断/错误标记时渲染。 */
 function RecoveryCard({ message, onRetry, onContinue }: RecoveryProps) {
   const interrupted = Boolean(message.interrupted) && !message.error;
   const action = interrupted ? onContinue : onRetry;

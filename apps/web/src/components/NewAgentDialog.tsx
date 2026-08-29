@@ -15,6 +15,14 @@ import { AgentChip } from './AgentChip.js';
 const AGENT_ID = /^[a-z][a-z0-9-]{1,63}$/;
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024;
 const AVATAR_MIME_TYPES = ['image/png', 'image/jpeg'];
+const AVATAR_PAGE_SIZE = 20;
+const AVATAR_LIBRARY = Array.from({ length: 100 }, (_, index) => {
+  const number = String(index + 1).padStart(3, '0');
+  return {
+    id: number,
+    url: `/avatars/high-quality-100/waker-avatar-hq-${number}.jpg`,
+  };
+});
 
 function suggestedId(name: string): string {
   return name
@@ -51,6 +59,10 @@ export function NewAgentDialog({
   const [description, setDescription] = useState('');
   const [id, setId] = useState('');
   const [avatar, setAvatar] = useState<AvatarDraft | null>(null);
+  const [avatarLibraryOpen, setAvatarLibraryOpen] = useState(false);
+  const [avatarPage, setAvatarPage] = useState(0);
+  const [selectedLibraryAvatar, setSelectedLibraryAvatar] = useState('');
+  const [loadingLibraryAvatar, setLoadingLibraryAvatar] = useState('');
   const [advanced, setAdvanced] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -64,6 +76,10 @@ export function NewAgentDialog({
     setDescription('');
     setId('');
     setAvatar(null);
+    setAvatarLibraryOpen(false);
+    setAvatarPage(0);
+    setSelectedLibraryAvatar('');
+    setLoadingLibraryAvatar('');
     setAdvanced(false);
     setSaving(false);
     setError('');
@@ -98,7 +114,7 @@ export function NewAgentDialog({
     setError('');
   };
 
-  const pickAvatar = async (file: File | undefined) => {
+  const pickAvatar = async (file: File | undefined, libraryId = '') => {
     if (!file) return;
     if (!AVATAR_MIME_TYPES.includes(file.type)) {
       setError('头像仅支持 PNG / JPG 图片');
@@ -111,11 +127,37 @@ export function NewAgentDialog({
     try {
       const previewUrl = `data:${file.type};base64,${await readFileBase64(file)}`;
       setAvatar({ file, previewUrl });
+      setSelectedLibraryAvatar(libraryId);
       setError('');
     } catch {
       setError('浏览器无法读取头像文件');
     }
   };
+
+  const pickLibraryAvatar = async (entry: (typeof AVATAR_LIBRARY)[number]) => {
+    if (saving || loadingLibraryAvatar) return;
+    setLoadingLibraryAvatar(entry.id);
+    try {
+      const response = await fetch(entry.url);
+      if (!response.ok) throw new Error('头像资源暂时无法读取');
+      const blob = await response.blob();
+      await pickAvatar(
+        new File([blob], `waker-avatar-${entry.id}.jpg`, { type: 'image/jpeg' }),
+        entry.id,
+      );
+      setAvatarLibraryOpen(false);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '头像资源暂时无法读取');
+    } finally {
+      setLoadingLibraryAvatar('');
+    }
+  };
+
+  const avatarPageCount = Math.ceil(AVATAR_LIBRARY.length / AVATAR_PAGE_SIZE);
+  const visibleAvatars = AVATAR_LIBRARY.slice(
+    avatarPage * AVATAR_PAGE_SIZE,
+    (avatarPage + 1) * AVATAR_PAGE_SIZE,
+  );
 
   const derived = suggestedId(name);
   const effectiveId = id.trim() || derived;
@@ -300,10 +342,19 @@ export function NewAgentDialog({
                 <button
                   type="button"
                   className="header-button"
+                  aria-expanded={avatarLibraryOpen}
+                  onClick={() => setAvatarLibraryOpen((value) => !value)}
+                  disabled={saving}
+                >
+                  选择内置头像
+                </button>
+                <button
+                  type="button"
+                  className="header-button"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={saving}
                 >
-                  上传头像
+                  上传本地头像
                 </button>
                 <input
                   ref={fileInputRef}
@@ -312,12 +363,69 @@ export function NewAgentDialog({
                   hidden
                   aria-label="选择头像文件"
                   onChange={(event) => {
-                    void pickAvatar(event.target.files?.[0]);
+                    void pickAvatar(event.target.files?.[0], '');
                     event.target.value = '';
                   }}
                 />
               </div>
-              <small>支持 PNG / JPG，文件大小不超过 2 MB</small>
+              <small>内置头像已优化为 160×160；本地上传支持 PNG / JPG，最大 2 MB。</small>
+              <AnimatePresence initial={false}>
+                {avatarLibraryOpen && (
+                  <motion.div
+                    className="agent-avatar-library"
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.15, ease: MOTION_EASE }}
+                  >
+                    <div className="agent-avatar-library-head">
+                      <span>内置头像 · {AVATAR_LIBRARY.length}</span>
+                      <div>
+                        <button
+                          type="button"
+                          aria-label="上一批头像"
+                          disabled={avatarPage === 0 || saving}
+                          onClick={() => setAvatarPage((page) => Math.max(0, page - 1))}
+                        >
+                          上一批
+                        </button>
+                        <small>
+                          {avatarPage + 1} / {avatarPageCount}
+                        </small>
+                        <button
+                          type="button"
+                          aria-label="下一批头像"
+                          disabled={avatarPage === avatarPageCount - 1 || saving}
+                          onClick={() =>
+                            setAvatarPage((page) => Math.min(avatarPageCount - 1, page + 1))
+                          }
+                        >
+                          下一批
+                        </button>
+                      </div>
+                    </div>
+                    <div className="agent-avatar-grid" role="listbox" aria-label="内置头像">
+                      {visibleAvatars.map((entry) => (
+                        <button
+                          type="button"
+                          role="option"
+                          aria-label={`头像 ${entry.id}`}
+                          aria-selected={selectedLibraryAvatar === entry.id}
+                          className={cx(selectedLibraryAvatar === entry.id && 'selected')}
+                          disabled={saving || Boolean(loadingLibraryAvatar)}
+                          onClick={() => void pickLibraryAvatar(entry)}
+                          key={entry.id}
+                        >
+                          <img src={entry.url} alt="" loading="lazy" />
+                          {loadingLibraryAvatar === entry.id && (
+                            <CircleNotch size={16} className="spinning" aria-hidden="true" />
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
             <div className="modal-field agent-runtime-field">
               <span>运行环境</span>

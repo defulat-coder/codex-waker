@@ -1620,6 +1620,33 @@ describe('Explore endpoints', () => {
       },
     });
     assert.equal(automation.statusCode, 201);
+    const memory = await app.inject({
+      method: 'POST',
+      url: '/api/v1/memories',
+      payload: {
+        scope: { type: 'waker', id: 'delete-me' },
+        source: 'test',
+        title: 'Delete with agent',
+        content: 'temporary',
+      },
+    });
+    assert.equal(memory.statusCode, 201);
+    const notebook = await app.inject({
+      method: 'POST',
+      url: '/api/v1/knowledge/notebooks',
+      payload: { title: 'Delete binding with agent' },
+    });
+    assert.equal(notebook.statusCode, 201);
+    const binding = await app.inject({
+      method: 'POST',
+      url: '/api/v1/knowledge/bindings',
+      payload: {
+        notebookId: notebook.json().id,
+        scope: { kind: 'waker', id: 'delete-me' },
+        access: 'read_write',
+      },
+    });
+    assert.equal(binding.statusCode, 201);
 
     const removed = await app.inject({ method: 'DELETE', url: '/api/v1/agents/delete-me' });
     assert.equal(removed.statusCode, 204);
@@ -1633,6 +1660,21 @@ describe('Explore endpoints', () => {
       url: '/api/v1/local-resources?wakerId=delete-me',
     });
     assert.equal(resources.json().automations.length, 0);
+    const memories = await app.inject({
+      method: 'GET',
+      url: '/api/v1/memories?scopeType=waker&scopeId=delete-me',
+    });
+    assert.deepEqual(memories.json().items, []);
+    const bindings = await app.inject({ method: 'GET', url: '/api/v1/knowledge/bindings' });
+    assert.equal(
+      bindings
+        .json()
+        .items.some(
+          (item: { scope: { kind: string; id: string } }) =>
+            item.scope.kind === 'waker' && item.scope.id === 'delete-me',
+        ),
+      false,
+    );
   });
 
   it('rejects automation writes while an agent deletion is awaiting session cleanup', async () => {

@@ -1,5 +1,6 @@
 import type { AgentSummary } from '@waker/contracts';
 import { motion, type Variants } from 'motion/react';
+import { Sparkle } from '@phosphor-icons/react/dist/icons/Sparkle';
 import { MOTION_EASE } from '../lib/motion.js';
 import { AgentChip } from './AgentChip.js';
 
@@ -22,12 +23,14 @@ export function Welcome({
       <motion.div className="welcome-head" variants={item}>
         <AgentChip
           mark={agent.mark}
-          className="large"
+          className="qoder-welcome-avatar"
           agentId={agent.id}
           hasAvatar={agent.hasAvatar}
         />
-        <h1 className="welcome-title">开始与 {agent.name} 对话</h1>
-        <p className="welcome-tagline">{agent.tagline || agent.description}</p>
+        <h1 className="welcome-title">你好，今天我能帮你什么？</h1>
+        <p className="welcome-tagline">
+          我是 {agent.name}，{agent.description || '可以完成你指派的各种任务。'}
+        </p>
       </motion.div>
       {agent.suggestions.length > 0 && (
         <motion.div className="welcome-suggestions" variants={item}>
@@ -38,6 +41,7 @@ export function Welcome({
               className="suggestion-button"
               onClick={() => onSuggestion(suggestion)}
             >
+              <Sparkle size={22} weight="fill" aria-hidden="true" />
               {suggestion}
             </button>
           ))}

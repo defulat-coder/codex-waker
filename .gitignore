@@ -12,6 +12,7 @@ coverage/
 # Local application data
 .data/
 .scratch/
+/high-quality-100/
 
 # Environment variables
 .env
@@ -39,6 +40,8 @@ coverage/
 .codex/*.sqlite-shm
 .codex/*.sqlite-wal
 .codex/installation_id
+.codex/auth.json
+.codex/config.toml
 .codex/shell_snapshots/
 .codex/thread-writer-locks/
 .codex/tmp/

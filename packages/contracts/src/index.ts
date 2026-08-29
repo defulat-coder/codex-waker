@@ -103,6 +103,8 @@ export interface AgentDeleteImpact {
   tasks: number;
   humanActions: number;
   connectors: number;
+  memories: number;
+  knowledgeBindings: number;
   sharedSkills: number;
   behavior: {
     definition: 'delete';
@@ -110,6 +112,8 @@ export interface AgentDeleteImpact {
     projects: 'delete-record-only';
     board: 'soft-delete-history';
     connectors: 'delete';
+    memories: 'soft-delete';
+    knowledgeBindings: 'delete';
     skills: 'shared-preserve';
   };
 }

@@ -77,7 +77,7 @@
     drop-shadow(0 -1px 0 var(--border-subtle)) drop-shadow(1px 0 0 var(--border-subtle))
     drop-shadow(-1px 0 0 var(--border-subtle)) drop-shadow(0 2px 3px #1018280d)
     drop-shadow(0 6px 12px #1018280d);
-  /* 盒阴影基色（Fleet #101828）：通道形式供 rgba() 组合不同透明度 */
+  /* 盒阴影基色（旧实现 #101828）：通道形式供 rgba() 组合不同透明度 */
   --shadow-color: 16, 24, 40;
   --button-shadow: 0 1px 2px rgba(var(--shadow-color), 0.05);
 
@@ -290,7 +290,7 @@ textarea {
 .sidebar.collapsed .sidebar-divider {
   margin: 5px 4px;
 }
-/* Fleet 实测：品牌行容器 min-h 34px，26px 按钮垂直居中（collapse 按钮 y=16） */
+/* 旧实现 实测：品牌行容器 min-h 34px，26px 按钮垂直居中（collapse 按钮 y=16） */
 .sidebar-brand-row {
   display: flex;
   align-items: center;
@@ -457,7 +457,7 @@ textarea {
     transform var(--duration-fast) var(--ease-out);
   white-space: nowrap;
 }
-/* Fleet 导航行文字为 12px/500（实测 label 12px/18px w500） */
+/* 旧实现 导航行文字为 12px/500（实测 label 12px/18px w500） */
 .nav-row {
   font-weight: 500;
 }
@@ -515,7 +515,7 @@ textarea {
 }
 
 /* 会话过滤 All / Attention（§11.1/§11.2：圆角 3px、padding 2px 8px、13px/500/-0.26px） */
-/* Fleet 实测：分段容器透明底 + 1px #e2e8f0 边框 + 2px padding/gap，active tab 白底 */
+/* 旧实现 实测：分段容器透明底 + 1px #e2e8f0 边框 + 2px padding/gap，active tab 白底 */
 .session-tabs {
   display: inline-flex;
   align-items: center;
@@ -795,7 +795,7 @@ textarea {
   text-transform: uppercase;
   color: var(--text-quaternary);
 }
-/* 会话行：Fleet 实测 20px 高、14px/700 标题（§7.1） */
+/* 会话行：旧实现 实测 20px 高、14px/700 标题（§7.1） */
 .session-row {
   gap: var(--space-2);
   height: 20px;
@@ -808,7 +808,7 @@ textarea {
 .sidebar.collapsed .agent-row:hover .agent-badge {
   display: inline-flex;
 }
-/* 会话标题：Fleet 实测 14px/700/#0f172a（§7.1） */
+/* 会话标题：旧实现 实测 14px/700/#0f172a（§7.1） */
 .session-row .session-title {
   flex: 1;
   min-width: 0;
@@ -835,7 +835,7 @@ textarea {
 .session-row:hover .session-count {
   display: none;
 }
-/* 运行中指示：进行中的 turn 所在会话行显示脉冲点（对齐 Fleet busy 线程语义） */
+/* 运行中指示：进行中的 turn 所在会话行显示脉冲点（对齐 旧实现 busy 线程语义） */
 .session-row .session-busy {
   flex: none;
   width: 6px;
@@ -977,7 +977,7 @@ textarea {
 .inbox-column .session-tabs {
   margin: var(--space-3) var(--space-4) var(--space-4);
 }
-/* 会话列表滚动区：Fleet 实测无 flex gap，行与行/组与组之间零间距紧密排列 */
+/* 会话列表滚动区：旧实现 实测无 flex gap，行与行/组与组之间零间距紧密排列 */
 .inbox-column-scroll {
   display: flex;
   flex: 1;
@@ -986,7 +986,7 @@ textarea {
   overflow-x: hidden;
   padding: 0 10px var(--space-4);
 }
-/* 空态（Fleet 实测：居中、48px padding、32px 图标 + 14px 弱色文字） */
+/* 空态（旧实现 实测：居中、48px padding、32px 图标 + 14px 弱色文字） */
 .inbox-column-empty {
   flex: 1;
   display: flex;
@@ -998,6 +998,279 @@ textarea {
   color: var(--text-quaternary);
   font-size: 13px;
   line-height: 15.6px;
+}
+
+/* ===== QoderWake Chat 左栏与任务页头 ===== */
+.qoder-chat-sidebar {
+  display: flex;
+  width: 240px;
+  flex: 0 0 240px;
+  flex-direction: column;
+  overflow: hidden;
+  background: #f9f9f9;
+  border-right: 1px solid #dedede;
+}
+.qoder-chat-sidebar-header {
+  display: flex;
+  height: 48px;
+  flex: 0 0 48px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+}
+.qoder-chat-sidebar-header strong {
+  font-size: 14px;
+  font-weight: 500;
+}
+.qoder-chat-sidebar-header button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #8c8c8c;
+  font-size: 12px;
+}
+.qoder-chat-groups,
+.qoder-chat-wakers {
+  padding: 0 16px;
+}
+.qoder-chat-section-title {
+  display: flex;
+  height: 30px;
+  align-items: center;
+  gap: 7px;
+  color: #5d5d5d;
+  font-size: 13px;
+  font-weight: 500;
+}
+.qoder-chat-section-title small {
+  padding: 1px 5px;
+  color: #8c8c8c;
+  background: #f2f2f2;
+  border: 1px solid #dedede;
+  border-radius: 4px;
+  font-size: 10px;
+  line-height: 16px;
+}
+.qoder-chat-group-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.qoder-chat-group-actions button {
+  display: flex;
+  height: 34px;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: #8c8c8c;
+  border: 1px dashed #d6d6d6;
+  border-radius: 4px;
+  font-size: 12px;
+}
+.qoder-chat-wakers {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+}
+.qoder-chat-wakers h2 {
+  height: 32px;
+  margin: 0;
+  color: #5d5d5d;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 32px;
+}
+.qoder-chat-waker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.qoder-chat-waker {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  gap: 9px;
+  width: 100%;
+  min-height: 58px;
+  align-items: center;
+  padding: 7px 6px;
+  border-radius: 4px;
+  text-align: left;
+}
+.qoder-chat-waker:hover,
+.qoder-chat-waker.active {
+  background: #f2f2f2;
+}
+.agent-chip.qoder-chat-avatar,
+.agent-chip.qoder-chat-header-avatar,
+.agent-chip.qoder-welcome-avatar {
+  border: 0;
+  border-radius: 50%;
+  color: #141414;
+  background: #d6f5ec;
+}
+.agent-chip.qoder-chat-avatar {
+  width: 32px;
+  height: 32px;
+  font-size: 12px;
+}
+.qoder-chat-waker-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+.qoder-chat-waker-copy strong,
+.qoder-chat-waker-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.qoder-chat-waker-copy strong {
+  color: #141414;
+  font-size: 13px;
+  font-weight: 500;
+}
+.qoder-chat-waker-copy small,
+.qoder-chat-waker time {
+  color: #8c8c8c;
+  font-size: 10px;
+}
+.qoder-chat-waker time {
+  white-space: nowrap;
+}
+.qoder-chat-header {
+  display: flex;
+  height: 52px;
+  flex: 0 0 52px;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #e6e6e6;
+  background: #fff;
+}
+.qoder-chat-agent {
+  display: flex;
+  height: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 0 18px;
+  font-size: 14px;
+}
+.agent-chip.qoder-chat-header-avatar {
+  width: 24px;
+  height: 24px;
+  font-size: 9px;
+}
+.qoder-chat-agent strong {
+  font-weight: 500;
+}
+.qoder-chat-agent > span:last-child {
+  color: #8c8c8c;
+  font-size: 20px;
+}
+.qoder-chat-header-actions {
+  display: flex;
+  height: 100%;
+  align-items: center;
+}
+.qoder-chat-header-actions button {
+  display: inline-flex;
+  height: 28px;
+  align-items: center;
+  gap: 6px;
+  margin-right: 8px;
+  padding: 0 11px;
+  color: #141414;
+  border: 1px solid #dedede;
+  border-radius: 4px;
+  font-size: 12px;
+}
+.qoder-chat-header-actions button:last-child {
+  margin-right: 16px;
+  border-color: transparent;
+}
+.qoder-task-panel {
+  display: flex;
+  width: 240px;
+  flex: 0 0 240px;
+  flex-direction: column;
+  overflow: hidden;
+  background: #f9f9f9;
+  border-left: 1px solid #dedede;
+}
+.qoder-task-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  height: 42px;
+  padding: 8px 12px 6px;
+  border-bottom: 1px solid #dedede;
+}
+.qoder-task-tabs button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  color: #8c8c8c;
+  border-radius: 4px;
+  font-size: 12px;
+}
+.qoder-task-tabs button.active {
+  color: #141414;
+  background: #ededed;
+}
+.qoder-task-list {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 12px;
+}
+.qoder-task-row {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) 16px;
+  gap: 8px;
+  width: 100%;
+  min-height: 56px;
+  align-items: center;
+  padding: 7px 6px;
+  border-bottom: 1px solid #e6e6e6;
+  text-align: left;
+}
+.qoder-task-row:hover,
+.qoder-task-row.active {
+  background: #f2f2f2;
+}
+.qoder-task-row > i {
+  width: 6px;
+  height: 6px;
+  background: #d6d6d6;
+  border-radius: 50%;
+}
+.qoder-task-row > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+.qoder-task-row strong,
+.qoder-task-row small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.qoder-task-row strong {
+  font-size: 12px;
+  font-weight: 500;
+}
+.qoder-task-row small,
+.qoder-task-row > svg {
+  color: #8c8c8c;
+  font-size: 10px;
+}
+.qoder-task-empty {
+  margin: 32px 0;
+  color: #8c8c8c;
+  font-size: 12px;
+  text-align: center;
 }
 
 /* ===== 用量条 ===== */
@@ -1031,58 +1304,75 @@ textarea {
   flex: 1;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: var(--space-5);
-  padding: 0 var(--space-4) var(--space-9);
+  justify-content: flex-start;
+  gap: 24px;
+  padding: 164px 24px 24px;
   overflow-y: auto;
 }
 .welcome-head {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--space-3);
+  gap: 14px;
   text-align: center;
 }
-/* Fleet 实测 askH1：24px/500、行高 32px、字距 normal */
 .welcome-title {
   margin: 0;
-  font-size: 24px;
-  line-height: 32px;
+  font-size: 28px;
+  line-height: 38px;
   letter-spacing: normal;
-  font-weight: 500;
+  font-weight: 650;
   color: var(--text-primary);
 }
 .welcome-tagline {
-  margin: 0;
+  max-width: 640px;
+  margin: -4px 0 0;
+  overflow: hidden;
   font-size: 14px;
-  color: var(--text-tertiary);
+  color: #8c8c8c;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .welcome-suggestions {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: var(--space-2);
-  max-width: 640px;
+  width: 420px;
+  flex-direction: column;
+  gap: 10px;
 }
 .suggestion-button {
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-full);
-  background: var(--bg-primary);
-  padding: 6px 12px;
-  font-size: 13px;
-  color: var(--text-secondary);
-  box-shadow: var(--button-shadow);
+  display: flex;
+  min-height: 50px;
+  align-items: center;
+  gap: 14px;
+  border: 0;
+  border-radius: 4px;
+  background: #fafafa;
+  padding: 0 18px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #141414;
+  text-align: left;
+  box-shadow: 0 1px 3px rgba(12, 12, 13, 0.04);
   transition:
     background var(--duration-normal) var(--ease-out),
     transform var(--duration-fast) var(--ease-out);
 }
 .suggestion-button:hover {
-  background: var(--bg-secondary);
+  background: #f3f3f3;
+}
+.suggestion-button svg {
+  flex: none;
+  color: #dedede;
 }
 .welcome-composer {
   width: 100%;
-  max-width: 672px;
+  max-width: 768px;
   margin: 0 auto;
+}
+.agent-chip.qoder-welcome-avatar {
+  width: 72px;
+  height: 72px;
+  font-size: 24px;
 }
 
 /* ===== 会话区 ===== */
@@ -1110,7 +1400,7 @@ textarea {
   color: var(--text-quaternary);
 }
 
-/* 内容区标题 + agent chip（Fleet 实测：h2 16px/19.2px/600/-0.48px；chip r9999、1px border-subtle、bg-secondary、pad 4/12/4/8、h28、icon 10×10、名 12px） */
+/* 内容区标题 + agent chip（旧实现 实测：h2 16px/19.2px/600/-0.48px；chip r9999、1px border-subtle、bg-secondary、pad 4/12/4/8、h28、icon 10×10、名 12px） */
 .thread-intro {
   display: flex;
   flex-direction: column;
@@ -1142,7 +1432,7 @@ textarea {
   flex: none;
 }
 
-/* 中断/出错恢复卡（Fleet 认证卡的本地语义替换：白底卡片 + 通栏次级按钮） */
+/* 中断/出错恢复卡（旧实现 认证卡的本地语义替换：白底卡片 + 通栏次级按钮） */
 .recovery-card {
   margin-top: var(--space-4);
   border: 1px solid var(--border-subtle);
@@ -1207,7 +1497,7 @@ textarea {
   background: var(--bg-secondary);
   padding: var(--space-2) var(--space-3);
 }
-/* 用户口味调整：对话字号比 Fleet 实测收一档（气泡 16→15、正文 15→14） */
+/* 用户口味调整：对话字号比 旧实现 实测收一档（气泡 16→15、正文 15→14） */
 .user-bubble p {
   margin: 0;
   white-space: pre-wrap;
@@ -1411,7 +1701,7 @@ textarea {
   font-size: 12px;
   color: var(--text-quaternary);
 }
-/* Fleet 错误展示是带底色的单行横条（#fef3f2 底、圆角 4px、padding 2px 6px、min-h 28px、12px/16px 红字 truncate） */
+/* 旧实现 错误展示是带底色的单行横条（#fef3f2 底、圆角 4px、padding 2px 6px、min-h 28px、12px/16px 红字 truncate） */
 .message-error-card {
   display: flex;
   align-items: center;
@@ -1515,8 +1805,8 @@ textarea {
   animation: caret-blink 0.9s ease-in-out infinite;
 }
 
-/* 工具/委派调用卡片：对齐 Fleet §7.4 开放结构（无卡片边框，header 26px 透明按钮） */
-/* Fleet 实测：一条消息的多个工具调用折叠成一行通栏摘要（padding 2px 0、无 hover 底色） */
+/* 工具/委派调用卡片：对齐 旧实现 §7.4 开放结构（无卡片边框，header 26px 透明按钮） */
+/* 旧实现 实测：一条消息的多个工具调用折叠成一行通栏摘要（padding 2px 0、无 hover 底色） */
 .tool-group {
   margin-top: var(--space-2);
 }
@@ -1562,7 +1852,7 @@ textarea {
   margin-left: 4px;
   color: var(--text-quaternary);
 }
-/* 「已执行 N 个操作」：平时隐藏，group hover 浮现（Fleet 为 opacity-0 + transition-opacity） */
+/* 「已执行 N 个操作」：平时隐藏，group hover 浮现（旧实现 为 opacity-0 + transition-opacity） */
 .tool-group-count {
   flex: none;
   color: var(--text-quaternary);
@@ -1637,7 +1927,7 @@ textarea {
   gap: var(--space-1);
   padding: var(--space-1) 0 0;
 }
-/* Fleet 结果块实测：白底、3–4px 圆角、#cbd5e1 边框、8px padding、最高 240px 滚动、行高 18px */
+/* 旧实现 结果块实测：白底、3–4px 圆角、#cbd5e1 边框、8px padding、最高 240px 滚动、行高 18px */
 .tool-card-body pre {
   margin: 0;
   max-height: 240px;
@@ -1652,7 +1942,7 @@ textarea {
   white-space: pre-wrap;
   word-break: break-word;
 }
-/* 结果块容器：relative 供「复制结果」按钮定位（Fleet 实测 20×20、圆角 3px、padding 2px） */
+/* 结果块容器：relative 供「复制结果」按钮定位（旧实现 实测 20×20、圆角 3px、padding 2px） */
 .tool-card-result {
   position: relative;
 }
@@ -1677,7 +1967,7 @@ textarea {
   background: var(--bg-secondary);
   color: var(--text-secondary);
 }
-/* Fleet「ARGUMENTS / RESULT」组头风格：12px/600/大写/弱色/+0.6px 字距 */
+/* 旧实现「ARGUMENTS / RESULT」组头风格：12px/600/大写/弱色/+0.6px 字距 */
 .tool-card-body .tool-card-label {
   font-size: 12px;
   line-height: 13.8px;
@@ -1761,7 +2051,7 @@ textarea {
   padding: 1px 5px;
   font-size: 13px;
 }
-/* Fleet 代码块基底上补足可复制、可下载的本地阅读操作。 */
+/* 旧实现 代码块基底上补足可复制、可下载的本地阅读操作。 */
 .code-block {
   min-width: 0;
   max-width: 100%;
@@ -1966,9 +2256,11 @@ textarea {
 
 /* ===== composer ===== */
 .composer-wrap {
+  position: relative;
   padding: var(--space-2) var(--space-4) var(--space-4);
 }
 .composer-inner {
+  position: relative;
   margin: 0 auto;
   width: 100%;
   max-width: 1024px;
@@ -1976,8 +2268,9 @@ textarea {
 }
 .composer {
   position: relative;
-  border-radius: var(--radius-xl);
-  border: 1px solid var(--border-subtle);
+  min-height: 97px;
+  border-radius: 8px;
+  border: 1px solid #dedede;
   background: var(--bg-primary);
   transition:
     border-color var(--duration-normal) var(--ease-out),
@@ -2057,7 +2350,6 @@ textarea {
   color: var(--error-text-detail);
   font-size: 11px;
 }
-/* Fleet 实测：composer 聚焦时边框/阴影均无变化（§6），不做 focus 高亮 */
 .welcome-composer .composer {
   width: 100%;
 }
@@ -2071,7 +2363,6 @@ textarea {
   padding: var(--space-4) var(--space-4) var(--space-2);
   font-size: 14px;
   line-height: 24px;
-  /* Fleet 输入区 min-h-12 = 48px（padding 16+8 + 单行 24） */
   min-height: 48px;
   max-height: 25vh;
   overflow-y: auto;
@@ -2088,7 +2379,6 @@ textarea {
   align-items: center;
   gap: var(--space-2);
 }
-/* 「+ Actions」按钮（Fleet 实测：26×26、圆角 4px、padding 4px、透明底、hover 浅灰底） */
 .composer-actions {
   display: inline-flex;
   align-items: center;
@@ -2102,11 +2392,38 @@ textarea {
     background var(--duration-normal) var(--ease-out),
     transform var(--duration-fast) var(--ease-out);
 }
+.composer-wrap:has(.qoder-composer-project) .composer-toolbar-left {
+  margin-left: 132px;
+}
+.qoder-composer-project {
+  position: absolute;
+  left: 30px;
+  bottom: 25px;
+  z-index: 3;
+  display: flex;
+  height: 26px;
+  align-items: center;
+  padding: 0 7px;
+  color: #5d5d5d;
+  background: #fafafa;
+  border-radius: 4px;
+  font-size: 12px;
+}
+.composer-inner > .qoder-composer-project {
+  left: 38px;
+}
+.qoder-composer-project select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
 .composer-actions:hover {
   background: var(--bg-secondary);
 }
 
-/* 工具执行进度条（Fleet 任务进度条的本地语义替换：44px 通栏、grid auto/auto/1fr/auto、gap 12px、pad 12/16） */
+/* 工具执行进度条（旧实现 任务进度条的本地语义替换：44px 通栏、grid auto/auto/1fr/auto、gap 12px、pad 12/16） */
 .turn-progress {
   margin-bottom: var(--space-2);
   border: 1px solid var(--border-subtle);
@@ -2670,7 +2987,7 @@ textarea {
 }
 
 /* ===== 会话头部 ===== */
-/* Fleet 实测：页头容器 padding 12px 16px 8px；次按钮 13px/15.6px、字色 secondary */
+/* 旧实现 实测：页头容器 padding 12px 16px 8px；次按钮 13px/15.6px、字色 secondary */
 .thread-header {
   display: flex;
   align-items: center;
@@ -2678,7 +2995,7 @@ textarea {
   gap: var(--space-2);
   padding: var(--space-3) var(--space-4) var(--space-2);
 }
-/* Fleet 实测：页头内会话标题，逐字母 inline-block span 拆分入场，14px/16.1px/500/-0.56px */
+/* 旧实现 实测：页头内会话标题，逐字母 inline-block span 拆分入场，14px/16.1px/500/-0.56px */
 .thread-header-title {
   flex: 1;
   min-width: 0;
@@ -3150,11 +3467,11 @@ button.agent-card:hover,
   margin-top: auto;
 }
 
-/* Skills 页（§11.6，Fleet 16-skills.json 实测）：工具栏搜索框 + 卡片 button 网格（容器 2~3 列） */
+/* Skills 页（§11.6，旧实现 16-skills.json 实测）：工具栏搜索框 + 卡片 button 网格（容器 2~3 列） */
 .explore {
   container-type: inline-size;
 }
-/* 页头（Fleet 的 "Create Skill" 槽位）：标题 + 右侧主按钮 */
+/* 页头（旧实现 的 "Create Skill" 槽位）：标题 + 右侧主按钮 */
 .skills-header {
   display: flex;
   align-items: flex-start;
@@ -3603,6 +3920,8 @@ button.agent-card:hover,
 }
 .agent-create-dialog {
   width: 600px;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
   border: 0;
   border-radius: var(--radius-lg);
   box-shadow: none;
@@ -3703,15 +4022,103 @@ button.agent-card:hover,
 .agent-avatar-row {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
+  gap: var(--space-2);
 }
 .agent-avatar-preview {
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   flex: none;
-  border-radius: var(--radius-lg);
+  border-radius: 50%;
   border: 1px solid var(--border-subtle);
   object-fit: cover;
+}
+.agent-avatar-library {
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--bg-secondary);
+}
+.agent-avatar-library-head {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.agent-avatar-library-head > span {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+}
+.agent-avatar-library-head > div {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.agent-avatar-library-head button {
+  min-height: 26px;
+  padding: 0 var(--space-1);
+  color: var(--text-tertiary);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+}
+.agent-avatar-library-head button:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--bg-secondary-hover);
+}
+.agent-avatar-library-head button:disabled {
+  color: var(--text-disabled);
+}
+.agent-avatar-library-head small {
+  min-width: 32px;
+  color: var(--text-quaternary);
+  font-size: 10px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.agent-avatar-grid {
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: 6px;
+  padding: var(--space-2);
+}
+.agent-avatar-grid button {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  aspect-ratio: 1;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  background: var(--bg-primary);
+  transition:
+    border-color var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out);
+}
+.agent-avatar-grid button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: var(--border-default);
+}
+.agent-avatar-grid button.selected {
+  border-color: var(--brand);
+  outline: 2px solid var(--brand);
+  outline-offset: 1px;
+}
+.agent-avatar-grid button:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+.agent-avatar-grid img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.agent-avatar-grid .spinning {
+  position: absolute;
+  color: var(--text-primary);
 }
 .agent-chip img {
   width: 100%;
@@ -3995,7 +4402,7 @@ button.agent-card:hover,
 
 /* 折叠侧边栏：底部 Usage/Settings 导航同样收敛为 32×32 图标（通用规则已覆盖） */
 
-/* ⌘K 命令面板：顶部对齐的搜索弹层（Fleet 同构） */
+/* ⌘K 命令面板：顶部对齐的搜索弹层（旧实现 同构） */
 .palette-backdrop {
   align-items: flex-start;
   padding-top: 18vh;
@@ -4580,6 +4987,7 @@ button.agent-card:hover,
 .automation-list > button {
   display: flex;
   width: 100%;
+  max-width: 100%;
   min-width: 0;
   align-items: flex-start;
   justify-content: space-between;
@@ -4903,6 +5311,32 @@ button.agent-card:hover,
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-xl);
 }
+.workflow-workspace.list-only {
+  display: block;
+  min-height: 0;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+}
+.workflow-workspace.list-only .workflow-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 329px));
+  gap: 12px;
+  padding: 0;
+  background: transparent;
+  border-right: 0;
+}
+.workflow-workspace.list-only .workflow-list > button {
+  min-height: 128px;
+  padding: 16px;
+  background: #fff;
+  border: 1px solid #e6e6e6;
+  border-radius: 6px;
+  box-shadow: 0 1px 2px rgba(12, 12, 13, 0.05);
+}
+.workflow-workspace.list-only .workflow-detail {
+  display: none;
+}
 .workflow-list {
   padding: var(--space-2);
   background: var(--bg-secondary);
@@ -4933,6 +5367,17 @@ button.agent-card:hover,
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.workflow-list p {
+  display: -webkit-box;
+  margin: 8px 0 0;
+  overflow: hidden;
+  color: #8c8c8c;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 .workflow-list small {
   color: var(--text-quaternary);
@@ -5074,29 +5519,7 @@ button.agent-card:hover,
   padding: var(--space-3);
   background: var(--bg-secondary);
   border: 1px solid var(--border-subtle);
-  border-left: 3px solid var(--border-default);
   border-radius: var(--radius-lg);
-}
-.workflow-canvas-node.kind-action {
-  border-left-color: var(--text-tertiary);
-}
-.workflow-canvas-node.kind-codex {
-  border-left-color: var(--brand);
-}
-.workflow-canvas-node.kind-decision {
-  border-left-color: var(--warning-text);
-}
-.workflow-canvas-node.kind-wait {
-  border-left-color: var(--text-placeholder);
-}
-.workflow-canvas-node.kind-ask_user {
-  border-left-color: var(--text-brand);
-}
-.workflow-canvas-node.kind-call_workflow {
-  border-left-color: var(--brand-info-icon);
-}
-.workflow-canvas-node.kind-terminal {
-  border-left-color: var(--text-primary);
 }
 .workflow-canvas-node-head {
   display: flex;
@@ -6071,43 +6494,49 @@ button.agent-card:hover,
   flex: 0 0 64px;
   flex-direction: column;
   align-items: center;
-  background: #f7f8f8;
-  border-right: 1px solid var(--border-subtle);
-  padding: 12px 8px;
+  background: #f3f3f3;
+  border-right: 0;
+  padding: 8px;
 }
 
 .legacy-logo {
   display: grid;
-  width: 42px;
-  height: 42px;
+  width: 48px;
+  height: 40px;
   place-items: center;
-  margin-bottom: 14px;
-  border-radius: 12px;
+  margin-bottom: 8px;
+  border-radius: 6px;
 }
 
 .legacy-logo:hover {
   background: var(--bg-secondary-hover);
 }
 .legacy-logo img {
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
 }
 .legacy-rail-links {
   display: flex;
   width: 100%;
   flex: 1;
   flex-direction: column;
-  gap: 4px;
+  gap: 0;
+}
+.legacy-rail-utilities {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 0;
 }
 
 .legacy-rail-button {
   position: relative;
   display: grid;
   width: 48px;
-  min-height: 44px;
+  min-height: 48px;
   place-items: center;
   color: var(--text-quaternary);
-  border-radius: 10px;
+  border-radius: 4px;
   transition:
     color 150ms ease,
     background 150ms ease;
@@ -6118,8 +6547,8 @@ button.agent-card:hover,
   background: var(--bg-secondary-hover);
 }
 .legacy-rail-button.active {
-  color: var(--brand);
-  background: var(--brand-secondary);
+  color: #141414;
+  background: #fff;
 }
 .legacy-rail-button span {
   position: absolute;
@@ -6236,8 +6665,8 @@ button.agent-card:hover,
   min-height: 0;
   flex: 1;
   overflow: auto;
-  padding: 30px 36px 48px;
-  background: var(--bg-primary);
+  padding: 32px 40px 48px;
+  background: #f9f9f9;
 }
 .legacy-page > .legacy-page {
   padding: 0;
@@ -6245,25 +6674,27 @@ button.agent-card:hover,
 }
 .legacy-page-header {
   display: flex;
-  min-height: 68px;
+  min-height: 62px;
   align-items: flex-start;
   justify-content: space-between;
   gap: 24px;
-  padding-bottom: 22px;
-  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 0;
+  border-bottom: 0;
 }
 .legacy-page-header h1 {
-  margin: 0 0 5px;
-  font-size: 24px;
-  line-height: 1.25;
-  letter-spacing: -0.02em;
+  margin: 0;
+  font-size: 28px;
+  line-height: 38px;
+  letter-spacing: 0;
+  font-weight: 650;
 }
 .legacy-page-header p,
 .section-heading p {
   max-width: 68ch;
   margin: 0;
-  color: var(--text-quaternary);
-  font-size: 13px;
+  color: #8c8c8c;
+  font-size: 14px;
+  line-height: 24px;
 }
 .page-actions {
   display: flex;
@@ -6301,6 +6732,21 @@ button.agent-card:hover,
   background: var(--brand);
   border-color: var(--brand);
 }
+.legacy-page-header .legacy-button.primary {
+  min-height: 32px;
+  padding: 0 12px;
+  color: #fdfdfd;
+  background: #141414;
+  border-color: #141414;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: none;
+}
+.legacy-page-header .legacy-button.primary:hover:not(:disabled) {
+  background: #2a2a2a;
+  border-color: #2a2a2a;
+}
 .legacy-button.primary:hover:not(:disabled) {
   background: var(--brand-hover);
   border-color: var(--brand-hover);
@@ -6329,23 +6775,29 @@ button.agent-card:hover,
 
 .waker-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 14px;
-  padding-top: 22px;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 329px));
+  gap: 12px;
+  padding-top: 24px;
 }
 .waker-tabs {
   display: flex;
-  gap: var(--space-2);
-  margin-top: 18px;
-  border-bottom: 1px solid var(--border-subtle);
+  width: 218px;
+  gap: 2px;
+  margin-top: 24px;
+  padding: 4px;
+  background: #ededed;
+  border: 0;
+  border-radius: 6px;
 }
 .waker-tab {
-  min-height: 34px;
-  padding: 0 var(--space-2);
-  color: var(--text-tertiary);
-  font-size: 13px;
-  font-weight: 600;
-  border-bottom: 2px solid transparent;
+  min-height: 28px;
+  flex: 1;
+  padding: 0 10px;
+  color: #8c8c8c;
+  font-size: 12px;
+  font-weight: 500;
+  border: 0;
+  border-radius: 4px;
 }
 .waker-tab:hover {
   color: var(--text-primary);
@@ -6356,8 +6808,9 @@ button.agent-card:hover,
   cursor: not-allowed;
 }
 .waker-tab.active {
-  color: var(--text-primary);
-  border-bottom-color: var(--brand);
+  color: #141414;
+  background: #fff;
+  border-bottom-color: transparent;
 }
 .waker-groups-notice {
   max-width: 64ch;
@@ -6383,21 +6836,21 @@ button.agent-card:hover,
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 20px;
+  gap: 8px;
+  margin-top: 16px;
 }
 .waker-toggle {
   display: inline-flex;
-  min-height: 34px;
+  min-height: 32px;
   align-items: center;
   gap: 6px;
-  padding: 0 11px;
+  padding: 0 10px;
   color: var(--text-tertiary);
   background: var(--bg-primary);
   border: 1px solid var(--border-default);
-  border-radius: 7px;
-  font-size: 13px;
-  font-weight: 600;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 400;
   transition:
     background 150ms ease,
     border-color 150ms ease;
@@ -6420,16 +6873,16 @@ button.agent-card:hover,
 }
 .waker-env-button {
   display: inline-flex;
-  min-height: 34px;
+  min-height: 32px;
   align-items: center;
   gap: 6px;
-  padding: 0 11px;
+  padding: 0 10px;
   color: var(--text-secondary);
   background: var(--bg-primary);
   border: 1px solid var(--border-default);
-  border-radius: 7px;
-  font-size: 13px;
-  font-weight: 600;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 400;
   transition:
     background 150ms ease,
     border-color 150ms ease;
@@ -6491,16 +6944,18 @@ button.agent-card:hover,
 }
 .waker-toolbar-search {
   display: flex;
-  flex: 1;
-  max-width: 420px;
+  flex: 0 0 220px;
+  max-width: 220px;
   min-width: 220px;
-  min-height: 38px;
+  min-height: 32px;
   align-items: center;
   gap: 8px;
-  padding: 0 11px;
+  margin-left: auto;
+  padding: 0 10px;
   color: var(--text-quaternary);
-  background: var(--bg-secondary);
-  border-radius: 8px;
+  background: #fff;
+  border: 1px solid #dedede;
+  border-radius: 4px;
 }
 .waker-toolbar-search input {
   flex: 1;
@@ -6535,18 +6990,18 @@ button.agent-card:hover,
   gap: 8px;
 }
 .waker-card-role {
-  margin-left: 8px;
-  padding: 2px 7px;
-  color: var(--text-tertiary);
-  background: var(--bg-secondary);
-  border-radius: var(--radius-full);
-  font-size: 11px;
-  font-weight: 500;
+  margin-left: 7px;
+  padding: 0;
+  color: #8c8c8c;
+  background: transparent;
+  border-radius: 0;
+  font-size: 12px;
+  font-weight: 400;
   vertical-align: middle;
 }
 .waker-card-device {
-  margin: 0 0 6px;
-  color: var(--text-quaternary);
+  margin: 0;
+  color: #168cff;
   font-size: 12px;
 }
 .waker-more {
@@ -6600,27 +7055,38 @@ button.agent-card:hover,
   font-variant-numeric: tabular-nums;
 }
 .waker-card {
+  position: relative;
   min-width: 0;
-  padding: 20px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-subtle);
-  border-radius: 12px;
+  height: 149px;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 16px 12px 12px;
+  background: #fff;
+  border: 1px solid #e6e6e6;
+  border-radius: 6px;
+  box-shadow: 0 1px 2px rgba(12, 12, 13, 0.05);
   transition:
     border-color 150ms ease,
     box-shadow 150ms ease;
 }
 .waker-card:hover {
-  border-color: #b8d8c9;
-  box-shadow: 0 6px 20px rgba(24, 63, 46, 0.07);
+  border-color: #d6d6d6;
+  box-shadow: 0 2px 5px rgba(12, 12, 13, 0.08);
 }
-.waker-card-head {
+.waker-card-identity {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+  height: 70px;
 }
 .waker-card h2 {
-  margin: 18px 0 5px;
-  font-size: 17px;
+  margin: 0;
+  overflow: hidden;
+  font-size: 16px;
+  line-height: 22px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 /* 卡片上半区（头像/名称/角色/设备/描述）整体是指向 Waker Home 的链接按钮。 */
 .waker-card-open {
@@ -6635,26 +7101,79 @@ button.agent-card:hover,
   border-radius: var(--radius-md);
   cursor: pointer;
 }
+.waker-card-copy {
+  min-width: 0;
+  flex: 1;
+}
+.waker-card-presence {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 22px;
+  color: #8c8c8c;
+  font-size: 12px;
+}
+.waker-card .agent-chip.qoderwake-avatar {
+  width: 48px;
+  height: 48px;
+  border: 0;
+  border-radius: 50%;
+  background: #d6f5ec;
+  color: #141414;
+  font-size: 18px;
+}
 .waker-card-open:focus-visible {
   outline: 2px solid var(--brand);
   outline-offset: 3px;
 }
-.waker-card-open > p {
-  min-height: 42px;
-  margin: 0;
-  color: var(--text-tertiary);
-  font-size: 13px;
+.waker-card-open p {
+  display: -webkit-box;
+  margin: 1px 0 0;
+  overflow: hidden;
+  color: #8c8c8c;
+  font-size: 12px;
+  line-height: 18px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
 }
 .waker-actions {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  left: 12px;
   display: flex;
+  width: auto;
+  max-width: none;
+  min-width: 0;
   align-items: center;
-  gap: 7px;
-  margin-top: 20px;
-  padding-top: 15px;
-  border-top: 1px solid var(--border-tertiary);
+  gap: 12px;
+  margin-top: 0;
+  padding-top: 8px;
+  border-top: 1px solid #e6e6e6;
 }
 .waker-actions {
   flex-wrap: wrap;
+}
+.waker-actions .legacy-button,
+.waker-actions .legacy-button.primary {
+  min-height: 28px;
+  padding: 0 4px;
+  color: #5d5d5d;
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  box-shadow: none;
+  font-size: 12px;
+  font-weight: 400;
+}
+.waker-actions .legacy-button:hover:not(:disabled),
+.waker-actions .legacy-button.primary:hover:not(:disabled) {
+  color: #141414;
+  background: #f3f3f3;
+  border-color: transparent;
+}
+.waker-actions .waker-more {
+  margin-left: auto;
 }
 .waker-onboarding {
   margin-top: var(--space-5);
@@ -7862,7 +8381,7 @@ button.agent-card:hover,
 }
 
 /* ===== Files 面板 ===== */
-/* 右侧 360px 只读文件浏览器（Fleet Files 面板，§8：border-l、无边框搜索框、26×26 图标按钮） */
+/* 右侧 360px 只读文件浏览器（旧实现 Files 面板，§8：border-l、无边框搜索框、26×26 图标按钮） */
 /* 同 config-panel：Motion 驱动 width 展开，frame 固定 360px 宽防挤压 */
 .files-panel {
   flex: none;

@@ -8,7 +8,7 @@ Accepted — 2026-08-28
 
 Waker 复现 QoderWake 0.4.2 的本地核心体验，但旧版恢复源码包含 Qoder CLI/SDK、云端 QMind、远程机器、企业 IM 与兼容事件层。新项目不复制这些专有依赖，而以当前 TypeScript 生态重新建立可运行、可测试的边界。
 
-工程骨架参考 `codex-samples`，产品范围与行为证据来自 `docs/audit/legacy-0.4.2-feature-matrix.md` 和 `docs/architecture/legacy-backend-migration.md`。
+工程边界由本 ADR 固定；产品范围与行为只以 `docs/audit/legacy-0.4.2-feature-matrix.md`、`docs/architecture/legacy-backend-migration.md` 和可运行的 QoderWake 0.4.2 daemon 为证据。其他产品工程不得作为 UI、路由或交互模板。
 
 ## 决策
 

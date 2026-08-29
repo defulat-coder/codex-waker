@@ -319,11 +319,11 @@ The composer is the signature working surface: a 12px rounded, 1px bordered cont
 - **Do** distinguish manual Board Tasks from read-only host-derived projections, and preserve their ordered timeline and source links.
 - **Do** label Skills as workspace-shared, show exact locator/source/integrity metadata, and require a risk confirmation for third-party installation.
 - **Do** apply the shared focus lifecycle to every modal: initial focus, Tab containment, Escape dismissal, and trigger restoration.
-- **Do** record the source and license of every shipping raster asset; the current shipped web surface uses SVG marks and WOFF2 fonts and contains no raster asset.
+- **Do** record the source and license of every shipping raster asset; the avatar library uses user-supplied images with derivation details recorded in `apps/web/public/avatars/high-quality-100/README.md`.
 
 ### Don't:
 
-- **Don't** reintroduce Fleet's visual identity, marketing-style hero composition, billing/quota decoration, or unsupported cloud-integration theater.
+- **Don't** introduce another product's visual identity, marketing-style hero composition, unsupported billing decoration, or cloud-integration theater without QoderWake evidence.
 - **Don't** replace the cool neutral canvas with large green fields, gradients, glass effects, or decorative elevation.
 - **Don't** invent token names outside the shared `--bg-*`, `--text-*`, `--border-*`, `--radius-*`, `--space-*`, `--duration-*`, and documented shadow vocabulary.
 - **Don't** use `--popover-shadow` as `box-shadow`; it is a `filter: drop-shadow(...)` group.

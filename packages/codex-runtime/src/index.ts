@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { join } from 'node:path';
 import { Codex, type Input, type Thread, type ThreadOptions } from '@openai/codex-sdk';
+import { prepareProjectCodexHome } from './codex-home.js';
 import type { ChatCitationSource, ChatStreamEvent, ChatUsage } from '@waker/contracts';
 import { getAgent, type AgentDefinition } from './agents.js';
 import {
@@ -190,7 +190,8 @@ export function wrapThreadWithPersona(
 
 /**
  * Creates one Codex Thread for an agent bound to one immutable workbench session.
- * The CLI owns rollout persistence (CODEX_HOME points at the project .codex);
+ * The CLI owns rollout persistence. Its per-project runtime home stays outside the repo,
+ * while sessions/skills/config map back to project .codex and auth stays in the user Codex home.
  * the workbench store only records the session ↔ agent ↔ threadId binding.
  * Sandbox defaults to read-only + never-approve; HITL approvals are out of scope.
  */
@@ -226,7 +227,10 @@ export async function createCodexAgentSession(
   const reasoningEffort = getCodexReasoningEffort(options.reasoningEffort, cwd);
   const sandbox = getCodexSandboxConfig(cwd);
   const provider = getCodexProviderConfig(cwd, model);
-  const env: Record<string, string> = { ...inheritedEnv(), CODEX_HOME: join(cwd, '.codex') };
+  const env: Record<string, string> = {
+    ...inheritedEnv(),
+    CODEX_HOME: prepareProjectCodexHome(cwd),
+  };
   if (provider?.envKey && !env[provider.envKey]) {
     throw new Error(`模型提供方需要 API key：请在 .env 配置 ${provider.envKey}`);
   }
@@ -581,8 +585,8 @@ export interface CodexOneShotOptions {
 }
 
 /**
- * 不绑定会话的一次性调用：独立 thread、不写 workbench 绑定（rollout 仍由 CLI 落在
- * CODEX_HOME/sessions），用于 memory 提取等后台维护任务，不污染用户会话上下文。
+ * 不绑定会话的一次性调用：独立 thread、不写 workbench 绑定（rollout 仍由 CLI 通过
+ * runtime home 的 sessions 映射落在项目 .codex/sessions），用于 memory 提取等后台维护任务。
  */
 export async function runCodexOneShot(
   prompt: string,
@@ -593,7 +597,10 @@ export async function runCodexOneShot(
   const reasoningEffort = getCodexReasoningEffort(options.reasoningEffort, cwd);
   const sandbox = getCodexSandboxConfig(cwd);
   const provider = getCodexProviderConfig(cwd, model);
-  const env: Record<string, string> = { ...inheritedEnv(), CODEX_HOME: join(cwd, '.codex') };
+  const env: Record<string, string> = {
+    ...inheritedEnv(),
+    CODEX_HOME: prepareProjectCodexHome(cwd),
+  };
   if (provider?.envKey && !env[provider.envKey]) {
     throw new Error(`模型提供方需要 API key：请在 .env 配置 ${provider.envKey}`);
   }

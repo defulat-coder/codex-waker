@@ -14,8 +14,6 @@ const AGENT_OUTPUT_LANGUAGE_VALUES: readonly AgentOutputLanguage[] = ['zh-CN', '
 export interface UiPreferences {
   /** 消息紧凑模式：缩小会话消息的纵向间距，立即生效。 */
   compactMessages: boolean;
-  /** 侧边栏默认收起：刷新页面后生效。 */
-  sidebarCollapsed: boolean;
   /** 主题亮暗：立即生效，auto 时跟随系统。 */
   theme: ThemePreference;
   /** AI 回复语言：只影响新建会话。 */
@@ -24,14 +22,12 @@ export interface UiPreferences {
 
 export const DEFAULT_UI_PREFERENCES: UiPreferences = {
   compactMessages: false,
-  sidebarCollapsed: false,
   theme: 'auto',
   agentOutputLanguage: '',
 };
 
 const PREFERENCE_KEYS: Record<keyof UiPreferences, string> = {
   compactMessages: 'waker.pref.compact-messages',
-  sidebarCollapsed: 'waker.pref.sidebar-collapsed',
   theme: 'waker.pref.theme',
   agentOutputLanguage: 'waker.pref.agent-output-language',
 };
@@ -69,7 +65,6 @@ export function readUiPreferences(
   };
   return {
     compactMessages: read('compactMessages'),
-    sidebarCollapsed: read('sidebarCollapsed'),
     theme: read('theme'),
     agentOutputLanguage: read('agentOutputLanguage'),
   };
@@ -93,7 +88,6 @@ export function writeUiPreference<K extends keyof UiPreferences>(
 /** Server-side key (SQLite preferences table) for one UI preference. */
 const SERVER_KEYS: Record<keyof UiPreferences, string> = {
   compactMessages: 'ui.compact-messages',
-  sidebarCollapsed: 'ui.sidebar-collapsed',
   theme: 'ui.theme',
   agentOutputLanguage: 'ui.agent-output-language',
 };

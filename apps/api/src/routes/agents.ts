@@ -15,6 +15,7 @@ import {
   codexThreadRegistry,
   createAgent,
   deleteAgent,
+  deletePreference,
   importAgent,
   listAgentResources,
   listCodexModels,
@@ -234,6 +235,7 @@ export function registerAgentRoutes(app: FastifyInstance, ctx: AppContext): void
       if (!agentOr404(ctx, agentId, reply)) return;
       const sessions = await ctx.sessions.listSessions(agentId);
       const resources = listAgentResources(ctx.cwd);
+      const memoryScope = { type: 'waker' as const, id: agentId };
       return {
         agentId,
         sessions: sessions.length,
@@ -245,6 +247,10 @@ export function registerAgentRoutes(app: FastifyInstance, ctx: AppContext): void
         tasks: ctx.workspaceData.queryTasks(agentId).total,
         humanActions: ctx.workspaceData.queryHumanActions(agentId).total,
         connectors: ctx.workspaceData.listConnectors(agentId).length,
+        memories: ctx.memory.list({ scope: memoryScope }).length,
+        knowledgeBindings: ctx.knowledge
+          .listBindings()
+          .filter((item) => item.scopeType === 'waker' && item.scopeId === agentId).length,
         sharedSkills: resources.skills.length,
         behavior: {
           definition: 'delete',
@@ -252,6 +258,8 @@ export function registerAgentRoutes(app: FastifyInstance, ctx: AppContext): void
           projects: 'delete-record-only',
           board: 'soft-delete-history',
           connectors: 'delete',
+          memories: 'soft-delete',
+          knowledgeBindings: 'delete',
           skills: 'shared-preserve',
         },
       };
@@ -304,6 +312,19 @@ export function registerAgentRoutes(app: FastifyInstance, ctx: AppContext): void
           .filter((value) => value.wakerId === agentId)) {
           ctx.workspaceData.deleteProject(agentId, project.id);
         }
+        const memoryScope = { type: 'waker' as const, id: agentId };
+        for (const memory of ctx.memory.list({ scope: memoryScope }))
+          ctx.memory.delete(memory.id, { expectedVersion: memory.version, scope: memoryScope });
+        for (const binding of ctx.knowledge
+          .listBindings()
+          .filter((item) => item.scopeType === 'waker' && item.scopeId === agentId)) {
+          ctx.knowledge.unbindNotebook(binding.notebookId, {
+            scopeType: 'waker',
+            scopeId: agentId,
+          });
+        }
+        deletePreference(ctx.cwd, `thinking.${agentId}`);
+        deletePreference(ctx.cwd, `model.${agentId}`);
         // Catch requests that passed their first guard immediately before deletion began.
         await deleteSessions();
         ctx.sessions.deleteSidebarSections(agentId);

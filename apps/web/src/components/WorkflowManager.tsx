@@ -312,11 +312,14 @@ export function WorkflowManager({
   notify,
   onOpenSession,
   initialWorkflowId,
+  startAtList = false,
 }: {
   wakerId: string;
   notify: (text: string) => void;
   onOpenSession?: (sessionId: string) => void;
   initialWorkflowId?: string;
+  /** 顶层 WakerFlow 入口先展示原版卡片列表；Waker 详情入口可直接打开详情。 */
+  startAtList?: boolean;
 }) {
   const [items, setItems] = useState<WakerWorkflowSummary[] | null>(null);
   const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([]);
@@ -427,7 +430,11 @@ export function WorkflowManager({
             .map(({ id, name }) => ({ id, name })),
         );
         setSelectedId((current) =>
-          workflows.some((item) => item.id === current) ? current : (workflows[0]?.id ?? ''),
+          workflows.some((item) => item.id === current)
+            ? current
+            : startAtList
+              ? ''
+              : (workflows[0]?.id ?? ''),
         );
         setError('');
         setRefreshError('');
@@ -439,7 +446,7 @@ export function WorkflowManager({
         else setError(message);
       }
     },
-    [wakerId],
+    [startAtList, wakerId],
   );
 
   const loadRuns = useCallback(
@@ -974,8 +981,10 @@ export function WorkflowManager({
     <section className="legacy-page workflow-manager" aria-labelledby="workflows-title">
       <header className="legacy-page-header">
         <div>
-          <h1 id="workflows-title">WakerFlow</h1>
-          <p>用可验证的节点定义编排本地任务，并从每次运行继续、回看或重试。</p>
+          <h1 id="workflows-title">WakerFlow 管理</h1>
+          <p>
+            用可复用脚本编排多个 Waker 协同处理复杂任务，适用于代码审查、批量迁移和交叉验证等场景，执行路径更确定，产出结果更可靠。
+          </p>
         </div>
         <button
           ref={createTriggerRef}
@@ -984,7 +993,7 @@ export function WorkflowManager({
           onClick={() => openEditor({ ...EMPTY_EDITOR }, 'create')}
         >
           <Plus size={15} />
-          新建流程
+          新建 WakerFlow
         </button>
       </header>
 
@@ -1022,7 +1031,7 @@ export function WorkflowManager({
           <i />
         </div>
       ) : (
-        <div className="workflow-workspace">
+        <div className={cx('workflow-workspace', !selectedId && !editor && 'list-only')}>
           <nav
             ref={workflowListRef}
             className="workflow-list"
@@ -1048,6 +1057,7 @@ export function WorkflowManager({
                   <small>
                     v{item.version} · {item.nodeCount} 个节点
                   </small>
+                  <p>{item.description || '该 WakerFlow 暂无描述。'}</p>
                 </span>
                 <span className={cx('resource-status', item.status)}>
                   {STATUS_TEXT[item.status] ?? item.status}
@@ -1450,8 +1460,12 @@ export function WorkflowManager({
               </div>
             ) : (
               <div className="automation-empty">
-                <h2>创建第一个 WakerFlow</h2>
-                <p>用 JSON 节点定义连接 Codex、判断、等待、人工输入和子流程。</p>
+                <h2>{items.length ? '选择一个 WakerFlow' : '创建第一个 WakerFlow'}</h2>
+                <p>
+                  {items.length
+                    ? '从列表中选择一个 WakerFlow 查看定义、版本和运行记录。'
+                    : '用 JSON 节点定义连接 Codex、判断、等待、人工输入和子流程。'}
+                </p>
                 <button
                   className="legacy-button primary"
                   type="button"

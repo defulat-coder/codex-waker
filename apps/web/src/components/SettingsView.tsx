@@ -255,17 +255,6 @@ export function SettingsView({
                   />
                 </dd>
               </div>
-              <div className="settings-row">
-                <dt>侧边栏默认收起</dt>
-                <dd className="settings-row-toggle">
-                  <span className="settings-row-hint">刷新页面后生效</span>
-                  <Toggle
-                    label="侧边栏默认收起"
-                    checked={preferences.sidebarCollapsed}
-                    onChange={(value) => onPreferenceChange('sidebarCollapsed', value)}
-                  />
-                </dd>
-              </div>
             </dl>
           </section>
         </motion.div>

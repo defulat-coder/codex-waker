@@ -440,8 +440,25 @@ export function BoardView({
           }),
         },
       );
-      await readJson<BoardTaskRecord>(response, '手工任务暂时无法保存');
+      const saved = await readJson<BoardTaskRecord>(response, '手工任务暂时无法保存');
       if (ownerRef.current !== owner) return;
+      setDetail((current) =>
+        current?.id === saved.id
+          ? {
+              ...current,
+              ...saved,
+              timeline: [
+                ...current.timeline,
+                {
+                  id: `updated:${saved.version ?? current.timeline.length + 1}`,
+                  label: 'updated',
+                  status: saved.status,
+                  createdAt: saved.updatedAt,
+                },
+              ],
+            }
+          : current,
+      );
       closeEditor();
       await load();
       notify(editor.id ? '手工任务已更新' : '手工任务已创建');

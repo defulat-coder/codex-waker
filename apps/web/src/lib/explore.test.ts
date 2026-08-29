@@ -47,7 +47,7 @@ describe('agent templates', () => {
 });
 
 describe('blankAgentRequest', () => {
-  it('projects the short Fleet form onto a complete local definition', () => {
+  it('projects the short 旧实现 form onto a complete local definition', () => {
     const request = blankAgentRequest(
       'Support Triage',
       'Routes support requests.',

@@ -45,7 +45,7 @@ import { useWorkspace } from '../context/WorkspaceContext.js';
 import { AgentChip } from './AgentChip.js';
 import { AgentBodySections } from './AgentBodySections.js';
 
-/** Fleet configure 面板的通栏折叠节：48px 头 + 高度动画内容区。 */
+/** 旧实现 configure 面板的通栏折叠节：48px 头 + 高度动画内容区。 */
 function ConfigSection({
   icon,
   title,
@@ -164,7 +164,7 @@ function BasicSection({
   );
 }
 
-/** Fleet「Agent files」Source 编辑的本地对应：frontmatter 字段 input + suggestions 增删列表 + body 大 textarea。 */
+/** 旧实现「Agent files」Source 编辑的本地对应：frontmatter 字段 input + suggestions 增删列表 + body 大 textarea。 */
 function EditSection({
   draft,
   saving,
@@ -614,7 +614,7 @@ function RuntimeSection({
   );
 }
 
-/** 右侧 479px 配置面板（aside，内嵌非遮罩），分节折叠对齐 Fleet configure 结构。 */
+/** 右侧 479px 配置面板（aside，内嵌非遮罩），分节折叠对齐 旧实现 configure 结构。 */
 export function ConfigPanel({
   agentId,
   onClose,

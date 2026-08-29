@@ -2,8 +2,7 @@ import { createContext, useContext, type ReactNode } from 'react';
 import type { SessionSummary, WorkspaceResponse } from '@waker/contracts';
 
 /**
- * 跨组件（Sidebar / Composer / ExploreAgents / InboxView / CommandPalette / SkillsView /
- * ConfigPanel）共享的工作区数据分发。App 顶层的数据获取逻辑不变，只把下发方式从逐层
+ * 跨 Composer、Skills、配置和 Waker 管理组件共享工作区数据。App 顶层的数据获取逻辑不变，只把下发方式从逐层
  * props 换成 context；只传给单个子组件的状态仍走 props。
  */
 export interface WorkspaceContextValue {

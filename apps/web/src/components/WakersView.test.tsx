@@ -61,6 +61,8 @@ function impact(agentId: string, sessions: number): AgentDeleteImpact {
     tasks: 0,
     humanActions: 0,
     connectors: 0,
+    memories: 1,
+    knowledgeBindings: 2,
     sharedSkills: 1,
     behavior: {
       definition: 'delete',
@@ -68,6 +70,8 @@ function impact(agentId: string, sessions: number): AgentDeleteImpact {
       projects: 'delete-record-only',
       board: 'soft-delete-history',
       connectors: 'delete',
+      memories: 'soft-delete',
+      knowledgeBindings: 'delete',
       skills: 'shared-preserve',
     },
   };
@@ -166,12 +170,12 @@ describe('WakersView 管理视图', () => {
     fireEvent.click(screen.getByRole('tab', { name: '我的群组' }));
     assert.ok(screen.getByText('云端多 Waker 群组在本地模式不可用'));
     assert.ok(screen.getByText(/本地聊天以单个 Waker 为单位/));
-    assert.equal(screen.queryByRole('button', { name: /新建 Waker/ }), null);
+    assert.equal(screen.queryByRole('button', { name: /新建Waker/ }), null);
     assert.equal(screen.queryByRole('button', { name: /新建群组/ }), null);
     assert.equal(screen.queryByRole('article'), null);
     // 切回「我的Waker」恢复卡片与头部操作。
     fireEvent.click(screen.getByRole('tab', { name: '我的Waker' }));
-    assert.ok(screen.getByRole('button', { name: /新建 Waker/ }));
+    assert.ok(screen.getByRole('button', { name: /新建Waker/ }));
     assert.ok(screen.getByRole('heading', { name: /Agent A/ }));
   });
 
@@ -216,7 +220,7 @@ describe('WakersView 管理视图', () => {
     renderWakers();
     const card = screen.getByRole('heading', { name: /Agent A/ }).closest('article')!;
     assert.ok(within(card).getByText('在线'));
-    assert.ok(within(card).getByText(`本机 ${HOST}`));
+    assert.ok(within(card).getByText('本机'));
     assert.ok(within(card).getByRole('button', { name: /创建对话任务/ }));
     assert.ok(within(card).getByRole('button', { name: /创建自动任务/ }));
   });
@@ -226,7 +230,7 @@ describe('WakersView 管理视图', () => {
     const card = screen.getByRole('heading', { name: /Agent A/ }).closest('article')!;
     const openLink = within(card).getByRole('button', { name: '查看 Agent A 的角色详情' });
     // 详情入口包住头像、名称、设备与描述，不影响既有操作按钮。
-    assert.ok(openLink.contains(within(card).getByText(`本机 ${HOST}`)));
+    assert.ok(openLink.contains(within(card).getByText('本机')));
     fireEvent.click(openLink);
     assert.deepEqual(calls.onOpenHome, ['agent-a']);
     assert.deepEqual(calls.onChat, [], '详情入口不应触发对话');

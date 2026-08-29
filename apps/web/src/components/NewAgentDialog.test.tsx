@@ -1,6 +1,6 @@
 import { afterEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { AgentTemplate } from '@waker/contracts';
 import { NewAgentDialog } from './NewAgentDialog.js';
 
@@ -33,6 +33,10 @@ function installApi(calls: Call[], options: { failAvatar?: boolean } = {}) {
       ? (JSON.parse(String(init.body)) as Record<string, unknown>)
       : undefined;
     calls.push({ url, method, body });
+    if (url.startsWith('/avatars/high-quality-100/'))
+      return new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xd9]), {
+        headers: { 'content-type': 'image/jpeg' },
+      });
     if (url.endsWith('/api/v1/agent-templates')) return json({ items: [TEMPLATE] });
     if (url.endsWith('/api/v1/agents') && method === 'POST') {
       return json({ id: body?.id, name: body?.name, mark: body?.mark }, 201);
@@ -87,8 +91,9 @@ describe('NewAgentDialog', () => {
     assert.ok(nameInput());
     assert.ok(screen.getByText('简介'));
     assert.ok(screen.getByText('头像'));
-    assert.ok(screen.getByRole('button', { name: '上传头像' }));
-    assert.ok(screen.getByText('支持 PNG / JPG，文件大小不超过 2 MB'));
+    assert.ok(screen.getByRole('button', { name: '选择内置头像' }));
+    assert.ok(screen.getByRole('button', { name: '上传本地头像' }));
+    assert.ok(screen.getByText(/内置头像已优化为 160×160/));
     assert.ok(screen.getByText('本机 test-host（当前设备）· 在线'));
     assert.ok(screen.getByRole('button', { name: '保存并启用' }));
     assert.ok(calls.some((call) => call.url.endsWith('/api/v1/agent-templates')));
@@ -186,6 +191,25 @@ describe('NewAgentDialog', () => {
     );
     const uploadIndex = calls.findIndex((call) => call.url.endsWith('/avatar'));
     assert.ok(createIndex >= 0 && uploadIndex > createIndex);
+  });
+
+  it('paginates the built-in library and uploads the selected optimized avatar', async () => {
+    const calls: Call[] = [];
+    installApi(calls);
+    const { created } = renderDialog();
+    await screen.findByRole('option', { name: /自定义角色/ });
+    fireEvent.change(nameInput(), { target: { value: 'Avatar Library Bot' } });
+    fireEvent.click(screen.getByRole('button', { name: '选择内置头像' }));
+    const library = screen.getByRole('listbox', { name: '内置头像' });
+    assert.equal(within(library).getAllByRole('option').length, 20);
+    assert.ok(screen.getByText('1 / 5'));
+    fireEvent.click(within(library).getByRole('option', { name: '头像 001' }));
+    assert.ok(await screen.findByAltText('头像预览'));
+    submitDialog();
+    await waitFor(() => assert.deepEqual(created, ['avatar-library-bot']));
+    const upload = calls.find((call) => call.url.endsWith('/avatar') && call.method === 'PUT');
+    assert.equal(upload?.body?.mimeType, 'image/jpeg');
+    assert.ok(calls.some((call) => call.url.endsWith('/waker-avatar-hq-001.jpg')));
   });
 
   it('keeps the created Waker and reports when the avatar upload fails after create', async () => {

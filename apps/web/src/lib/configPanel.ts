@@ -3,7 +3,7 @@ import { defaultStorage, type StorageLike } from './storage.js';
 
 export type ConfigSectionId = 'basic' | 'resources' | 'runtime';
 
-/** 默认展开前两节（基本信息、资源），对应 Fleet 面板的首屏重点。 */
+/** 默认展开前两节（基本信息、资源），对应 旧实现 面板的首屏重点。 */
 export const DEFAULT_OPEN_SECTIONS: readonly ConfigSectionId[] = ['basic', 'resources'];
 
 /** Toggles one section id in the open-section list. */

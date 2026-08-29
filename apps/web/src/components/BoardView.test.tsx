@@ -258,6 +258,25 @@ describe('BoardView', () => {
     await waitFor(() => assert.ok(document.activeElement === row));
   });
 
+  it('keeps an open manual task detail synchronized after editing', async () => {
+    const calls: Call[] = [];
+    installApi(calls);
+    render(<BoardView wakerId="waker-one" notify={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: '整理验收记录' }));
+    const detail = await screen.findByRole('complementary', { name: '整理验收记录' });
+    fireEvent.click(within(detail).getByRole('button', { name: '编辑' }));
+    const dialog = screen.getByRole('dialog', { name: '编辑手工任务' });
+    fireEvent.change(within(dialog).getByLabelText('状态'), { target: { value: 'running' } });
+    fireEvent.change(within(dialog).getByLabelText('优先级'), { target: { value: 'high' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: '保存' }));
+    await waitFor(() => {
+      assert.ok(within(detail).getByText('运行中'));
+      assert.ok(within(detail).getByText('high'));
+      assert.ok(within(detail).getByText('v4'));
+      assert.ok(within(detail).getByText(/running/));
+    });
+  });
+
   it('keeps stale task responses from the previous Waker out of the UI', async () => {
     let resolveOld!: (response: Response) => void;
     const old = new Promise<Response>((resolve) => {

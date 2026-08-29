@@ -29,13 +29,11 @@ describe('UI preferences', () => {
   it('reads persisted values and ignores unknown ones', () => {
     const storage = memoryStorage({
       'waker.pref.compact-messages': '1',
-      'waker.pref.sidebar-collapsed': 'yes',
       'waker.pref.theme': 'dark',
       'waker.pref.agent-output-language': 'fr-FR',
     });
     assert.deepEqual(readUiPreferences(storage), {
       compactMessages: true,
-      sidebarCollapsed: false,
       theme: 'dark',
       agentOutputLanguage: '',
     });
@@ -80,8 +78,8 @@ describe('UI preferences', () => {
         throw new Error('denied');
       },
     };
-    const next = writeUiPreference(DEFAULT_UI_PREFERENCES, 'sidebarCollapsed', true, failing);
-    assert.equal(next.sidebarCollapsed, true);
+    const next = writeUiPreference(DEFAULT_UI_PREFERENCES, 'compactMessages', true, failing);
+    assert.equal(next.compactMessages, true);
     assert.deepEqual(readUiPreferences(failing), DEFAULT_UI_PREFERENCES);
   });
 

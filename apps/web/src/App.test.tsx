@@ -84,7 +84,7 @@ function stubFetch(): FetchCall[] {
         model: { available: [] },
         thinkingLevel: 'medium',
         resources: { agents: 1, prompts: 0, skills: 0, appendSystem: false },
-        workspace: { name: 'codex-samples', sessionDir: '.codex/sessions' },
+        workspace: { name: 'local-workspace', sessionDir: '.codex/sessions' },
       });
     }
     if (url.includes('/api/v1/preferences')) return jsonResponse({ items: {} });
@@ -101,21 +101,10 @@ function stubFetch(): FetchCall[] {
   return calls;
 }
 
-/** 打开会话：等会话列表出现并点击对应行。 */
-async function ensureSessionListOpen() {
-  const expand = await screen.findByRole('button', { name: '展开会话列表' });
-  fireEvent.click(expand);
-}
-
 async function openSession(title: string) {
-  await waitFor(() =>
-    assert.ok(
-      screen.queryByRole('button', { name: new RegExp(title) }) ||
-        screen.queryByRole('button', { name: '展开会话列表' }),
-    ),
-  );
-  const expand = screen.queryByRole('button', { name: '展开会话列表' });
-  if (expand) fireEvent.click(expand);
+  const chat = await screen.findByRole('button', { name: 'Chat' });
+  if (chat.getAttribute('aria-current') !== 'page') fireEvent.click(chat);
+  fireEvent.click(await screen.findByRole('button', { name: '任务列表' }));
   const row = await screen.findByRole('button', { name: new RegExp(title) });
   fireEvent.click(row);
 }
@@ -141,13 +130,12 @@ describe('App 会话视图', () => {
         '挂载后应拉取收件箱',
       ),
     );
-    await ensureSessionListOpen();
-    assert.ok(
-      await screen.findByRole('button', { name: /排查构建失败/ }),
-      '会话列表应渲染服务端会话',
-    );
+    assert.ok(await screen.findByRole('heading', { name: '我的Wakers' }));
     const badge = await screen.findByLabelText('1 个未读会话');
     assert.equal(badge.textContent, '1');
+    fireEvent.click(screen.getByRole('button', { name: 'Chat' }));
+    assert.ok(await screen.findByRole('complementary', { name: 'Chat 会话' }));
+    assert.ok(screen.getByRole('button', { name: /Nova/ }));
   });
 
   it('点击会话行打开会话并回放历史消息', async () => {
@@ -233,7 +221,7 @@ describe('App 会话视图', () => {
 
     render(<App />);
     fireEvent.click(await screen.findByRole('button', { name: 'Waker 管理' }));
-    fireEvent.click(await screen.findByRole('button', { name: '新建 Waker' }));
+    fireEvent.click(await screen.findByRole('button', { name: '新建Waker' }));
     fireEvent.change(screen.getByLabelText('名称 *'), {
       target: { value: 'Fresh Waker' },
     });
@@ -282,7 +270,8 @@ describe('App 会话视图', () => {
     }) as typeof fetch;
 
     const view = render(<App />);
-    await screen.findByText(/开始与 Nova 对话/);
+    fireEvent.click(await screen.findByRole('button', { name: 'Chat' }));
+    await screen.findByText('你好，今天我能帮你什么？');
     const fileInput = view.container.querySelector(
       '.composer input[type="file"]',
     ) as HTMLInputElement;

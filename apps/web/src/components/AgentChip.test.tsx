@@ -12,10 +12,10 @@ describe('AgentChip', () => {
   });
 
   it('合并修饰 className', () => {
-    const { container } = render(<AgentChip mark="Fleet" className="agent-chip--large" />);
+    const { container } = render(<AgentChip mark="Waker" className="agent-chip--large" />);
     const chip = container.querySelector('.agent-chip');
     assert.ok(chip);
-    assert.equal(chip.textContent, 'Fl');
+    assert.equal(chip.textContent, 'Wa');
     assert.ok(chip.className.includes('agent-chip--large'));
   });
 

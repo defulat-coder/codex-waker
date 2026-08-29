@@ -503,7 +503,7 @@ describe('WorkflowManager', () => {
     render(<WorkflowManager wakerId="waker-one" notify={() => {}} />);
     await screen.findByRole('heading', { name: WORKFLOW.name });
 
-    const create = screen.getByRole('button', { name: '新建流程' });
+    const create = screen.getByRole('button', { name: '新建 WakerFlow' });
     fireEvent.click(create);
     assert.equal(document.activeElement, screen.getByLabelText('名称'));
     fireEvent.click(screen.getByRole('button', { name: '取消' }));
@@ -646,7 +646,7 @@ describe('WorkflowManager', () => {
     });
     render(<WorkflowManager wakerId="waker-one" notify={() => {}} />);
     await screen.findByRole('heading', { name: WORKFLOW.name });
-    fireEvent.click(screen.getByRole('button', { name: '新建流程' }));
+    fireEvent.click(screen.getByRole('button', { name: '新建 WakerFlow' }));
 
     const generate = screen.getByRole('button', { name: '生成定义' }) as HTMLButtonElement;
     assert.equal(generate.disabled, true);
@@ -682,7 +682,7 @@ describe('WorkflowManager', () => {
     });
     render(<WorkflowManager wakerId="waker-one" notify={() => {}} />);
     await screen.findByRole('heading', { name: WORKFLOW.name });
-    fireEvent.click(screen.getByRole('button', { name: '新建流程' }));
+    fireEvent.click(screen.getByRole('button', { name: '新建 WakerFlow' }));
     fireEvent.change(screen.getByLabelText('AI 生成定义'), { target: { value: '两步流程' } });
     fireEvent.click(screen.getByRole('button', { name: '生成定义' }));
 

@@ -12,7 +12,7 @@
 - WakerFlow：Waker 归属的严格 JSON 定义（`action`、`codex`、`decision`、`wait`、`ask_user`、`call_workflow`、`terminal`）、不可变版本、diff 与 dry-run/apply rollback；持久化执行器为每个 Run 创建一个 Codex Session，并支持恢复、取消、重试、人工输入、最大 8 层子流程和有界历史/Trace。
 - Skills：项目工作区共享而非 per-Waker；以稳定 locator 展示 `.agents/skills` 仓库 scope、项目 `CODEX_HOME` 下 `.codex/skills` host runtime scope，以及 `skills-lock.json`、frontmatter、调用策略、依赖与文件元数据。Repo Skill 的上传/安装/删除通过固定的 `skills@1.5.23` CLI 完成，host Skill 也会被运行时发现并以 exact locator 管理；skills.sh 明确视为未审查的第三方发现源。
 - 知识库：notebook/document CRUD、Markdown/TXT 批量导入与逐文件反馈、Waker/项目读写或只读绑定、全文/向量/混合检索、行号引用、增量重建与版本冲突保护。
-- 本地状态：浏览器不接触 SDK 或 provider key；SQLite 与 Codex rollout 均保存在项目本地。
+- 本地状态：浏览器不接触 SDK 或 provider key；SQLite 与 Codex rollout 均保存在项目本地。Codex 登录凭据保持在用户级 `~/.codex/auth.json`，项目运行时 Home 只在仓库外引用它。
 
 旧版完整功能范围、优先级和本地降级见 [`docs/audit/legacy-0.4.2-feature-matrix.md`](docs/audit/legacy-0.4.2-feature-matrix.md)。
 

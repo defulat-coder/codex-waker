@@ -48,11 +48,11 @@ Waker 是一个本地优先的多 Agent 工作台。它复现 QoderWake 0.4.2 �
 
 - 产品名称：Waker。
 - 产品语言：中文优先，技术字段和代码保持行业通用英文。
-- 视觉与交互权威：QoderWake 0.4.2 的恢复前端资源；新实现应继承其可识别的工作台结构、信息密度、状态语义和已有品牌资产，而不是延续 `codex-samples` 的 Fleet 外观。
+- 视觉、信息架构、路由、文案与交互的唯一产品权威是 QoderWake 0.4.2 的恢复前端资源和可运行 daemon；本地实现不得混入其他工作台的产品结构。
 
 ## Evidence on Hand
 
-- 工程架构参考：`/Users/xbjt/Documents/myself/codex-samples`。
+- 工程架构权威：本仓库当前的 TypeScript monorepo 边界与 `docs/adr/0001-monorepo-and-codex-boundary.md`；不再引用其他产品工程作为实现模板。
 - 产品与行为参考：`/Users/xbjt/Documents/myself/waker-source/qoderwake-source-archive/versions/0.4.2-cn-6eeb338baf65`。
 - 旧版包含恢复的 daemon/CLI 模块、生产 Web bundle、图标、字体与页面素材；没有原始 Git 历史、完整类型信息或测试。
 - 当前没有可用于产品宣传的客户、指标、定价或商业证明，界面不得虚构此类内容。

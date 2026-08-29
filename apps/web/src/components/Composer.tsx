@@ -355,14 +355,14 @@ export function Composer({
           event.preventDefault();
           void addFiles(files);
         }}
-        placeholder="输入消息，或输入 / 使用提示词…"
+        placeholder="输入消息，@ 选择当前工作区上下文..."
         aria-label="消息输入框"
         rows={1}
       />
 
       <div className="composer-toolbar">
         <div className="composer-toolbar-left">
-          {/* Fleet「+ Actions」：本地语义为打开提示词面板（输入框置为 / 并聚焦） */}
+          {/* 加号打开本地提示词列表。 */}
           <button
             type="button"
             className="composer-actions"
