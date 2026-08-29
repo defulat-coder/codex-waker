@@ -199,8 +199,21 @@ describe('WakersView 管理视图', () => {
     assert.ok(within(menu).getByText(`在线 ${agents.length} 名`));
     assert.ok(within(menu).getByText('本地'));
     assert.ok(within(menu).getByText(`${agents.length} 名员工`));
+    const items = within(menu).getAllByRole('menuitemradio');
+    assert.equal(document.activeElement, items[0]);
+    assert.deepEqual(
+      items.map((item) => item.tabIndex),
+      [-1, -1],
+    );
+    fireEvent.keyDown(items[0]!, { key: 'ArrowDown' });
+    assert.equal(document.activeElement, items[1]);
+    fireEvent.keyDown(items[1]!, { key: 'Escape' });
+    assert.equal(screen.queryByRole('menu', { name: '环境' }), null);
+    assert.equal(document.activeElement, screen.getByRole('button', { name: /环境 \/ 全部环境/ }));
 
-    fireEvent.click(within(menu).getByRole('menuitemradio', { name: new RegExp(HOST) }));
+    fireEvent.click(screen.getByRole('button', { name: /环境 \/ 全部环境/ }));
+    const reopened = screen.getByRole('menu', { name: '环境' });
+    fireEvent.click(within(reopened).getByRole('menuitemradio', { name: new RegExp(HOST) }));
     assert.ok(screen.getByRole('button', { name: new RegExp(`环境 / ${HOST}`) }));
     // 本地只有一台机器：选中本机环境后列表仍是全部 Waker。
     assert.ok(screen.getByRole('heading', { name: /Agent A/ }));
@@ -244,9 +257,20 @@ describe('WakersView 管理视图', () => {
     for (const action of ['配置', '记忆', '能力', '导出', '删除']) {
       assert.ok(within(menu).getByRole('menuitem', { name: action }), `缺少菜单项 ${action}`);
     }
-    const exportLink = within(menu).getByRole('menuitem', { name: '导出' });
+    const trigger = within(card).getByRole('button', { name: 'Agent A 的更多操作' });
+    const menuItems = within(menu).getAllByRole('menuitem');
+    assert.equal(document.activeElement, menuItems[0]);
+    fireEvent.keyDown(menuItems[0]!, { key: 'End' });
+    assert.equal(document.activeElement, menuItems.at(-1));
+    fireEvent.keyDown(menuItems.at(-1)!, { key: 'Escape' });
+    assert.equal(screen.queryByRole('menu', { name: 'Agent A 的更多操作' }), null);
+    assert.equal(document.activeElement, trigger);
+
+    fireEvent.click(trigger);
+    const reopened = screen.getByRole('menu', { name: 'Agent A 的更多操作' });
+    const exportLink = within(reopened).getByRole('menuitem', { name: '导出' });
     assert.equal(exportLink.getAttribute('href'), '/api/v1/agents/agent-a/source');
-    fireEvent.click(within(menu).getByRole('menuitem', { name: '配置' }));
+    fireEvent.click(within(reopened).getByRole('menuitem', { name: '配置' }));
     assert.deepEqual(calls.onConfigure, ['agent-a']);
   });
 

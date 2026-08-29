@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { WorkspaceResponse } from '@waker/contracts';
-import { AnimatePresence, motion } from 'motion/react';
+import { motion } from 'motion/react';
 import { ArrowUp } from '@phosphor-icons/react/dist/icons/ArrowUp';
 import { CaretDown } from '@phosphor-icons/react/dist/icons/CaretDown';
 import { Check } from '@phosphor-icons/react/dist/icons/Check';
@@ -16,7 +16,7 @@ import { fetchPrompt } from '../lib/api.js';
 import { cx } from '../lib/cx.js';
 import { MOTION_EASE } from '../lib/motion.js';
 import { filterPrompts, movePromptSelection, promptQueryFromInput } from '../lib/prompts.js';
-import { useDismissable } from '../hooks/useDismissable.js';
+import { handleCompositeKeyDown, useDismissable } from '../hooks/useDismissable.js';
 import { useWorkspace } from '../context/WorkspaceContext.js';
 import {
   formatAttachmentBytes,
@@ -48,34 +48,33 @@ function ModelMenu({
   selectedModel,
   onSelect,
   onClose,
+  onEscape,
 }: {
   models: ModelCatalog;
   selectedModel: string | undefined;
   onSelect: (model: string | undefined) => void;
   onClose: () => void;
+  onEscape: () => void;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
-
-  useDismissable(ref, onClose);
-
   // workspace 拉取异常时 models 可能是数组/undefined：防御性归一，不让 Composer 白屏。
   const available = Array.isArray(models?.available) ? models.available : [];
   const currentName = models?.current?.model ?? '默认';
   return (
     <motion.div
-      ref={ref}
       className="model-menu"
       role="listbox"
       aria-label="选择模型"
       initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: 4 }}
       transition={{ duration: 0.15, ease: MOTION_EASE }}
+      onKeyDown={(event) => handleCompositeKeyDown(event, onEscape)}
     >
       <span className="model-menu-label">模型</span>
       <button
         type="button"
         role="option"
+        tabIndex={-1}
+        autoFocus={selectedModel === undefined}
         aria-selected={selectedModel === undefined}
         className={cx('model-option', selectedModel === undefined && 'selected')}
         onClick={() => {
@@ -90,6 +89,8 @@ function ModelMenu({
         <button
           type="button"
           role="option"
+          tabIndex={-1}
+          autoFocus={selectedModel === model.id}
           key={model.id}
           aria-selected={selectedModel === model.id}
           className={cx('model-option', selectedModel === model.id && 'selected')}
@@ -129,8 +130,12 @@ export function Composer({
   const [draggingFiles, setDraggingFiles] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const modelMenuRef = useRef<HTMLDivElement>(null);
+  const modelTriggerRef = useRef<HTMLButtonElement>(null);
   const attachmentsRef = useRef<DraftComposerAttachment[]>([]);
   attachmentsRef.current = attachments;
+  const closeModelMenu = useCallback(() => setMenuOpen(false), []);
+  useDismissable(modelMenuRef, closeModelMenu, menuOpen);
 
   const promptQuery = promptQueryFromInput(text);
   const panelOpen = promptQuery !== null && !panelDismissed;
@@ -403,8 +408,15 @@ export function Composer({
               event.target.value = '';
             }}
           />
-          <div className="model-menu-wrap">
+          <div
+            className="model-menu-wrap"
+            ref={modelMenuRef}
+            onBlur={(event) => {
+              if (menuOpen && !event.currentTarget.contains(event.relatedTarget)) closeModelMenu();
+            }}
+          >
             <button
+              ref={modelTriggerRef}
               type="button"
               className="model-button"
               onClick={() => setMenuOpen((open) => !open)}
@@ -416,16 +428,18 @@ export function Composer({
               <span className="model-name">{modelLabel}</span>
               <CaretDown size={14} className="chevron" />
             </button>
-            <AnimatePresence>
-              {menuOpen && (
-                <ModelMenu
-                  models={models}
-                  selectedModel={selectedModel}
-                  onSelect={onSelectModel}
-                  onClose={() => setMenuOpen(false)}
-                />
-              )}
-            </AnimatePresence>
+            {menuOpen && (
+              <ModelMenu
+                models={models}
+                selectedModel={selectedModel}
+                onSelect={onSelectModel}
+                onClose={closeModelMenu}
+                onEscape={() => {
+                  closeModelMenu();
+                  modelTriggerRef.current?.focus();
+                }}
+              />
+            )}
           </div>
         </div>
         <button

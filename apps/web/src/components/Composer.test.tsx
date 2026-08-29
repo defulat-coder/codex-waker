@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { useState } from 'react';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { WorkspaceResponse } from '@waker/contracts';
 import type { PreparedComposerAttachment } from '../lib/composerAttachments.js';
 import { WorkspaceProvider } from '../context/WorkspaceContext.js';
@@ -160,5 +160,34 @@ describe('Composer model menu', () => {
     fireEvent.click(screen.getByRole('button', { name: '选择模型' }));
     assert.ok(screen.getByText('默认（默认）'));
     assert.ok(screen.getByText('暂无更多可用模型'));
+  });
+
+  it('模型菜单进入焦点、支持方向键并由 Escape 立即关闭', () => {
+    renderComposerWithModels({
+      current: { model: 'gpt-5.6-sol' },
+      available: [
+        { id: 'gpt-5.6-sol', name: 'GPT-5.6 Sol' },
+        { id: 'kimi-k2.7', name: 'Kimi K2.7' },
+      ],
+    });
+    const trigger = screen.getByRole('button', { name: '选择模型' });
+    fireEvent.click(trigger);
+    const menu = screen.getByRole('listbox', { name: '选择模型' });
+    const options = within(menu).getAllByRole('option');
+    assert.equal(document.activeElement, options[0]);
+    assert.ok(options.every((option) => option.tabIndex === -1));
+
+    fireEvent.keyDown(options[0]!, { key: 'ArrowDown' });
+    assert.equal(document.activeElement, options[1]);
+    fireEvent.keyDown(options[1]!, { key: 'Escape' });
+
+    assert.equal(screen.queryByRole('listbox', { name: '选择模型' }), null);
+    assert.equal(document.activeElement, trigger);
+
+    fireEvent.click(trigger);
+    assert.ok(screen.getByRole('listbox', { name: '选择模型' }));
+    trigger.focus();
+    fireEvent.click(trigger);
+    assert.equal(screen.queryByRole('listbox', { name: '选择模型' }), null);
   });
 });

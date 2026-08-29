@@ -7,7 +7,7 @@ import {
   type FormEvent,
   type ReactNode,
 } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
+import { motion } from 'motion/react';
 import type {
   AgentDeleteImpact,
   AgentSummary,
@@ -63,7 +63,7 @@ import {
 import { AgentChip } from './AgentChip.js';
 import { NewAgentDialog } from './NewAgentDialog.js';
 import { useDialogFocus } from '../hooks/useDialogFocus.js';
-import { useDismissable } from '../hooks/useDismissable.js';
+import { handleCompositeKeyDown, useDismissable } from '../hooks/useDismissable.js';
 
 export type LegacyView =
   | 'wakers'
@@ -226,6 +226,7 @@ export function WakersView({
   const deleteTriggerRef = useRef<HTMLButtonElement | null>(null);
   const deleteWasOpen = useRef(false);
   const envMenuRef = useRef<HTMLDivElement>(null);
+  const envTriggerRef = useRef<HTMLButtonElement>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const moreTriggerRef = useRef<HTMLButtonElement>(null);
   const [query, setQuery] = useState('');
@@ -383,8 +384,16 @@ export function WakersView({
                 <i aria-hidden="true" />
                 仅在线
               </button>
-              <div className="waker-env" ref={envMenuRef}>
+              <div
+                className="waker-env"
+                ref={envMenuRef}
+                onBlur={(event) => {
+                  if (envMenuOpen && !event.currentTarget.contains(event.relatedTarget))
+                    setEnvMenuOpen(false);
+                }}
+              >
                 <button
+                  ref={envTriggerRef}
                   type="button"
                   className="waker-env-button"
                   aria-haspopup="menu"
@@ -394,7 +403,7 @@ export function WakersView({
                   环境 / {environment === 'all' ? '全部环境' : environment}
                   <CaretDown size={12} aria-hidden="true" />
                 </button>
-                <AnimatePresence>
+                <>
                   {envMenuOpen && (
                     <motion.div
                       className="waker-env-menu"
@@ -402,13 +411,20 @@ export function WakersView({
                       aria-label="环境"
                       initial={{ opacity: 0, scale: 0.98, y: -3 }}
                       animate={{ opacity: 1, scale: 1, y: 0 }}
-                      exit={{ opacity: 0, scale: 0.98, y: -3 }}
                       transition={{ duration: 0.12, ease: MOTION_EASE }}
                       style={{ transformOrigin: 'top left' }}
+                      onKeyDown={(event) =>
+                        handleCompositeKeyDown(event, () => {
+                          setEnvMenuOpen(false);
+                          envTriggerRef.current?.focus();
+                        })
+                      }
                     >
                       <button
+                        autoFocus
                         type="button"
                         role="menuitemradio"
+                        tabIndex={-1}
                         aria-checked={environment === hostName}
                         onClick={() => {
                           setEnvironment(hostName);
@@ -426,6 +442,7 @@ export function WakersView({
                       <button
                         type="button"
                         role="menuitemradio"
+                        tabIndex={-1}
                         aria-checked={environment === 'all'}
                         onClick={() => {
                           setEnvironment('all');
@@ -437,7 +454,7 @@ export function WakersView({
                       </button>
                     </motion.div>
                   )}
-                </AnimatePresence>
+                </>
               </div>
               <div className="waker-toolbar-search">
                 <MagnifyingGlass size={16} aria-hidden="true" />
@@ -523,6 +540,13 @@ export function WakersView({
                     <div
                       className="waker-more"
                       ref={menuAgentId === agent.id ? moreMenuRef : undefined}
+                      onBlur={(event) => {
+                        if (
+                          menuAgentId === agent.id &&
+                          !event.currentTarget.contains(event.relatedTarget)
+                        )
+                          setMenuAgentId(null);
+                      }}
                     >
                       <button
                         type="button"
@@ -537,7 +561,7 @@ export function WakersView({
                       >
                         <DotsThree size={16} aria-hidden="true" />
                       </button>
-                      <AnimatePresence>
+                      <>
                         {menuAgentId === agent.id && (
                           <motion.div
                             className="waker-more-menu"
@@ -545,13 +569,20 @@ export function WakersView({
                             aria-label={`${agent.name} 的更多操作`}
                             initial={{ opacity: 0, scale: 0.98, y: -3 }}
                             animate={{ opacity: 1, scale: 1, y: 0 }}
-                            exit={{ opacity: 0, scale: 0.98, y: -3 }}
                             transition={{ duration: 0.12, ease: MOTION_EASE }}
                             style={{ transformOrigin: 'top right' }}
+                            onKeyDown={(event) =>
+                              handleCompositeKeyDown(event, () => {
+                                setMenuAgentId(null);
+                                moreTriggerRef.current?.focus();
+                              })
+                            }
                           >
                             <button
+                              autoFocus
                               type="button"
                               role="menuitem"
+                              tabIndex={-1}
                               onClick={() => {
                                 setMenuAgentId(null);
                                 onConfigure(agent.id);
@@ -562,6 +593,7 @@ export function WakersView({
                             <button
                               type="button"
                               role="menuitem"
+                              tabIndex={-1}
                               onClick={() => {
                                 setMenuAgentId(null);
                                 onMemory(agent.id);
@@ -572,6 +604,7 @@ export function WakersView({
                             <button
                               type="button"
                               role="menuitem"
+                              tabIndex={-1}
                               onClick={() => {
                                 setMenuAgentId(null);
                                 onCapabilities(agent.id);
@@ -581,6 +614,7 @@ export function WakersView({
                             </button>
                             <a
                               role="menuitem"
+                              tabIndex={-1}
                               href={`/api/v1/agents/${encodeURIComponent(agent.id)}/source`}
                               download={`${agent.id}.md`}
                               onClick={() => setMenuAgentId(null)}
@@ -589,6 +623,7 @@ export function WakersView({
                             </a>
                             <a
                               role="menuitem"
+                              tabIndex={-1}
                               href={`/api/v1/agents/${encodeURIComponent(agent.id)}/export-package`}
                               download={`${agent.id}.wakerpack`}
                               onClick={() => setMenuAgentId(null)}
@@ -598,6 +633,7 @@ export function WakersView({
                             <button
                               type="button"
                               role="menuitem"
+                              tabIndex={-1}
                               className="danger"
                               onClick={() => {
                                 // 菜单项随菜单关闭卸载，焦点恢复落到「更多操作」触发按钮上。
@@ -611,7 +647,7 @@ export function WakersView({
                             </button>
                           </motion.div>
                         )}
-                      </AnimatePresence>
+                      </>
                     </div>
                   </div>
                 </motion.article>
