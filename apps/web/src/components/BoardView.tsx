@@ -67,6 +67,11 @@ type BoardHumanAction = HumanActionRecord & {
   category?: string;
 };
 
+interface ActionInputIssue {
+  message: string;
+  invalid: boolean;
+}
+
 const PAGE_SIZE = 20;
 const MAX_TASKS = 200;
 const EMPTY_EDITOR: BoardEditor = {
@@ -182,6 +187,7 @@ export function BoardView({
   const [actionStatus, setActionStatus] = useState<HumanActionRecord['status']>('pending');
   const [actionSource, setActionSource] = useState('');
   const [actionInput, setActionInput] = useState<Record<string, string>>({});
+  const [actionInputIssues, setActionInputIssues] = useState<Record<string, ActionInputIssue>>({});
   const [actionError, setActionError] = useState('');
   const [ignoreTarget, setIgnoreTarget] = useState<BoardHumanAction | null>(null);
   const [busy, setBusy] = useState('');
@@ -192,6 +198,7 @@ export function BoardView({
   const projectGenerationRef = useRef(0);
   const actionGenerationRef = useRef(0);
   const actionAbortRef = useRef<AbortController | null>(null);
+  const actionInputRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
   const actionStatusRef = useRef(actionStatus);
   const actionSourceRef = useRef(actionSource);
   const selectedTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -288,6 +295,7 @@ export function BoardView({
     setDeleteImpactError('');
     setIgnoreTarget(null);
     setActionInput({});
+    setActionInputIssues({});
     setError('');
     hasSnapshotRef.current = false;
     loadGenerationRef.current += 1;
@@ -650,10 +658,22 @@ export function BoardView({
             status={actionStatus}
             source={actionSource}
             inputs={actionInput}
+            inputIssues={actionInputIssues}
             busy={busy}
             onStatus={setActionStatus}
             onSource={setActionSource}
-            onInput={(id, value) => setActionInput((current) => ({ ...current, [id]: value }))}
+            onInput={(id, value) => {
+              setActionInput((current) => ({ ...current, [id]: value }));
+              setActionInputIssues((current) => {
+                if (!current[id]) return current;
+                const next = { ...current };
+                delete next[id];
+                return next;
+              });
+            }}
+            onInputRef={(id, node) => {
+              actionInputRefs.current[id] = node;
+            }}
             onRetry={() => void loadActions()}
             onOpenSession={onOpenSession}
             onResolve={async (action) => {
@@ -661,9 +681,20 @@ export function BoardView({
               try {
                 value = JSON.parse(actionInput[action.id] ?? '{}');
               } catch {
-                setActionError('继续运行的输入必须是有效 JSON');
+                setActionInputIssues((current) => ({
+                  ...current,
+                  [action.id]: { message: '继续运行的输入必须是有效 JSON', invalid: true },
+                }));
+                requestAnimationFrame(() => actionInputRefs.current[action.id]?.focus());
                 return;
               }
+              const owner = wakerId;
+              setActionInputIssues((current) => {
+                if (!current[action.id]) return current;
+                const next = { ...current };
+                delete next[action.id];
+                return next;
+              });
               setBusy(`resolve:${action.id}`);
               try {
                 await readJson(
@@ -681,12 +712,20 @@ export function BoardView({
                   ),
                   '人工输入暂时无法提交',
                 );
+                if (ownerRef.current !== owner) return;
                 await loadActions();
                 notify('人工输入已提交', 'success');
               } catch (cause) {
-                setActionError(cause instanceof Error ? cause.message : '人工输入暂时无法提交');
+                if (ownerRef.current !== owner) return;
+                setActionInputIssues((current) => ({
+                  ...current,
+                  [action.id]: {
+                    message: cause instanceof Error ? cause.message : '人工输入暂时无法提交',
+                    invalid: false,
+                  },
+                }));
               } finally {
-                setBusy('');
+                if (ownerRef.current === owner) setBusy('');
               }
             }}
             onIgnore={setIgnoreTarget}
@@ -1413,10 +1452,12 @@ function HumanActionSurface({
   status,
   source,
   inputs,
+  inputIssues,
   busy,
   onStatus,
   onSource,
   onInput,
+  onInputRef,
   onRetry,
   onOpenSession,
   onResolve,
@@ -1429,10 +1470,12 @@ function HumanActionSurface({
   status: HumanActionRecord['status'];
   source: string;
   inputs: Record<string, string>;
+  inputIssues: Record<string, ActionInputIssue>;
   busy: string;
   onStatus: (value: HumanActionRecord['status']) => void;
   onSource: (value: string) => void;
   onInput: (id: string, value: string) => void;
+  onInputRef: (id: string, node: HTMLTextAreaElement | null) => void;
   onRetry: () => void;
   onOpenSession?: (sessionId: string) => void;
   onResolve: (action: BoardHumanAction) => void;
@@ -1511,10 +1554,24 @@ function HumanActionSurface({
                     <label>
                       继续运行的输入（JSON）
                       <textarea
+                        ref={(node) => onInputRef(action.id, node)}
                         value={inputs[action.id] ?? '{}'}
+                        aria-invalid={inputIssues[action.id]?.invalid || undefined}
+                        aria-describedby={
+                          inputIssues[action.id] ? `board-action-input-error-${action.id}` : undefined
+                        }
                         onChange={(event) => onInput(action.id, event.target.value)}
                       />
                     </label>
+                    {inputIssues[action.id] && (
+                      <p
+                        className="automation-action-error"
+                        id={`board-action-input-error-${action.id}`}
+                        role="alert"
+                      >
+                        {inputIssues[action.id]?.message}
+                      </p>
+                    )}
                     <div className="dialog-actions">
                       <button
                         className="legacy-button danger"

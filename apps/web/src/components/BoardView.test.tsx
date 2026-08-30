@@ -210,6 +210,29 @@ describe('BoardView', () => {
     });
   });
 
+  it('keeps an invalid Workflow input visible, associated and focused for correction', async () => {
+    const calls: Call[] = [];
+    installApi(calls);
+    render(<BoardView wakerId="waker-one" notify={() => {}} />);
+    fireEvent.click(await screen.findByRole('tab', { name: /人工操作/ }));
+    const input = await screen.findByLabelText('继续运行的输入（JSON）');
+    fireEvent.change(input, { target: { value: '{invalid' } });
+
+    fireEvent.click(screen.getByRole('button', { name: '提交并继续' }));
+
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    assert.equal(document.activeElement, input);
+    assert.equal(input.getAttribute('aria-invalid'), 'true');
+    assert.equal(input.getAttribute('aria-describedby'), 'board-action-input-error-action-one');
+    assert.equal(screen.getByRole('alert').id, 'board-action-input-error-action-one');
+    assert.equal((input as HTMLTextAreaElement).value, '{invalid');
+    assert.ok(screen.getByText(ACTION.title));
+    assert.equal(
+      calls.some((call) => call.url.endsWith('/action-one/resolve')),
+      false,
+    );
+  });
+
   it('uses a protected ignore dialog and sends optimistic action version', async () => {
     const calls: Call[] = [];
     const notices: Array<{ text: string; tone?: string }> = [];
