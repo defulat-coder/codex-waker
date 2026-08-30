@@ -364,9 +364,9 @@ export function NewAgentDialog({
               {selectedTemplate && (
                 <motion.div
                   className="agent-persona-preview"
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: 'auto', opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
+                  initial={{ opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
                   transition={{ duration: 0.15, ease: MOTION_EASE }}
                 >
                   <span>角色设定（来自模板，创建后可编辑）</span>
@@ -476,9 +476,9 @@ export function NewAgentDialog({
                 {avatarLibraryOpen && (
                   <motion.div
                     className="agent-avatar-library"
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
+                    initial={{ opacity: 0, y: -4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -4 }}
                     transition={{ duration: 0.15, ease: MOTION_EASE }}
                   >
                     <div className="agent-avatar-library-head">
@@ -568,9 +568,9 @@ export function NewAgentDialog({
               {advanced && (
                 <motion.div
                   className="agent-create-advanced-body"
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: 'auto', opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
+                  initial={{ opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
                   transition={{ duration: 0.15, ease: MOTION_EASE }}
                 >
                   <label className="modal-field">
