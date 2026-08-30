@@ -245,9 +245,17 @@ describe('WakersView 管理视图', () => {
     const input = screen.getByLabelText('搜索 Waker');
     assert.equal(input.getAttribute('placeholder'), '搜索员工或者设备...');
     assert.equal(input.closest('label')?.className, 'waker-toolbar-search');
+    assert.match(
+      within(input.closest('label')!).getByRole('status').textContent ?? '',
+      /显示 2 \/ 2 个 Waker/,
+    );
     fireEvent.change(input, { target: { value: 'Agent B' } });
     assert.equal(screen.queryByRole('heading', { name: /Agent A/ }), null);
     assert.ok(screen.getByRole('heading', { name: /Agent B/ }));
+    assert.match(
+      within(input.closest('label')!).getByRole('status').textContent ?? '',
+      /显示 1 \/ 2 个 Waker/,
+    );
   });
 
   it('keeps the Waker search surface on light and dark theme tokens', () => {
@@ -317,9 +325,11 @@ describe('WakersView 管理视图', () => {
     assert.equal(container.querySelectorAll('.waker-card').length, 12);
     const pager = screen.getByRole('navigation', { name: 'Waker 分页' });
     assert.ok(within(pager).getByText('1 / 2'));
+    assert.match(within(pager).getByRole('status').textContent ?? '', /第 1 页，共 2 页/);
     fireEvent.click(within(pager).getByRole('button', { name: '下一页' }));
     assert.equal(container.querySelectorAll('.waker-card').length, 1);
     assert.ok(within(pager).getByText('2 / 2'));
+    assert.match(within(pager).getByRole('status').textContent ?? '', /第 2 页，共 2 页/);
     fireEvent.click(within(pager).getByRole('button', { name: '上一页' }));
     assert.equal(container.querySelectorAll('.waker-card').length, 12);
   });

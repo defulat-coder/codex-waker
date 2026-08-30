@@ -491,8 +491,13 @@ export function WakersView({
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder="搜索员工或者设备..."
                 />
-                <span>
-                  {visibleAgents.length}/{agents.length}
+                <span role="status" aria-atomic="true">
+                  <span aria-hidden="true">
+                    {visibleAgents.length}/{agents.length}
+                  </span>
+                  <span className="visually-hidden">
+                    显示 {visibleAgents.length} / {agents.length} 个 Waker
+                  </span>
                 </span>
               </label>
               {totalUnread > 0 && (
@@ -708,8 +713,13 @@ export function WakersView({
               >
                 上一页
               </button>
-              <span>
-                {currentPage} / {pageCount}
+              <span role="status" aria-atomic="true">
+                <span aria-hidden="true">
+                  {currentPage} / {pageCount}
+                </span>
+                <span className="visually-hidden">
+                  第 {currentPage} 页，共 {pageCount} 页
+                </span>
               </span>
               <button
                 type="button"
