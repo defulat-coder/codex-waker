@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 /**
  * 统一的「加载中 + 静默失败」数据加载模板：loading 置位 → fetch → 失败走 onError。
@@ -16,16 +16,29 @@ export function useAsyncData<T>(
   fetcherRef.current = fetcher;
   const onErrorRef = useRef(options.onError);
   onErrorRef.current = options.onError;
+  const generationRef = useRef(0);
+
+  useEffect(
+    () => () => {
+      generationRef.current += 1;
+    },
+    [],
+  );
 
   const reload = useCallback(async () => {
+    const generation = ++generationRef.current;
     setLoading(true);
     try {
-      setData(await fetcherRef.current());
+      const result = await fetcherRef.current();
+      if (generation === generationRef.current) setData(result);
     } catch (cause) {
-      onErrorRef.current?.(cause instanceof Error ? cause : new Error(String(cause)));
+      if (generation === generationRef.current)
+        onErrorRef.current?.(cause instanceof Error ? cause : new Error(String(cause)));
     } finally {
-      setLoading(false);
-      setLoaded(true);
+      if (generation === generationRef.current) {
+        setLoading(false);
+        setLoaded(true);
+      }
     }
   }, []);
 
