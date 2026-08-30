@@ -934,6 +934,8 @@ export default function App() {
                 <UsageView
                   usage={usage.data}
                   loading={usage.loading}
+                  loaded={usage.loaded}
+                  error={usage.error}
                   onRefresh={() => void usage.reload()}
                 />
               ) : (

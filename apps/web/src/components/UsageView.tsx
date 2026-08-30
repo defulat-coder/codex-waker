@@ -10,11 +10,13 @@ import { MotionSpinner } from './MotionFeedback.js';
 export type UsageViewProps = {
   usage: UsageResponse | null;
   loading: boolean;
+  loaded: boolean;
+  error: Error | null;
   onRefresh: () => void;
 };
 
 /** 用量页（§11.7）：4 列统计卡 + 按 Agent 分列的用量表；本地模式无配额概念。 */
-export function UsageView({ usage, loading, onRefresh }: UsageViewProps) {
+export function UsageView({ usage, loading, loaded, error, onRefresh }: UsageViewProps) {
   const now = new Date();
   const stats = usage
     ? [
@@ -55,8 +57,26 @@ export function UsageView({ usage, loading, onRefresh }: UsageViewProps) {
         </button>
       </div>
 
-      {!usage ? (
-        <p className="system-page-loading">{loading ? '正在统计…' : '用量数据暂时无法读取'}</p>
+      {error && usage ? (
+        <div className="legacy-error" role="alert">
+          <p>用量刷新失败，当前仍显示上次统计的数据。</p>
+          <button type="button" className="legacy-button" onClick={onRefresh}>
+            重试
+          </button>
+        </div>
+      ) : null}
+
+      {!usage && (!loaded || loading) ? (
+        <p className="system-page-loading" role="status">
+          正在统计…
+        </p>
+      ) : !usage ? (
+        <div className="legacy-error" role="alert">
+          <p>{error?.message || '用量数据暂时无法读取'}</p>
+          <button type="button" className="legacy-button" onClick={onRefresh}>
+            重试
+          </button>
+        </div>
       ) : (
         <>
           <motion.div
