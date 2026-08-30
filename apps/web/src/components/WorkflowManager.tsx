@@ -1026,7 +1026,7 @@ export function WorkflowManager({
       )}
 
       {error ? (
-        <div className="legacy-error">
+        <div className="legacy-error" role="alert">
           <p>{error}</p>
           <button className="legacy-button" type="button" onClick={() => void load()}>
             重试
@@ -1455,7 +1455,7 @@ export function WorkflowManager({
                 </section>
               </>
             ) : detailError ? (
-              <div className="legacy-error">
+              <div className="legacy-error" role="alert">
                 <p>{detailError}</p>
                 <button
                   className="legacy-button"

@@ -312,6 +312,25 @@ afterEach(() => {
 });
 
 describe('WorkflowManager', () => {
+  it('announces list failures and retries in place', async () => {
+    const calls: Call[] = [];
+    installApi(calls);
+    const healthyFetch = globalThis.fetch;
+    let failures = 1;
+    globalThis.fetch = (async (input, init) => {
+      if (String(input).includes('/local-resources') && failures-- > 0)
+        return json({ error: '流程列表验证失败' }, 500);
+      return healthyFetch(input, init);
+    }) as typeof fetch;
+
+    render(<WorkflowManager wakerId="waker-one" notify={() => {}} />);
+    const alert = await screen.findByRole('alert');
+    assert.match(alert.textContent ?? '', /流程列表验证失败/);
+
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+    assert.ok(await screen.findByRole('heading', { name: WORKFLOW.name }));
+  });
+
   it('validates the JSON definition before saving and preserves optimistic versioning', async () => {
     const calls: Call[] = [];
     const notices: Array<{ text: string; tone?: string }> = [];
