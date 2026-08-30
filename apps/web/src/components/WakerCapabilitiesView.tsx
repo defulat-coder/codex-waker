@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import type { HumanActionRecord, WakerConnector } from '@waker/contracts';
 import {
   createConnector,
@@ -35,7 +35,18 @@ export function WakerCapabilitiesView({
   const [form, setForm] = useState<{ name: string; transport: 'stdio' | 'http'; endpoint: string }>(
     { name: '', transport: 'stdio', endpoint: '' },
   );
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState('');
+  const busyRef = useRef(false);
+  const beginAction = (key: string) => {
+    if (busyRef.current) return false;
+    busyRef.current = true;
+    setBusy(key);
+    return true;
+  };
+  const finishAction = () => {
+    busyRef.current = false;
+    setBusy('');
+  };
   const load = useCallback(async () => {
     try {
       setError('');
@@ -57,7 +68,7 @@ export function WakerCapabilitiesView({
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!form.name.trim() || !form.endpoint.trim()) return;
-    setBusy(true);
+    if (!beginAction('create')) return;
     try {
       await createConnector({
         wakerId,
@@ -73,11 +84,28 @@ export function WakerCapabilitiesView({
     } catch (cause) {
       notify(cause instanceof Error ? cause.message : '创建失败', 'error');
     } finally {
-      setBusy(false);
+      finishAction();
+    }
+  };
+  const mutateConnector = async (
+    key: string,
+    action: () => Promise<unknown>,
+    success: string,
+    failure: string,
+  ) => {
+    if (!beginAction(key)) return;
+    try {
+      await action();
+      await load();
+      notify(success, 'success');
+    } catch (cause) {
+      notify(cause instanceof Error ? cause.message : failure, 'error');
+    } finally {
+      finishAction();
     }
   };
   const tighten = async () => {
-    if (!permissions) return;
+    if (!permissions || !beginAction('permissions')) return;
     const base = permissions.policy ?? permissions.host;
     try {
       await updatePermissions(wakerId, {
@@ -91,6 +119,8 @@ export function WakerCapabilitiesView({
       notify('权限已收紧，由 codex-host 执行', 'success');
     } catch (cause) {
       notify(cause instanceof Error ? cause.message : '保存失败', 'error');
+    } finally {
+      finishAction();
     }
   };
   return (
@@ -163,9 +193,9 @@ export function WakerCapabilitiesView({
             />
             <button
               className="legacy-button primary"
-              disabled={busy || !form.name.trim() || !form.endpoint.trim()}
+              disabled={Boolean(busy) || !form.name.trim() || !form.endpoint.trim()}
             >
-              创建（默认禁用）
+              {busy === 'create' ? '正在创建…' : '创建（默认禁用）'}
             </button>
           </form>
           {connectors.length ? (
@@ -185,32 +215,36 @@ export function WakerCapabilitiesView({
                   <span className={cx('resource-status', item.status)}>{item.status}</span>
                   <button
                     className="legacy-button"
-                    onClick={async () => {
+                    disabled={Boolean(busy)}
+                    onClick={() => {
                       const nextAction = item.status === 'disabled' ? 'enable' : 'disable';
-                      try {
-                        await connectorAction(item.id, nextAction, wakerId);
-                        await load();
-                        notify(nextAction === 'enable' ? '连接器已启用' : '连接器已禁用', 'success');
-                      } catch (cause) {
-                        notify(cause instanceof Error ? cause.message : '连接器状态更新失败', 'error');
-                      }
+                      void mutateConnector(
+                        `connector:${item.id}`,
+                        () => connectorAction(item.id, nextAction, wakerId),
+                        nextAction === 'enable' ? '连接器已启用' : '连接器已禁用',
+                        '连接器状态更新失败',
+                      );
                     }}
                   >
-                    {item.status === 'disabled' ? '启用' : '禁用'}
+                    {busy === `connector:${item.id}`
+                      ? '正在更新…'
+                      : item.status === 'disabled'
+                        ? '启用'
+                        : '禁用'}
                   </button>
                   <button
                     className="legacy-text-button"
-                    onClick={async () => {
-                      try {
-                        await deleteConnector(item.id, wakerId);
-                        await load();
-                        notify('连接器已删除', 'success');
-                      } catch (cause) {
-                        notify(cause instanceof Error ? cause.message : '连接器删除失败', 'error');
-                      }
+                    disabled={Boolean(busy)}
+                    onClick={() => {
+                      void mutateConnector(
+                        `delete:${item.id}`,
+                        () => deleteConnector(item.id, wakerId),
+                        '连接器已删除',
+                        '连接器删除失败',
+                      );
                     }}
                   >
-                    删除
+                    {busy === `delete:${item.id}` ? '正在删除…' : '删除'}
                   </button>
                 </div>
               ))}
@@ -228,8 +262,12 @@ export function WakerCapabilitiesView({
           <article>
             <h2>Waker 策略</h2>
             <Policy policy={permissions.policy ?? permissions.host} />
-            <button className="legacy-button primary" onClick={() => void tighten()}>
-              收紧为只读并禁用工具
+            <button
+              className="legacy-button primary"
+              disabled={Boolean(busy)}
+              onClick={() => void tighten()}
+            >
+              {busy === 'permissions' ? '正在保存…' : '收紧为只读并禁用工具'}
             </button>
           </article>
           <div className="local-notice">

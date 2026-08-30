@@ -96,4 +96,38 @@ describe('WakerCapabilitiesView', () => {
       }),
     );
   });
+
+  it('locks permission updates while the request is pending', async () => {
+    let updates = 0;
+    let resolveUpdate!: (response: Response) => void;
+    globalThis.fetch = (async (input, init) => {
+      const url = String(input);
+      if (url.includes('/permissions') && init?.method === 'PUT') {
+        updates += 1;
+        return new Promise<Response>((resolve) => {
+          resolveUpdate = resolve;
+        });
+      }
+      if (url.includes('/connectors')) return Response.json({ items: [] });
+      if (url.includes('/permissions')) return Response.json(permissions);
+      if (url.includes('/human-actions')) return Response.json({ items: [] });
+      throw new Error(`未 mock 的请求：${url}`);
+    }) as typeof fetch;
+    renderCapabilities('permissions');
+    await settle();
+
+    const save = screen.getByRole('button', { name: '收紧为只读并禁用工具' });
+    act(() => {
+      save.click();
+      save.click();
+    });
+    assert.equal((save as HTMLButtonElement).disabled, true);
+    assert.equal(save.textContent, '正在保存…');
+    assert.equal(updates, 1);
+
+    resolveUpdate(Response.json(permissions));
+    await waitFor(() =>
+      assert.ok(screen.getByRole('button', { name: '收紧为只读并禁用工具' })),
+    );
+  });
 });
