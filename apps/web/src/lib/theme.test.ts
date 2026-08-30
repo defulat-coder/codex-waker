@@ -48,5 +48,6 @@ describe('applyThemePreference', () => {
       styles,
       /\.notebook-list button\.active small\s*\{\s*color:\s*var\(--text-brand\);\s*\}/,
     );
+    assert.match(styles, /\.agent-chip\s*\{[^}]*color:\s*var\(--text-primary\);/s);
   });
 });

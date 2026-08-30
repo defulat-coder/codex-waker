@@ -743,7 +743,7 @@ textarea {
   border-radius: 5px;
   background: rgba(124, 58, 237, 0.12);
   border: 1px solid rgba(124, 58, 237, 0.35);
-  color: #6d28d7;
+  color: var(--text-primary);
   font-size: 8px;
   font-weight: 600;
 }
