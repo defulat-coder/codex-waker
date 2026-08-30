@@ -81,6 +81,27 @@ describe('WakerCapabilitiesView', () => {
     assert.ok(screen.getByRole('heading', { name: 'Host 上限' }));
   });
 
+  it('uses roving focus and arrow keys across capability tabs', async () => {
+    mockFetch();
+    renderCapabilities();
+    await settle();
+    const connectors = screen.getByRole('tab', { name: 'Connectors' });
+    const permissionsTab = screen.getByRole('tab', { name: 'Permissions' });
+    const actionsTab = screen.getByRole('tab', { name: 'Human Actions' });
+    assert.equal(connectors.tabIndex, 0);
+    assert.equal(permissionsTab.tabIndex, -1);
+
+    connectors.focus();
+    fireEvent.keyDown(connectors, { key: 'ArrowRight' });
+    assert.equal(document.activeElement, permissionsTab);
+    assert.equal(permissionsTab.getAttribute('aria-selected'), 'true');
+    assert.ok(screen.getByRole('tabpanel', { name: 'Permissions' }));
+
+    fireEvent.keyDown(permissionsTab, { key: 'End' });
+    assert.equal(document.activeElement, actionsTab);
+    assert.equal(actionsTab.getAttribute('aria-selected'), 'true');
+  });
+
   it('announces a successful permission update with success semantics', async () => {
     const notices: Array<{ text: string; tone?: string }> = [];
     mockFetch();

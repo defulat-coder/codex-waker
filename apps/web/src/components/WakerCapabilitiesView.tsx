@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from 'react';
 import type { HumanActionRecord, WakerConnector } from '@waker/contracts';
 import {
   createConnector,
@@ -15,6 +22,14 @@ import { MotionLoadingRows } from './MotionFeedback.js';
 import type { Notify } from './Toasts.js';
 
 type Tab = 'connectors' | 'permissions' | 'actions';
+const TABS: Tab[] = ['connectors', 'permissions', 'actions'];
+
+function tabLabel(tab: Tab, actionCount = 0): string {
+  if (tab === 'connectors') return 'Connectors';
+  if (tab === 'permissions') return 'Permissions';
+  return `Human Actions${actionCount ? ` (${actionCount})` : ''}`;
+}
+
 export function WakerCapabilitiesView({
   wakerId,
   initialTab,
@@ -46,6 +61,20 @@ export function WakerCapabilitiesView({
   const finishAction = () => {
     busyRef.current = false;
     setBusy('');
+  };
+  const navigateTabs = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+    const current = TABS.indexOf(tab);
+    const next =
+      event.key === 'Home'
+        ? 0
+        : event.key === 'End'
+          ? TABS.length - 1
+          : (current + (event.key === 'ArrowLeft' ? -1 : 1) + TABS.length) % TABS.length;
+    event.preventDefault();
+    setTab(TABS[next]!);
+    buttons[next]?.focus();
   };
   const load = useCallback(async () => {
     try {
@@ -134,34 +163,44 @@ export function WakerCapabilitiesView({
           返回 Waker
         </button>
       </header>
-      <div className="capability-tabs" role="tablist">
-        {(['connectors', 'permissions', 'actions'] as const).map((item) => (
+      <div
+        className="capability-tabs"
+        role="tablist"
+        aria-label="Waker 能力分类"
+        onKeyDown={navigateTabs}
+      >
+        {TABS.map((item) => (
           <button
+            id={`capability-tab-${item}`}
             role="tab"
             aria-selected={tab === item}
+            aria-controls={`capability-panel-${item}`}
+            tabIndex={tab === item ? 0 : -1}
             className={cx(tab === item && 'active')}
             key={item}
             onClick={() => setTab(item)}
           >
-            {item === 'connectors'
-              ? 'Connectors'
-              : item === 'permissions'
-                ? 'Permissions'
-                : `Human Actions${actions?.length ? ` (${actions.length})` : ''}`}
+            {tabLabel(item, actions?.length)}
           </button>
         ))}
       </div>
-      {error ? (
-        <div className="legacy-error" role="alert">
-          <p>{error}</p>
-          <button className="legacy-button" onClick={() => void load()}>
-            重试
-          </button>
-        </div>
-      ) : !connectors || !permissions || !actions ? (
-        <MotionLoadingRows count={2} label="正在加载能力配置" />
-      ) : tab === 'connectors' ? (
-        <div>
+      <div
+        id={`capability-panel-${tab}`}
+        role="tabpanel"
+        aria-labelledby={`capability-tab-${tab}`}
+        tabIndex={0}
+      >
+        {error ? (
+          <div className="legacy-error" role="alert">
+            <p>{error}</p>
+            <button className="legacy-button" onClick={() => void load()}>
+              重试
+            </button>
+          </div>
+        ) : !connectors || !permissions || !actions ? (
+          <MotionLoadingRows count={2} label="正在加载能力配置" />
+        ) : tab === 'connectors' ? (
+          <div>
           <div className="local-notice">
             <strong>不接收 Secret</strong>
             <p>这里只保存公开的启动命令或 HTTP 地址。认证信息应留在 API 进程环境中。</p>
@@ -252,9 +291,9 @@ export function WakerCapabilitiesView({
           ) : (
             <p className="outputs-empty">还没有连接器。</p>
           )}
-        </div>
-      ) : tab === 'permissions' ? (
-        <div className="permission-grid">
+          </div>
+        ) : tab === 'permissions' ? (
+          <div className="permission-grid">
           <article>
             <h2>Host 上限</h2>
             <Policy policy={permissions.host} />
@@ -274,10 +313,11 @@ export function WakerCapabilitiesView({
             <strong>由 codex-host 执行</strong>
             <p>这里的策略只能比 Host 更严格，浏览器不能扩大沙箱、文件或工具权限。</p>
           </div>
-        </div>
-      ) : (
-        <HumanActionsList actions={actions} />
-      )}
+          </div>
+        ) : (
+          <HumanActionsList actions={actions} />
+        )}
+      </div>
     </section>
   );
 }
