@@ -37,10 +37,13 @@ export function useDialogFocus<T extends HTMLElement>(
     if (!open) return;
     const frame = requestAnimationFrame(() => {
       const dialog = dialogRef.current;
+      const active = document.activeElement;
       const target =
-        dialog?.querySelector<HTMLElement>('[autofocus]') ??
-        dialog?.querySelector<HTMLElement>(FOCUSABLE) ??
-        dialog;
+        active instanceof HTMLElement && dialog?.contains(active)
+          ? active
+          : (dialog?.querySelector<HTMLElement>('[autofocus]') ??
+            dialog?.querySelector<HTMLElement>(FOCUSABLE) ??
+            dialog);
       target?.focus();
     });
     const onKeyDown = (event: KeyboardEvent) => {
