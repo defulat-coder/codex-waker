@@ -34,6 +34,7 @@ import { Plus } from '@phosphor-icons/react/dist/icons/Plus';
 import { Plugs } from '@phosphor-icons/react/dist/icons/Plugs';
 import { MagnifyingGlass } from '@phosphor-icons/react/dist/icons/MagnifyingGlass';
 import { MotionLoadingRows } from './MotionFeedback.js';
+import type { Notify } from './Toasts.js';
 import {
   createKnowledgeNotebook,
   createKnowledgeBinding,
@@ -206,7 +207,7 @@ export function WakersView({
   onDeleted: (id: string) => void;
   /** 全部标为已读成功后由 App 刷新 workspace + inbox。 */
   onReadAll: () => void;
-  notify: (message: string) => void;
+  notify: Notify;
   onboarding?: ReactNode;
 }) {
   const [creating, setCreating] = useState(false);
@@ -308,7 +309,7 @@ export function WakersView({
       await markAllInboxRead();
       onReadAll();
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '全部标为已读失败');
+      notify(cause instanceof Error ? cause.message : '全部标为已读失败', 'error');
     } finally {
       setMarkingAll(false);
     }
@@ -724,7 +725,7 @@ export function WakersView({
                 setDeleteTarget(null);
                 setDeleteConfirmation('');
               } catch (cause) {
-                notify(cause instanceof Error ? cause.message : '删除失败');
+                notify(cause instanceof Error ? cause.message : '删除失败', 'error');
               }
             }}
           >
@@ -800,7 +801,7 @@ export function ResourcesView({
 }: {
   kind: 'projects' | 'workflows' | 'tasks' | 'im';
   wakerId?: string;
-  notify: (message: string) => void;
+  notify: Notify;
 }) {
   const [data, setData] = useState<LocalResourcesResponse | null>(null);
   const [error, setError] = useState('');
@@ -873,7 +874,7 @@ export function ResourcesView({
       setName('');
       load();
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '创建失败');
+      notify(cause instanceof Error ? cause.message : '创建失败', 'error');
     } finally {
       setSubmitting(false);
     }
@@ -950,7 +951,7 @@ export function KnowledgeView({
   notify,
 }: {
   wakerId?: string;
-  notify: (message: string) => void;
+  notify: Notify;
 }) {
   const [notebooks, setNotebooks] = useState<KnowledgeNotebook[] | null>(null);
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
@@ -1028,7 +1029,7 @@ export function KnowledgeView({
     const title = notebookTitle.trim();
     if (!title) return;
     if (!wakerId) {
-      notify('请先创建或选择一个 Waker');
+      notify('请先创建或选择一个 Waker', 'info');
       return;
     }
     try {
@@ -1042,7 +1043,7 @@ export function KnowledgeView({
       await load();
       setSelected(notebook.id);
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '创建失败');
+      notify(cause instanceof Error ? cause.message : '创建失败', 'error');
     }
   };
   const createDocument = async (event: FormEvent) => {
@@ -1070,14 +1071,14 @@ export function KnowledgeView({
       setDocuments(await fetchKnowledgeDocuments(selected, scope));
       await load();
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '文档保存失败');
+      notify(cause instanceof Error ? cause.message : '文档保存失败', 'error');
     }
   };
   const search = async (event: FormEvent) => {
     event.preventDefault();
     if (!query.trim()) return;
     if (!wakerId) {
-      notify('请先创建或选择一个 Waker');
+      notify('请先创建或选择一个 Waker', 'info');
       return;
     }
     try {
@@ -1091,7 +1092,7 @@ export function KnowledgeView({
         }),
       );
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '检索失败');
+      notify(cause instanceof Error ? cause.message : '检索失败', 'error');
     }
   };
   const selectedBook = useMemo(
@@ -1135,6 +1136,7 @@ export function KnowledgeView({
               '已重建 ' +
                 (await rebuildKnowledge({ notebookId: selected, force: true })) +
                 ' 个分块',
+              'success',
             )
           }
         >

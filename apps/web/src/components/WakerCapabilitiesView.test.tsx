@@ -1,6 +1,7 @@
 import { afterEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import type { Notify } from './Toasts.js';
 import type { PermissionEnvelope } from '../lib/api.js';
 import { WakerCapabilitiesView } from './WakerCapabilitiesView.js';
 
@@ -32,13 +33,16 @@ function mockFetch() {
   }) as typeof fetch;
 }
 
-function renderCapabilities(initialTab?: 'connectors' | 'permissions') {
+function renderCapabilities(
+  initialTab?: 'connectors' | 'permissions',
+  notify: Notify = () => undefined,
+) {
   return render(
     <WakerCapabilitiesView
       wakerId="agent-a"
       initialTab={initialTab}
       onClose={() => {}}
-      notify={() => {}}
+      notify={notify}
     />,
   );
 }
@@ -75,5 +79,21 @@ describe('WakerCapabilitiesView', () => {
       'false',
     );
     assert.ok(screen.getByRole('heading', { name: 'Host 上限' }));
+  });
+
+  it('announces a successful permission update with success semantics', async () => {
+    const notices: Array<{ text: string; tone?: string }> = [];
+    mockFetch();
+    renderCapabilities('permissions', (text, tone) => notices.push({ text, tone }));
+    await settle();
+
+    fireEvent.click(screen.getByRole('button', { name: '收紧为只读并禁用工具' }));
+
+    await waitFor(() =>
+      assert.deepEqual(notices.at(-1), {
+        text: '权限已收紧，由 codex-host 执行',
+        tone: 'success',
+      }),
+    );
   });
 });

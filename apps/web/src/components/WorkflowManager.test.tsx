@@ -314,8 +314,14 @@ afterEach(() => {
 describe('WorkflowManager', () => {
   it('validates the JSON definition before saving and preserves optimistic versioning', async () => {
     const calls: Call[] = [];
+    const notices: Array<{ text: string; tone?: string }> = [];
     installApi(calls);
-    render(<WorkflowManager wakerId="waker-one" notify={() => {}} />);
+    render(
+      <WorkflowManager
+        wakerId="waker-one"
+        notify={(text, tone) => notices.push({ text, tone })}
+      />,
+    );
     await screen.findByRole('heading', { name: WORKFLOW.name });
     fireEvent.click(screen.getByRole('button', { name: '编辑' }));
 
@@ -341,6 +347,9 @@ describe('WorkflowManager', () => {
     assert.equal(patch?.body?.wakerId, 'waker-one');
     assert.equal(patch?.body?.expectedVersion, 2);
     assert.deepEqual(patch?.body?.definition, DEFINITION);
+    await waitFor(() =>
+      assert.deepEqual(notices.at(-1), { text: '流程定义已保存', tone: 'success' }),
+    );
   });
 
   it('shows only legal run actions, resumes waiting input, retries failures and opens trace session', async () => {

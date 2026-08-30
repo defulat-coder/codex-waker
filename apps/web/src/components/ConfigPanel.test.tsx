@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { AgentDetail, AgentResources, WorkspaceResponse } from '@waker/contracts';
 import { WorkspaceProvider } from '../context/WorkspaceContext.js';
 import { ConfigPanel } from './ConfigPanel.js';
+import type { Notify } from './Toasts.js';
 
 const originalFetch = globalThis.fetch;
 
@@ -67,7 +68,7 @@ function installApi(calls: Call[], currentBody: { value: string }) {
   }) as typeof fetch;
 }
 
-function renderPanel(notify: (text: string) => void = () => undefined) {
+function renderPanel(notify: Notify = () => undefined) {
   return render(
     <WorkspaceProvider
       value={{ workspace, sessionsByAgent: {}, notify, reloadWorkspace: () => {} }}
@@ -103,8 +104,8 @@ describe('ConfigPanel 三上下文卡片', () => {
     const calls: Call[] = [];
     const currentBody = { value: SECTIONED_BODY };
     installApi(calls, currentBody);
-    const notices: string[] = [];
-    renderPanel((text) => notices.push(text));
+    const notices: Array<{ text: string; tone?: string }> = [];
+    renderPanel((text, tone) => notices.push({ text, tone }));
     await screen.findByText('01 身份');
 
     fireEvent.click(screen.getByRole('button', { name: '修改人设' }));
@@ -126,7 +127,9 @@ describe('ConfigPanel 三上下文卡片', () => {
     assert.ok(nextBody.includes('## 人设\n直接、简洁，偶尔唱反调。\n'));
     assert.ok(nextBody.includes('## 身份\n负责发散想法与方案对比。\n\n'));
     assert.ok(nextBody.includes('## 设定集\n- 先发散再收敛\n- 主动唱反调\n'));
-    await waitFor(() => assert.ok(notices.includes('Agent 定义已保存')));
+    await waitFor(() =>
+      assert.deepEqual(notices.at(-1), { text: 'Agent 定义已保存', tone: 'success' }),
+    );
     // 保存成功后退出编辑态并展示新内容。
     assert.ok(await screen.findByText('直接、简洁，偶尔唱反调。'));
   });
@@ -142,14 +145,16 @@ describe('ConfigPanel 三上下文卡片', () => {
       }
       return failingFetch(input, init);
     }) as typeof fetch;
-    const notices: string[] = [];
-    renderPanel((text) => notices.push(text));
+    const notices: Array<{ text: string; tone?: string }> = [];
+    renderPanel((text, tone) => notices.push({ text, tone }));
     await screen.findByText('01 身份');
 
     fireEvent.click(screen.getByRole('button', { name: '修改身份' }));
     fireEvent.change(screen.getByLabelText('身份内容'), { target: { value: '新身份' } });
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
-    await waitFor(() => assert.ok(notices.includes('body 过大')));
+    await waitFor(() =>
+      assert.deepEqual(notices.at(-1), { text: 'body 过大', tone: 'error' }),
+    );
     // 编辑态保留，可继续修改或取消。
     assert.ok(screen.getByLabelText('身份内容'));
   });

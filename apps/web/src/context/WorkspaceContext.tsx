@@ -1,5 +1,6 @@
 import { createContext, useContext, type ReactNode } from 'react';
 import type { SessionSummary, WorkspaceResponse } from '@waker/contracts';
+import type { Notify } from '../components/Toasts.js';
 
 /**
  * 跨 Composer、Skills、配置和 Waker 管理组件共享工作区数据。App 顶层的数据获取逻辑不变，只把下发方式从逐层
@@ -8,7 +9,7 @@ import type { SessionSummary, WorkspaceResponse } from '@waker/contracts';
 export interface WorkspaceContextValue {
   workspace: WorkspaceResponse;
   sessionsByAgent: Record<string, SessionSummary[]>;
-  notify: (text: string) => void;
+  notify: Notify;
   /** Agent 定义被编辑/新建后调用，让侧栏、欢迎页等消费 workspace 的地方拿到新数据。 */
   reloadWorkspace: () => void;
 }

@@ -383,6 +383,7 @@ describe('AutomationManager', () => {
   });
 
   it('保存校验失败在编辑器内显示', async () => {
+    const notices: Array<{ text: string; tone?: string }> = [];
     globalThis.fetch = (async (input, init) => {
       const url = String(input);
       if (url.endsWith('/api/v1/workspace')) return json(workspace);
@@ -390,12 +391,18 @@ describe('AutomationManager', () => {
       if (init?.method === 'PATCH') return json({ error: 'Cron 表达式无效' }, 400);
       return json(resources([AUTOMATION]));
     }) as typeof fetch;
-    render(<AutomationManager wakerId="waker-one" notify={() => {}} />);
+    render(
+      <AutomationManager
+        wakerId="waker-one"
+        notify={(text, tone) => notices.push({ text, tone })}
+      />,
+    );
     await screen.findByRole('heading', { name: AUTOMATION.name });
     fireEvent.click(screen.getByRole('button', { name: '编辑' }));
     fireEvent.click(screen.getByRole('button', { name: /保存/ }));
     const message = await screen.findByText('Cron 表达式无效');
     assert.equal(message.getAttribute('role'), 'alert');
+    assert.deepEqual(notices.at(-1), { text: 'Cron 表达式无效', tone: 'error' });
   });
 
   it('390px 下改为单列并保留 44px 操作目标', () => {

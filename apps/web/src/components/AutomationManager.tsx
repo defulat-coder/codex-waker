@@ -32,6 +32,7 @@ import { cx } from '../lib/cx.js';
 import { useVisiblePolling } from '../hooks/useVisiblePolling.js';
 import { useDialogFocus } from '../hooks/useDialogFocus.js';
 import { MotionLoadingRows } from './MotionFeedback.js';
+import type { Notify } from './Toasts.js';
 import {
   MOTION_DIALOG_BACKDROP,
   MOTION_DIALOG_SURFACE,
@@ -196,7 +197,7 @@ export function AutomationManager({
   initialAutomationId,
 }: {
   wakerId: string;
-  notify: (text: string) => void;
+  notify: Notify;
   onOpenSession?: (sessionId: string) => void;
   initialAutomationId?: string;
 }) {
@@ -329,11 +330,11 @@ export function AutomationManager({
     try {
       await action();
       await load();
-      notify(success);
+      notify(success, 'success');
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : '操作失败';
       setActionError(message);
-      notify(message);
+      notify(message, 'error');
     } finally {
       setBusy('');
     }
@@ -429,9 +430,11 @@ export function AutomationManager({
       setDeleteTarget(null);
       setSelectedId('');
       await load();
-      notify('自动任务已删除，历史运行保留');
+      notify('自动任务已删除，历史运行保留', 'success');
     } catch (cause) {
-      setDeleteError(cause instanceof Error ? cause.message : '自动任务暂时无法删除');
+      const message = cause instanceof Error ? cause.message : '自动任务暂时无法删除';
+      setDeleteError(message);
+      notify(message, 'error');
     } finally {
       setBusy('');
     }

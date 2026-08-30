@@ -12,6 +12,7 @@ import {
 } from '../lib/api.js';
 import { cx } from '../lib/cx.js';
 import { MotionLoadingRows } from './MotionFeedback.js';
+import type { Notify } from './Toasts.js';
 
 type Tab = 'connectors' | 'permissions' | 'actions';
 export function WakerCapabilitiesView({
@@ -24,7 +25,7 @@ export function WakerCapabilitiesView({
   /** 详情导航「连接器/权限」深链的目标页签；不传保持默认 connectors。 */
   initialTab?: 'connectors' | 'permissions';
   onClose: () => void;
-  notify: (text: string) => void;
+  notify: Notify;
 }) {
   const [tab, setTab] = useState<Tab>(initialTab ?? 'connectors');
   const [connectors, setConnectors] = useState<WakerConnector[] | null>(null);
@@ -68,8 +69,9 @@ export function WakerCapabilitiesView({
       });
       setForm({ name: '', transport: 'stdio', endpoint: '' });
       await load();
+      notify('连接器已创建，默认保持禁用', 'success');
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '创建失败');
+      notify(cause instanceof Error ? cause.message : '创建失败', 'error');
     } finally {
       setBusy(false);
     }
@@ -86,9 +88,9 @@ export function WakerCapabilitiesView({
         builtinTools: [],
       });
       await load();
-      notify('权限已收紧，由 codex-host 执行');
+      notify('权限已收紧，由 codex-host 执行', 'success');
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '保存失败');
+      notify(cause instanceof Error ? cause.message : '保存失败', 'error');
     }
   };
   return (
@@ -184,12 +186,14 @@ export function WakerCapabilitiesView({
                   <button
                     className="legacy-button"
                     onClick={async () => {
-                      await connectorAction(
-                        item.id,
-                        item.status === 'disabled' ? 'enable' : 'disable',
-                        wakerId,
-                      );
-                      await load();
+                      const nextAction = item.status === 'disabled' ? 'enable' : 'disable';
+                      try {
+                        await connectorAction(item.id, nextAction, wakerId);
+                        await load();
+                        notify(nextAction === 'enable' ? '连接器已启用' : '连接器已禁用', 'success');
+                      } catch (cause) {
+                        notify(cause instanceof Error ? cause.message : '连接器状态更新失败', 'error');
+                      }
                     }}
                   >
                     {item.status === 'disabled' ? '启用' : '禁用'}
@@ -197,8 +201,13 @@ export function WakerCapabilitiesView({
                   <button
                     className="legacy-text-button"
                     onClick={async () => {
-                      await deleteConnector(item.id, wakerId);
-                      await load();
+                      try {
+                        await deleteConnector(item.id, wakerId);
+                        await load();
+                        notify('连接器已删除', 'success');
+                      } catch (cause) {
+                        notify(cause instanceof Error ? cause.message : '连接器删除失败', 'error');
+                      }
                     }}
                   >
                     删除

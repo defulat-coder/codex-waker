@@ -43,6 +43,7 @@ import { cx } from '../lib/cx.js';
 import { MOTION_EASE, MOTION_TRANSITION } from '../lib/motion.js';
 import { useWorkspace } from '../context/WorkspaceContext.js';
 import { AgentChip } from './AgentChip.js';
+import type { Notify } from './Toasts.js';
 import { MotionSpinner } from './MotionFeedback.js';
 import { AgentBodySections } from './AgentBodySections.js';
 
@@ -307,7 +308,7 @@ function ResourcesSection({
   onChanged,
 }: {
   resources: AgentResources | null;
-  notify: (text: string) => void;
+  notify: Notify;
   onChanged: () => void;
 }) {
   /** 非 null 即该模板的编辑态；content 来自 fetchPrompt 全文，保存前不回读。 */
@@ -326,7 +327,7 @@ function ResourcesSection({
       const document = await fetchPrompt(name);
       setPromptDraft({ name, content: document.content, description: document.description ?? '' });
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '提示词暂时无法读取');
+      notify(cause instanceof Error ? cause.message : '提示词暂时无法读取', 'error');
     }
   };
 
@@ -339,10 +340,10 @@ function ResourcesSection({
     try {
       await updatePrompt(promptDraft.name, { content, ...(description ? { description } : {}) });
       setPromptDraft(null);
-      notify('提示词模板已保存');
+      notify('提示词模板已保存', 'success');
       onChanged();
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '提示词暂时无法保存');
+      notify(cause instanceof Error ? cause.message : '提示词暂时无法保存', 'error');
     } finally {
       setPromptSaving(false);
     }
@@ -353,7 +354,7 @@ function ResourcesSection({
       const { content } = await fetchAppendSystem();
       setAppendDraft(content ?? '');
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '追加系统提示暂时无法读取');
+      notify(cause instanceof Error ? cause.message : '追加系统提示暂时无法读取', 'error');
     }
   };
 
@@ -363,10 +364,10 @@ function ResourcesSection({
     try {
       const { content } = await updateAppendSystem(appendDraft);
       setAppendDraft(null);
-      notify(content ? '追加系统提示已保存' : '已移除 .codex/APPEND_SYSTEM.md');
+      notify(content ? '追加系统提示已保存' : '已移除 .codex/APPEND_SYSTEM.md', 'success');
       onChanged();
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '追加系统提示暂时无法保存');
+      notify(cause instanceof Error ? cause.message : '追加系统提示暂时无法保存', 'error');
     } finally {
       setAppendSaving(false);
     }
@@ -700,11 +701,11 @@ export function ConfigPanel({
     try {
       await updateAgent(agentId, draft);
       setDraft(null);
-      notify('Agent 定义已保存');
+      notify('Agent 定义已保存', 'success');
       void reloadDetail();
       reloadWorkspace();
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : 'Agent 暂时无法保存');
+      notify(cause instanceof Error ? cause.message : 'Agent 暂时无法保存', 'error');
     } finally {
       setSaving(false);
     }
@@ -716,12 +717,12 @@ export function ConfigPanel({
     setSaving(true);
     try {
       await updateAgent(agentId, { body });
-      notify('Agent 定义已保存');
+      notify('Agent 定义已保存', 'success');
       void reloadDetail();
       reloadWorkspace();
       return true;
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : 'Agent 暂时无法保存');
+      notify(cause instanceof Error ? cause.message : 'Agent 暂时无法保存', 'error');
       return false;
     } finally {
       setSaving(false);

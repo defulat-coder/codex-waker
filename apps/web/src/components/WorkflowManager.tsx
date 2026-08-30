@@ -39,6 +39,7 @@ import { cx } from '../lib/cx.js';
 import { useDialogFocus } from '../hooks/useDialogFocus.js';
 import { useVisiblePolling } from '../hooks/useVisiblePolling.js';
 import { MotionLoadingRows } from './MotionFeedback.js';
+import type { Notify } from './Toasts.js';
 import {
   MOTION_DIALOG_BACKDROP,
   MOTION_DIALOG_SURFACE,
@@ -322,7 +323,7 @@ export function WorkflowManager({
   startAtList = false,
 }: {
   wakerId: string;
-  notify: (text: string) => void;
+  notify: Notify;
   onOpenSession?: (sessionId: string) => void;
   initialWorkflowId?: string;
   /** 顶层 WakerFlow 入口先展示原版卡片列表；Waker 详情入口可直接打开详情。 */
@@ -632,7 +633,7 @@ export function WorkflowManager({
         refreshes.push(loadRuns(workflowId, 0, false, true));
       await Promise.all(refreshes);
       if (!isCurrent()) return;
-      notify(success);
+      notify(success, 'success');
     } catch (cause) {
       if (!isCurrent()) return;
       if (cause instanceof ApiRequestError && cause.status === 409 && workflowId) {
@@ -643,7 +644,7 @@ export function WorkflowManager({
       }
       const message = cause instanceof Error ? cause.message : '操作失败';
       setActionError(message);
-      notify(message);
+      notify(message, 'error');
     } finally {
       if (isCurrent()) setBusy('');
     }

@@ -33,6 +33,7 @@ import {
 import { cx } from '../lib/cx.js';
 import { useDialogFocus } from '../hooks/useDialogFocus.js';
 import { MotionLoadingRows } from './MotionFeedback.js';
+import type { Notify } from './Toasts.js';
 import {
   MOTION_DIALOG_BACKDROP,
   MOTION_DIALOG_SURFACE,
@@ -61,7 +62,7 @@ export function MemoryView({
 }: {
   wakerId: string;
   onClose: () => void;
-  notify: (text: string) => void;
+  notify: Notify;
 }) {
   const [scopeType, setScopeType] = useState<MemoryScopeType>('waker');
   const [projectId, setProjectId] = useState('');
@@ -178,9 +179,9 @@ export function MemoryView({
         });
       closeEditorDialog();
       await load();
-      notify('记忆已保存');
+      notify('记忆已保存', 'success');
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '记忆暂时无法保存');
+      notify(cause instanceof Error ? cause.message : '记忆暂时无法保存', 'error');
     } finally {
       setBusy(false);
     }
@@ -202,7 +203,7 @@ export function MemoryView({
       anchor.click();
       URL.revokeObjectURL(anchor.href);
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '导出失败');
+      notify(cause instanceof Error ? cause.message : '导出失败', 'error');
     }
   };
   const rollback = async (snapshot: MemorySnapshot, apply: boolean) => {
@@ -214,10 +215,10 @@ export function MemoryView({
         scope,
         apply,
       });
-      notify(apply ? '已应用回滚' : `预检完成：${JSON.stringify(result)}`);
+      notify(apply ? '已应用回滚' : `预检完成：${JSON.stringify(result)}`, apply ? 'success' : 'info');
       if (apply) await load();
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '回滚失败');
+      notify(cause instanceof Error ? cause.message : '回滚失败', 'error');
     }
   };
   const compare = async () => {
@@ -231,10 +232,11 @@ export function MemoryView({
       const report = await runMemoryMaintenance(scope);
       notify(
         `维护完成：检查 ${report.checked} 条，清理 ${report.deleted} 条，跳过 ${report.skipped} 条`,
+        'success',
       );
       await load();
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '记忆维护失败');
+      notify(cause instanceof Error ? cause.message : '记忆维护失败', 'error');
     } finally {
       setBusy(false);
     }

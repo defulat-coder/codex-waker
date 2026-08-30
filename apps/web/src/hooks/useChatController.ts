@@ -9,6 +9,7 @@ import {
 } from '../lib/stream.js';
 import { newMessageId, type ChatMessage } from '../lib/types.js';
 import { readThinkingPreference } from '../lib/configPanel.js';
+import type { Notify } from '../components/Toasts.js';
 
 export type ThreadState = {
   messages: ChatMessage[];
@@ -20,7 +21,7 @@ export type ThreadState = {
 
 export interface ChatControllerOptions {
   /** 用户可见的错误通知。 */
-  notify: (text: string) => void;
+  notify: Notify;
   /** 一轮对话结束后调用（刷新会话列表与收件箱）。 */
   onTurnSettled: (agentId: string) => void;
 }
@@ -84,7 +85,7 @@ export function useChatController({ notify, onTurnSettled }: ChatControllerOptio
             ? { ...prev, [sessionId]: { ...prev[sessionId]!, historyLoaded: true } }
             : prev,
         );
-        notify('历史消息暂时无法读取，重新打开会话可重试');
+        notify('历史消息暂时无法读取，重新打开会话可重试', 'error');
       }
     },
     [notify],
@@ -293,7 +294,7 @@ export function useChatController({ notify, onTurnSettled }: ChatControllerOptio
             .catch(() => undefined);
         } else {
           // start 之前的失败此前会被静默丢弃：草稿线程落错误消息之外再 toast 一次。
-          notify(message);
+          notify(message, 'error');
         }
       })
       .finally(() => {

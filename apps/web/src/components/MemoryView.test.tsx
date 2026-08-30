@@ -1,6 +1,6 @@
 import { afterEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type {
   LocalResourcesResponse,
   MemoryDocument,
@@ -122,8 +122,15 @@ describe('MemoryView 范围筛选', () => {
 
   it('新建记忆提交当前选中的项目 scope', async () => {
     const calls: Call[] = [];
+    const notices: Array<{ text: string; tone?: string }> = [];
     mockFetch(calls);
-    render(<MemoryView wakerId="waker-one" onClose={() => {}} notify={() => {}} />);
+    render(
+      <MemoryView
+        wakerId="waker-one"
+        onClose={() => {}}
+        notify={(text, tone) => notices.push({ text, tone })}
+      />,
+    );
     await screen.findByRole('button', { name: /个人偏好/ });
 
     fireEvent.click(screen.getByRole('tab', { name: '项目' }));
@@ -137,6 +144,9 @@ describe('MemoryView 范围筛选', () => {
     const post = calls.find((call) => call.method === 'POST' && call.url === '/api/v1/memories');
     assert.ok(post);
     assert.deepEqual(post?.body?.scope, { type: 'project', id: 'project-one' });
+    await waitFor(() =>
+      assert.deepEqual(notices.at(-1), { text: '记忆已保存', tone: 'success' }),
+    );
   });
 
   it('当前 Waker 没有项目时显示空态且不按项目 scope 拉取', async () => {

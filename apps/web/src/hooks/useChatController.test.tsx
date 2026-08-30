@@ -37,11 +37,11 @@ function sseChannel() {
 }
 
 function setup() {
-  const notifications: string[] = [];
+  const notifications: Array<{ text: string; tone?: string }> = [];
   const settled: string[] = [];
   const view = renderHook(() =>
     useChatController({
-      notify: (text) => notifications.push(text),
+      notify: (text, tone) => notifications.push({ text, tone }),
       onTurnSettled: (agentId) => settled.push(agentId),
     }),
   );
@@ -172,7 +172,10 @@ describe('useChatController', () => {
     await waitFor(() =>
       assert.equal(result.current.threadMessages[1]?.error, '模型不在可用列表中'),
     );
-    assert.ok(notifications.includes('模型不在可用列表中'));
+    assert.deepEqual(notifications.at(-1), {
+      text: '模型不在可用列表中',
+      tone: 'error',
+    });
 
     const [user, assistant] = result.current.threadMessages;
     assert.equal(user!.text, '保留我', '用户消息不能静默丢失');
