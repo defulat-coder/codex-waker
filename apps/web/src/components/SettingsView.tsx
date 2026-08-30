@@ -38,8 +38,11 @@ const AGENT_OUTPUT_LANGUAGE_OPTIONS: Array<{
 export type SettingsViewProps = {
   settings: SettingsResponse | null;
   loading: boolean;
+  loaded: boolean;
+  error: Error | null;
   preferences: UiPreferences;
   onPreferenceChange: <K extends keyof UiPreferences>(key: K, value: UiPreferences[K]) => void;
+  onRetry: () => void;
 };
 
 function Toggle({
@@ -135,8 +138,11 @@ function OptionGroup<T extends string>({
 export function SettingsView({
   settings,
   loading,
+  loaded,
+  error,
   preferences,
   onPreferenceChange,
+  onRetry,
 }: SettingsViewProps) {
   return (
     <div className="system-page">
@@ -150,8 +156,26 @@ export function SettingsView({
         </div>
       </div>
 
-      {!settings ? (
-        <p className="system-page-loading">{loading ? '正在读取…' : '设置信息暂时无法读取'}</p>
+      {error && settings ? (
+        <div className="legacy-error" role="alert">
+          <p>设置刷新失败，当前仍显示上次读取的数据。</p>
+          <button type="button" className="legacy-button" onClick={onRetry}>
+            重试
+          </button>
+        </div>
+      ) : null}
+
+      {!settings && (!loaded || loading) ? (
+        <p className="system-page-loading" role="status">
+          正在读取…
+        </p>
+      ) : !settings ? (
+        <div className="legacy-error" role="alert">
+          <p>{error?.message || '设置信息暂时无法读取，请检查本地 API 后重试。'}</p>
+          <button type="button" className="legacy-button" onClick={onRetry}>
+            重试
+          </button>
+        </div>
       ) : (
         <motion.div
           className="settings-groups"

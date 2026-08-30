@@ -32,7 +32,20 @@ describe('useAsyncData', () => {
     assert.equal(view.result.current.data, 'new');
     assert.equal(view.result.current.loading, false);
     assert.equal(view.result.current.loaded, true);
+    assert.equal(view.result.current.error, null);
     assert.deepEqual(errors, []);
+  });
+
+  it('exposes the latest request error', async () => {
+    const request = deferred<string>();
+    const view = renderHook(() => useAsyncData(() => request.promise));
+
+    act(() => void view.result.current.reload());
+    await act(async () => request.reject(new Error('offline')));
+
+    assert.equal(view.result.current.error?.message, 'offline');
+    assert.equal(view.result.current.loading, false);
+    assert.equal(view.result.current.loaded, true);
   });
 
   it('ignores a request that settles after unmount', async () => {

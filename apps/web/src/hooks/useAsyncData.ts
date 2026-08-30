@@ -10,6 +10,7 @@ export function useAsyncData<T>(
 ) {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
   /** 首次 settle 后为 true；配合 data === null 区分「还没加载」与「加载失败」。 */
   const [loaded, setLoaded] = useState(false);
   const fetcherRef = useRef(fetcher);
@@ -28,12 +29,16 @@ export function useAsyncData<T>(
   const reload = useCallback(async () => {
     const generation = ++generationRef.current;
     setLoading(true);
+    setError(null);
     try {
       const result = await fetcherRef.current();
       if (generation === generationRef.current) setData(result);
     } catch (cause) {
-      if (generation === generationRef.current)
-        onErrorRef.current?.(cause instanceof Error ? cause : new Error(String(cause)));
+      if (generation === generationRef.current) {
+        const error = cause instanceof Error ? cause : new Error(String(cause));
+        setError(error);
+        onErrorRef.current?.(error);
+      }
     } finally {
       if (generation === generationRef.current) {
         setLoading(false);
@@ -42,5 +47,5 @@ export function useAsyncData<T>(
     }
   }, []);
 
-  return { data, setData, loading, loaded, reload };
+  return { data, setData, loading, loaded, error, reload };
 }

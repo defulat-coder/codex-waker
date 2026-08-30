@@ -924,8 +924,11 @@ export default function App() {
                 <SettingsView
                   settings={settings.data}
                   loading={settings.loading}
+                  loaded={settings.loaded}
+                  error={settings.error}
                   preferences={uiPreferences}
                   onPreferenceChange={handlePreferenceChange}
+                  onRetry={() => void settings.reload()}
                 />
               ) : legacyView === 'usage' ? (
                 <UsageView

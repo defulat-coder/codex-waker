@@ -24,8 +24,11 @@ function renderSettings(preferences: UiPreferences = DEFAULT_UI_PREFERENCES) {
     <SettingsView
       settings={SETTINGS}
       loading={false}
+      loaded
+      error={null}
       preferences={preferences}
       onPreferenceChange={(key, value) => calls.push({ key, value })}
+      onRetry={() => undefined}
     />,
   );
   return { view, calls };
@@ -84,5 +87,45 @@ describe('SettingsView 界面偏好', () => {
     fireEvent.click(toggle);
 
     assert.deepEqual(calls, [{ key: 'compactMessages', value: true }]);
+  });
+
+  it('读取失败时提供明确的重试操作', () => {
+    let retries = 0;
+    render(
+      <SettingsView
+        settings={null}
+        loading={false}
+        loaded
+        error={new Error('本地 API 不可用')}
+        preferences={DEFAULT_UI_PREFERENCES}
+        onPreferenceChange={() => undefined}
+        onRetry={() => {
+          retries += 1;
+        }}
+      />,
+    );
+
+    assert.ok(screen.getByRole('alert'));
+    assert.ok(screen.getByText('本地 API 不可用'));
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+    assert.equal(retries, 1);
+  });
+
+  it('刷新失败时保留旧设置并显示可重试提示', () => {
+    render(
+      <SettingsView
+        settings={SETTINGS}
+        loading={false}
+        loaded
+        error={new Error('刷新失败')}
+        preferences={DEFAULT_UI_PREFERENCES}
+        onPreferenceChange={() => undefined}
+        onRetry={() => undefined}
+      />,
+    );
+
+    assert.ok(screen.getByRole('alert'));
+    assert.ok(screen.getByText('设置刷新失败，当前仍显示上次读取的数据。'));
+    assert.ok(screen.getByText('openai'));
   });
 });
