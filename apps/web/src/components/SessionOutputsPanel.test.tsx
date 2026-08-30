@@ -5,6 +5,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { SessionAttachment, SessionOutputsResponse } from '@waker/contracts';
 import { selectSessionUploadBatch } from '../lib/sessionUpload.js';
 import { SessionOutputsPanel } from './SessionOutputsPanel.js';
+import type { Notify } from './Toasts.js';
 
 const originalFetch = globalThis.fetch;
 
@@ -35,7 +36,7 @@ function renderPanel(
   input: {
     selectedIds?: string[];
     onToggle?: (id: string) => void;
-    notify?: (text: string) => void;
+    notify?: Notify;
   } = {},
 ) {
   return render(
@@ -86,8 +87,8 @@ describe('SessionOutputsPanel', () => {
       return jsonResponse({ error: 'unexpected request' }, 500);
     }) as typeof fetch;
 
-    const notices: string[] = [];
-    renderPanel({ notify: (text) => notices.push(text) });
+    const notices: Array<{ text: string; tone?: string }> = [];
+    renderPanel({ notify: (text, tone) => notices.push({ text, tone }) });
     await screen.findByText('尚未上传附件');
     fireEvent.change(screen.getByLabelText('上传附件'), {
       target: {
@@ -104,7 +105,7 @@ describe('SessionOutputsPanel', () => {
     assert.ok(screen.getByText('已上传'));
     assert.ok(screen.getByText('文件校验失败'));
     assert.deepEqual(posts.sort(), ['bad.txt', 'good.txt']);
-    assert.deepEqual(notices, ['1 个成功，1 个失败']);
+    assert.deepEqual(notices, [{ text: '1 个成功，1 个失败', tone: 'error' }]);
   });
 
   it('安全截断文本预览，展示结果路径与文件变更详情，并用 Escape 恢复焦点', async () => {

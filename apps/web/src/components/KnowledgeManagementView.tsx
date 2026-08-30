@@ -39,11 +39,8 @@ import { useDialogFocus } from '../hooks/useDialogFocus.js';
 import { prepareKnowledgeFiles, type RejectedKnowledgeFile } from './knowledgeFileImport.js';
 import { MAX_KNOWLEDGE_IMPORT_URLS, parseKnowledgeUrls } from './knowledgeUrlImport.js';
 import { MotionLoadingRows } from './MotionFeedback.js';
-import {
-  MOTION_DIALOG_BACKDROP,
-  MOTION_DIALOG_SURFACE,
-  MOTION_TRANSITION,
-} from '../lib/motion.js';
+import type { Notify } from './Toasts.js';
+import { MOTION_DIALOG_BACKDROP, MOTION_DIALOG_SURFACE, MOTION_TRANSITION } from '../lib/motion.js';
 
 type AuditEntry = {
   id?: number;
@@ -89,13 +86,7 @@ function auditLabel(action?: string): string {
   return action ? (labels[action] ?? action) : '未知操作';
 }
 
-export function KnowledgeManagementView({
-  wakerId,
-  notify,
-}: {
-  wakerId?: string;
-  notify: (message: string) => void;
-}) {
+export function KnowledgeManagementView({ wakerId, notify }: { wakerId?: string; notify: Notify }) {
   const [notebooks, setNotebooks] = useState<KnowledgeNotebook[] | null>(null);
   const [bindings, setBindings] = useState<KnowledgeBinding[]>([]);
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
@@ -252,9 +243,9 @@ export function KnowledgeManagementView({
       setNotebookDescription('');
       await loadCatalog();
       setSelectedId(notebook.id);
-      notify('知识库已创建并连接到当前 Waker');
+      notify('知识库已创建并连接到当前 Waker', 'success');
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '知识库创建失败');
+      notify(cause instanceof Error ? cause.message : '知识库创建失败', 'error');
       await loadCatalog();
     } finally {
       setBusy(false);
@@ -267,18 +258,18 @@ export function KnowledgeManagementView({
     try {
       if (selectedBinding) {
         await deleteKnowledgeBinding(selectedBinding);
-        notify('已解除当前 Waker 的知识库连接');
+        notify('已解除当前 Waker 的知识库连接', 'success');
       } else {
         await createKnowledgeBinding({
           notebookId: selectedNotebook.id,
           scope: scopeFor(wakerId),
           access: bindAccess,
         });
-        notify(bindAccess === 'read_only' ? '知识库已以只读方式连接' : '知识库已连接');
+        notify(bindAccess === 'read_only' ? '知识库已以只读方式连接' : '知识库已连接', 'success');
       }
       await loadCatalog();
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '知识库连接更新失败');
+      notify(cause instanceof Error ? cause.message : '知识库连接更新失败', 'error');
     } finally {
       setBusy(false);
     }
@@ -310,9 +301,9 @@ export function KnowledgeManagementView({
       setEditor(null);
       await refreshSelected();
       await loadCatalog();
-      notify('知识文档已保存');
+      notify('知识文档已保存', 'success');
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '知识文档保存失败');
+      notify(cause instanceof Error ? cause.message : '知识文档保存失败', 'error');
     } finally {
       setBusy(false);
     }
@@ -326,9 +317,9 @@ export function KnowledgeManagementView({
       setDeleteDocumentTarget(null);
       await refreshSelected();
       await loadCatalog();
-      notify(`已删除“${document.title}”`);
+      notify(`已删除“${document.title}”`, 'success');
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '知识文档删除失败');
+      notify(cause instanceof Error ? cause.message : '知识文档删除失败', 'error');
     } finally {
       setBusy(false);
     }
@@ -381,6 +372,7 @@ export function KnowledgeManagementView({
         rejected.length
           ? `已导入 ${imported.length} 个，${rejected.length} 个失败`
           : `已导入 ${imported.length} 个文件`,
+        rejected.length ? 'error' : 'success',
       );
     } finally {
       setBusy(false);
@@ -424,9 +416,10 @@ export function KnowledgeManagementView({
             ? `已导入 ${imported.length} 个，${rejected.length} 个失败`
             : '网页链接已导入'
           : '无法导入网页链接，请稍后重试。',
+        imported.length && !rejected.length ? 'success' : 'error',
       );
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '无法导入网页链接，请稍后重试。');
+      notify(cause instanceof Error ? cause.message : '无法导入网页链接，请稍后重试。', 'error');
     } finally {
       setBusy(false);
     }
@@ -447,7 +440,7 @@ export function KnowledgeManagementView({
       setResults(response);
       if (response.degraded) setNeedsCheck(true);
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '知识检索失败');
+      notify(cause instanceof Error ? cause.message : '知识检索失败', 'error');
     } finally {
       setBusy(false);
     }
@@ -460,10 +453,10 @@ export function KnowledgeManagementView({
       const chunks = await rebuildKnowledge({ notebookId: selectedId, force: true });
       setNeedsCheck(false);
       await refreshSelected();
-      notify(`已重建 ${chunks} 个分块`);
+      notify(`已重建 ${chunks} 个分块`, 'success');
     } catch (cause) {
       setNeedsCheck(true);
-      notify(cause instanceof Error ? cause.message : '索引重建失败');
+      notify(cause instanceof Error ? cause.message : '索引重建失败', 'error');
     } finally {
       setBusy(false);
     }
@@ -623,257 +616,262 @@ export function KnowledgeManagementView({
               animate={{ opacity: 1, x: 0 }}
               transition={MOTION_TRANSITION.routine}
             >
-            {selectedNotebook && (
-              <section className="knowledge-connection" aria-labelledby="knowledge-selected-title">
-                <div>
-                  <div className="knowledge-title-line">
-                    <h2 id="knowledge-selected-title">{selectedNotebook.title}</h2>
-                    <span className={cx('resource-status', connectionStatus.className)}>
-                      {connectionStatus.label}
-                    </span>
-                    {selectedBinding && needsCheck && (
-                      <span className="resource-status error">Needs check</span>
-                    )}
+              {selectedNotebook && (
+                <section
+                  className="knowledge-connection"
+                  aria-labelledby="knowledge-selected-title"
+                >
+                  <div>
+                    <div className="knowledge-title-line">
+                      <h2 id="knowledge-selected-title">{selectedNotebook.title}</h2>
+                      <span className={cx('resource-status', connectionStatus.className)}>
+                        {connectionStatus.label}
+                      </span>
+                      {selectedBinding && needsCheck && (
+                        <span className="resource-status error">Needs check</span>
+                      )}
+                    </div>
+                    <p>{selectedNotebook.description || '这个知识库没有说明。'}</p>
                   </div>
-                  <p>{selectedNotebook.description || '这个知识库没有说明。'}</p>
-                </div>
-                <div className="knowledge-connection-actions">
-                  {!selectedBinding && (
-                    <select
-                      aria-label="连接权限"
-                      value={bindAccess}
-                      onChange={(event) =>
-                        setBindAccess(event.target.value as KnowledgeBinding['access'])
-                      }
-                    >
-                      <option value="read_write">可读写</option>
-                      <option value="read_only">只读</option>
-                    </select>
-                  )}
-                  <button
-                    type="button"
-                    className="legacy-button"
-                    disabled={busy}
-                    onClick={() => void toggleBinding()}
-                  >
-                    {selectedBinding ? '解除连接' : '连接到当前 Waker'}
-                  </button>
-                </div>
-              </section>
-            )}
-
-            {!selectedBinding ? (
-              <div className="legacy-empty knowledge-unbound">
-                <h2>选择已有知识库并连接</h2>
-                <p>连接只作用于当前 Waker；未连接前不会读取或修改其中的文档。</p>
-              </div>
-            ) : (
-              <>
-                {needsCheck && (
-                  <div className="knowledge-health-notice" role="alert">
-                    <span>知识内容或索引状态不完整，请重新读取；只读连接不会因此获得写权限。</span>
+                  <div className="knowledge-connection-actions">
+                    {!selectedBinding && (
+                      <select
+                        aria-label="连接权限"
+                        value={bindAccess}
+                        onChange={(event) =>
+                          setBindAccess(event.target.value as KnowledgeBinding['access'])
+                        }
+                      >
+                        <option value="read_write">可读写</option>
+                        <option value="read_only">只读</option>
+                      </select>
+                    )}
                     <button
                       type="button"
                       className="legacy-button"
-                      disabled={detailLoading}
-                      onClick={() => setDetailReload((value) => value + 1)}
+                      disabled={busy}
+                      onClick={() => void toggleBinding()}
                     >
-                      重新读取
+                      {selectedBinding ? '解除连接' : '连接到当前 Waker'}
                     </button>
                   </div>
-                )}
-                {detailLoading ? (
-                  <MotionLoadingRows label="正在读取知识库内容" />
-                ) : (
-                  <>
-                    <form className="knowledge-url-import" onSubmit={importUrls}>
-                      <label htmlFor="knowledge-url-input">网页链接</label>
-                      <textarea
-                        id="knowledge-url-input"
-                        rows={3}
-                        value={urlInput}
-                        disabled={!canWrite || busy}
-                        placeholder="粘贴网页链接，多个链接可用空格或换行分隔"
-                        onChange={(event) => setUrlInput(event.target.value)}
-                      />
-                      <div className="knowledge-url-import-meta">
-                        <span aria-live="polite">
-                          {validUrls.length}/{MAX_KNOWLEDGE_IMPORT_URLS} 个有效链接
-                        </span>
-                        {urlOverLimit && (
-                          <span className="over-limit" role="alert">
-                            最多允许 {MAX_KNOWLEDGE_IMPORT_URLS} 个链接
-                          </span>
-                        )}
-                        <button
-                          className="legacy-button"
-                          disabled={!canWrite || busy || !validUrls.length || urlOverLimit}
-                          title={!canWrite ? '需要可写连接才能导入链接' : undefined}
-                        >
-                          {busy ? '导入中…' : '导入链接'}
-                        </button>
-                      </div>
-                    </form>
+                </section>
+              )}
 
-                    <form className="knowledge-search" onSubmit={runSearch}>
-                      <MagnifyingGlass size={18} aria-hidden="true" />
-                      <input
-                        aria-label="搜索知识库"
-                        value={query}
-                        onChange={(event) => setQuery(event.target.value)}
-                        placeholder="搜索本地知识…"
-                      />
-                      <select
-                        aria-label="检索方式"
-                        value={mode}
-                        onChange={(event) => setMode(event.target.value as KnowledgeSearchMode)}
+              {!selectedBinding ? (
+                <div className="legacy-empty knowledge-unbound">
+                  <h2>选择已有知识库并连接</h2>
+                  <p>连接只作用于当前 Waker；未连接前不会读取或修改其中的文档。</p>
+                </div>
+              ) : (
+                <>
+                  {needsCheck && (
+                    <div className="knowledge-health-notice" role="alert">
+                      <span>
+                        知识内容或索引状态不完整，请重新读取；只读连接不会因此获得写权限。
+                      </span>
+                      <button
+                        type="button"
+                        className="legacy-button"
+                        disabled={detailLoading}
+                        onClick={() => setDetailReload((value) => value + 1)}
                       >
-                        <option value="hybrid">混合检索</option>
-                        <option value="keyword">关键词</option>
-                        <option value="vector">向量</option>
-                      </select>
-                      <button className="legacy-button primary" disabled={!query.trim() || busy}>
-                        搜索
+                        重新读取
                       </button>
-                    </form>
-
-                    {importReport && (
-                      <div
-                        className={cx(
-                          'knowledge-import-report',
-                          importReport.rejected.length > 0 && 'has-errors',
-                        )}
-                        role="status"
-                        aria-live="polite"
-                      >
-                        <strong>
-                          已导入 {importReport.imported.length} 个，失败{' '}
-                          {importReport.rejected.length} 个
-                        </strong>
-                        {importReport.rejected.length > 0 && (
-                          <ul>
-                            {importReport.rejected.map((item, index) => (
-                              <li key={`${item.fileName}-${index}`}>
-                                {item.fileName}：{item.reason}
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </div>
-                    )}
-
-                    {results ? (
-                      <div className="search-results">
-                        <div className="results-meta">
-                          {results.total} 条结果 · {results.modeUsed}
-                          {results.degraded
-                            ? ` · 已降级${results.reason ? `：${results.reason}` : ''}`
-                            : ''}
+                    </div>
+                  )}
+                  {detailLoading ? (
+                    <MotionLoadingRows label="正在读取知识库内容" />
+                  ) : (
+                    <>
+                      <form className="knowledge-url-import" onSubmit={importUrls}>
+                        <label htmlFor="knowledge-url-input">网页链接</label>
+                        <textarea
+                          id="knowledge-url-input"
+                          rows={3}
+                          value={urlInput}
+                          disabled={!canWrite || busy}
+                          placeholder="粘贴网页链接，多个链接可用空格或换行分隔"
+                          onChange={(event) => setUrlInput(event.target.value)}
+                        />
+                        <div className="knowledge-url-import-meta">
+                          <span aria-live="polite">
+                            {validUrls.length}/{MAX_KNOWLEDGE_IMPORT_URLS} 个有效链接
+                          </span>
+                          {urlOverLimit && (
+                            <span className="over-limit" role="alert">
+                              最多允许 {MAX_KNOWLEDGE_IMPORT_URLS} 个链接
+                            </span>
+                          )}
                           <button
-                            type="button"
-                            className="legacy-text-button"
-                            onClick={() => setResults(null)}
+                            className="legacy-button"
+                            disabled={!canWrite || busy || !validUrls.length || urlOverLimit}
+                            title={!canWrite ? '需要可写连接才能导入链接' : undefined}
                           >
-                            返回文档
+                            {busy ? '导入中…' : '导入链接'}
                           </button>
                         </div>
-                        {results.results.length ? (
-                          results.results.map((result) => (
-                            <article key={result.chunkId}>
-                              <h3>{result.title}</h3>
-                              <p>{result.snippet || result.content}</p>
-                              <code>{result.citation}</code>
-                              <span>相关度 {result.score.toFixed(3)}</span>
-                            </article>
-                          ))
-                        ) : (
-                          <div className="legacy-empty knowledge-search-empty">
-                            <h2>没有匹配结果</h2>
-                            <p>尝试更短的关键词，或切换检索方式。</p>
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <>
-                        {documents.length ? (
-                          <div className="document-list">
-                            {documents.map((document) => (
-                              <div key={document.id}>
-                                <BookOpenText size={18} />
-                                <span>
-                                  <strong>{document.title}</strong>
-                                  <small>
-                                    版本 {document.version} · {document.sourceType}
-                                  </small>
-                                </span>
-                                <button
-                                  type="button"
-                                  className="legacy-text-button"
-                                  disabled={!canWrite || busy}
-                                  title={!canWrite ? '当前连接为只读' : undefined}
-                                  onClick={(event) => {
-                                    editorTriggerRef.current = event.currentTarget;
-                                    setEditor({
-                                      id: document.id,
-                                      version: document.version,
-                                      title: document.title,
-                                      content: document.content,
-                                      sourceType:
-                                        document.sourceType === 'text' ? 'text' : 'markdown',
-                                    });
-                                  }}
-                                >
-                                  编辑
-                                </button>
-                                <button
-                                  type="button"
-                                  className="legacy-text-button danger"
-                                  disabled={!canWrite || busy}
-                                  title={!canWrite ? '当前连接为只读' : undefined}
-                                  onClick={() => setDeleteDocumentTarget(document)}
-                                >
-                                  删除
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <div className="legacy-empty knowledge-documents-empty">
-                            <h2>还没有文档</h2>
-                            <p>
-                              {canWrite
-                                ? '新建或导入 Markdown/TXT 文档后即可检索。'
-                                : '这是只读连接，当前知识库还没有文档。'}
-                            </p>
-                          </div>
-                        )}
+                      </form>
 
-                        <details className="knowledge-audit">
-                          <summary>审计记录 · {audits.length}</summary>
-                          {audits.length ? (
-                            <ol>
-                              {[...audits]
-                                .reverse()
-                                .slice(0, 12)
-                                .map((audit, index) => (
-                                  <li key={audit.id ?? `${audit.action}-${index}`}>
-                                    <span>{auditLabel(audit.action)}</span>
-                                    <time dateTime={audit.createdAt}>
-                                      {formatAuditTime(audit.createdAt)}
-                                    </time>
-                                  </li>
-                                ))}
-                            </ol>
-                          ) : (
-                            <p>暂无可显示的审计记录。</p>
+                      <form className="knowledge-search" onSubmit={runSearch}>
+                        <MagnifyingGlass size={18} aria-hidden="true" />
+                        <input
+                          aria-label="搜索知识库"
+                          value={query}
+                          onChange={(event) => setQuery(event.target.value)}
+                          placeholder="搜索本地知识…"
+                        />
+                        <select
+                          aria-label="检索方式"
+                          value={mode}
+                          onChange={(event) => setMode(event.target.value as KnowledgeSearchMode)}
+                        >
+                          <option value="hybrid">混合检索</option>
+                          <option value="keyword">关键词</option>
+                          <option value="vector">向量</option>
+                        </select>
+                        <button className="legacy-button primary" disabled={!query.trim() || busy}>
+                          搜索
+                        </button>
+                      </form>
+
+                      {importReport && (
+                        <div
+                          className={cx(
+                            'knowledge-import-report',
+                            importReport.rejected.length > 0 && 'has-errors',
                           )}
-                        </details>
-                      </>
-                    )}
-                  </>
-                )}
-              </>
-            )}
+                          role="status"
+                          aria-live="polite"
+                        >
+                          <strong>
+                            已导入 {importReport.imported.length} 个，失败{' '}
+                            {importReport.rejected.length} 个
+                          </strong>
+                          {importReport.rejected.length > 0 && (
+                            <ul>
+                              {importReport.rejected.map((item, index) => (
+                                <li key={`${item.fileName}-${index}`}>
+                                  {item.fileName}：{item.reason}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      )}
+
+                      {results ? (
+                        <div className="search-results">
+                          <div className="results-meta">
+                            {results.total} 条结果 · {results.modeUsed}
+                            {results.degraded
+                              ? ` · 已降级${results.reason ? `：${results.reason}` : ''}`
+                              : ''}
+                            <button
+                              type="button"
+                              className="legacy-text-button"
+                              onClick={() => setResults(null)}
+                            >
+                              返回文档
+                            </button>
+                          </div>
+                          {results.results.length ? (
+                            results.results.map((result) => (
+                              <article key={result.chunkId}>
+                                <h3>{result.title}</h3>
+                                <p>{result.snippet || result.content}</p>
+                                <code>{result.citation}</code>
+                                <span>相关度 {result.score.toFixed(3)}</span>
+                              </article>
+                            ))
+                          ) : (
+                            <div className="legacy-empty knowledge-search-empty">
+                              <h2>没有匹配结果</h2>
+                              <p>尝试更短的关键词，或切换检索方式。</p>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <>
+                          {documents.length ? (
+                            <div className="document-list">
+                              {documents.map((document) => (
+                                <div key={document.id}>
+                                  <BookOpenText size={18} />
+                                  <span>
+                                    <strong>{document.title}</strong>
+                                    <small>
+                                      版本 {document.version} · {document.sourceType}
+                                    </small>
+                                  </span>
+                                  <button
+                                    type="button"
+                                    className="legacy-text-button"
+                                    disabled={!canWrite || busy}
+                                    title={!canWrite ? '当前连接为只读' : undefined}
+                                    onClick={(event) => {
+                                      editorTriggerRef.current = event.currentTarget;
+                                      setEditor({
+                                        id: document.id,
+                                        version: document.version,
+                                        title: document.title,
+                                        content: document.content,
+                                        sourceType:
+                                          document.sourceType === 'text' ? 'text' : 'markdown',
+                                      });
+                                    }}
+                                  >
+                                    编辑
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="legacy-text-button danger"
+                                    disabled={!canWrite || busy}
+                                    title={!canWrite ? '当前连接为只读' : undefined}
+                                    onClick={() => setDeleteDocumentTarget(document)}
+                                  >
+                                    删除
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="legacy-empty knowledge-documents-empty">
+                              <h2>还没有文档</h2>
+                              <p>
+                                {canWrite
+                                  ? '新建或导入 Markdown/TXT 文档后即可检索。'
+                                  : '这是只读连接，当前知识库还没有文档。'}
+                              </p>
+                            </div>
+                          )}
+
+                          <details className="knowledge-audit">
+                            <summary>审计记录 · {audits.length}</summary>
+                            {audits.length ? (
+                              <ol>
+                                {[...audits]
+                                  .reverse()
+                                  .slice(0, 12)
+                                  .map((audit, index) => (
+                                    <li key={audit.id ?? `${audit.action}-${index}`}>
+                                      <span>{auditLabel(audit.action)}</span>
+                                      <time dateTime={audit.createdAt}>
+                                        {formatAuditTime(audit.createdAt)}
+                                      </time>
+                                    </li>
+                                  ))}
+                              </ol>
+                            ) : (
+                              <p>暂无可显示的审计记录。</p>
+                            )}
+                          </details>
+                        </>
+                      )}
+                    </>
+                  )}
+                </>
+              )}
             </motion.div>
           </div>
         </div>

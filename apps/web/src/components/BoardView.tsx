@@ -37,6 +37,7 @@ import { fetchLocalResources } from '../lib/api.js';
 import { useDialogFocus } from '../hooks/useDialogFocus.js';
 import { useVisiblePolling } from '../hooks/useVisiblePolling.js';
 import { MotionLoadingRows } from './MotionFeedback.js';
+import type { Notify } from './Toasts.js';
 
 type BoardTab = 'tasks' | 'actions';
 type BoardMode = 'list' | 'lanes';
@@ -148,7 +149,7 @@ export function BoardView({
   onOpenWorkflow,
 }: {
   wakerId: string;
-  notify: (text: string) => void;
+  notify: Notify;
   onOpenSession?: (sessionId: string) => void;
   onOpenAutomation?: (automationId?: string) => void;
   onOpenWorkflow?: (workflowId?: string) => void;
@@ -468,7 +469,7 @@ export function BoardView({
       );
       closeEditor();
       await load();
-      notify(editor.id ? '手工任务已更新' : '手工任务已创建');
+      notify(editor.id ? '手工任务已更新' : '手工任务已创建', 'success');
     } catch (cause) {
       if (ownerRef.current !== owner) return;
       setEditorError(
@@ -519,9 +520,9 @@ export function BoardView({
       setDeleteTarget(null);
       closeDetail();
       await load();
-      notify('手工任务已删除');
+      notify('手工任务已删除', 'success');
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '手工任务暂时无法删除');
+      notify(cause instanceof Error ? cause.message : '手工任务暂时无法删除', 'error');
     } finally {
       setBusy('');
     }
@@ -681,7 +682,7 @@ export function BoardView({
                   '人工输入暂时无法提交',
                 );
                 await loadActions();
-                notify('人工输入已提交');
+                notify('人工输入已提交', 'success');
               } catch (cause) {
                 setActionError(cause instanceof Error ? cause.message : '人工输入暂时无法提交');
               } finally {
@@ -979,7 +980,7 @@ export function BoardView({
                       );
                       setIgnoreTarget(null);
                       await loadActions();
-                      notify('人工操作已忽略');
+                      notify('人工操作已忽略', 'success');
                     } catch (cause) {
                       setActionError(
                         cause instanceof Error ? cause.message : '人工操作暂时无法忽略',
@@ -1475,80 +1476,84 @@ function HumanActionSurface({
       ) : actions.length ? (
         <motion.div className="board-actions-list" layout>
           <AnimatePresence initial={false} mode="popLayout">
-          {actions.map((action) => (
-            <motion.article
-              key={action.id}
-              layout="position"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={MOTION_TRANSITION.routine}
-            >
-              <header>
-                <div>
-                  <h2>{action.title}</h2>
-                  <p>{action.prompt}</p>
-                </div>
-                <span className={cx('resource-status', action.status)}>
-                  {action.status === 'pending'
-                    ? '待处理'
-                    : action.status === 'handled'
-                      ? '已处理'
-                      : '已忽略'}
-                </span>
-              </header>
-              <small>
-                {action.source} · {formatTime(action.createdAt)}
-              </small>
-              {action.source === 'workflow' && action.status === 'pending' ? (
-                <form
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    onResolve(action);
-                  }}
-                >
-                  <label>
-                    继续运行的输入（JSON）
-                    <textarea
-                      value={inputs[action.id] ?? '{}'}
-                      onChange={(event) => onInput(action.id, event.target.value)}
-                    />
-                  </label>
-                  <div className="dialog-actions">
-                    <button
-                      className="legacy-button danger"
-                      type="button"
-                      disabled={Boolean(busy)}
-                      onClick={() => onIgnore(action)}
-                    >
-                      忽略并取消等待
-                    </button>
-                    <button className="legacy-button primary" disabled={Boolean(busy)}>
-                      {busy === `resolve:${action.id}` ? '提交中…' : '提交并继续'}
-                    </button>
+            {actions.map((action) => (
+              <motion.article
+                key={action.id}
+                layout="position"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={MOTION_TRANSITION.routine}
+              >
+                <header>
+                  <div>
+                    <h2>{action.title}</h2>
+                    <p>{action.prompt}</p>
                   </div>
-                </form>
-              ) : action.source === 'codex' && action.status === 'pending' ? (
-                <div className="board-readonly-action">
-                  <span>Codex 审批由宿主权限模型处理，此处只读。</span>
-                  {action.sessionId && onOpenSession && (
+                  <span className={cx('resource-status', action.status)}>
+                    {action.status === 'pending'
+                      ? '待处理'
+                      : action.status === 'handled'
+                        ? '已处理'
+                        : '已忽略'}
+                  </span>
+                </header>
+                <small>
+                  {action.source} · {formatTime(action.createdAt)}
+                </small>
+                {action.source === 'workflow' && action.status === 'pending' ? (
+                  <form
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      onResolve(action);
+                    }}
+                  >
+                    <label>
+                      继续运行的输入（JSON）
+                      <textarea
+                        value={inputs[action.id] ?? '{}'}
+                        onChange={(event) => onInput(action.id, event.target.value)}
+                      />
+                    </label>
+                    <div className="dialog-actions">
+                      <button
+                        className="legacy-button danger"
+                        type="button"
+                        disabled={Boolean(busy)}
+                        onClick={() => onIgnore(action)}
+                      >
+                        忽略并取消等待
+                      </button>
+                      <button className="legacy-button primary" disabled={Boolean(busy)}>
+                        {busy === `resolve:${action.id}` ? '提交中…' : '提交并继续'}
+                      </button>
+                    </div>
+                  </form>
+                ) : action.source === 'codex' && action.status === 'pending' ? (
+                  <div className="board-readonly-action">
+                    <span>Codex 审批由宿主权限模型处理，此处只读。</span>
+                    {action.sessionId && onOpenSession && (
+                      <button
+                        className="legacy-button"
+                        type="button"
+                        onClick={() => onOpenSession(action.sessionId!)}
+                      >
+                        打开会话
+                      </button>
+                    )}
                     <button
                       className="legacy-button"
                       type="button"
-                      onClick={() => onOpenSession(action.sessionId!)}
+                      onClick={() => onIgnore(action)}
                     >
-                      打开会话
+                      从列表忽略
                     </button>
-                  )}
-                  <button className="legacy-button" type="button" onClick={() => onIgnore(action)}>
-                    从列表忽略
-                  </button>
-                </div>
-              ) : action.result !== undefined ? (
-                <pre>{JSON.stringify(action.result, null, 2)}</pre>
-              ) : null}
-            </motion.article>
-          ))}
+                  </div>
+                ) : action.result !== undefined ? (
+                  <pre>{JSON.stringify(action.result, null, 2)}</pre>
+                ) : null}
+              </motion.article>
+            ))}
           </AnimatePresence>
         </motion.div>
       ) : (

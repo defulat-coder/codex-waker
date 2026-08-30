@@ -8,6 +8,7 @@ import { MOTION_TRANSITION } from '../lib/motion.js';
 
 export type ToastTone = 'info' | 'success' | 'error';
 export type Toast = { id: number; text: string; tone: ToastTone };
+export type Notify = (text: string, tone?: ToastTone) => void;
 
 /** 用户可见的操作通知；tone 决定播报语义，生命周期和移除由调用方管理。 */
 export function Toasts({

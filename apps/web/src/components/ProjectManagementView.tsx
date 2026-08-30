@@ -15,11 +15,8 @@ import {
 } from '../lib/projectApi.js';
 import { useDialogFocus } from '../hooks/useDialogFocus.js';
 import { MotionLoadingRows } from './MotionFeedback.js';
-import {
-  MOTION_DIALOG_BACKDROP,
-  MOTION_DIALOG_SURFACE,
-  MOTION_TRANSITION,
-} from '../lib/motion.js';
+import type { Notify } from './Toasts.js';
+import { MOTION_DIALOG_BACKDROP, MOTION_DIALOG_SURFACE, MOTION_TRANSITION } from '../lib/motion.js';
 
 type Editor = ProjectInput & { mode: 'create' | 'edit' };
 
@@ -40,7 +37,7 @@ export function ProjectManagementView({
 }: {
   wakerId: string;
   onClose?: () => void;
-  notify: (text: string) => void;
+  notify: Notify;
   onChanged?: () => void;
 }) {
   const [items, setItems] = useState<WakerProject[] | null>(null);
@@ -130,9 +127,9 @@ export function ProjectManagementView({
       setSelectedId(saved.id);
       window.dispatchEvent(new window.Event('waker:resources-changed'));
       onChanged?.();
-      notify(editor.mode === 'edit' ? '项目已更新' : '项目已创建');
+      notify(editor.mode === 'edit' ? '项目已更新' : '项目已创建', 'success');
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '项目暂时无法保存');
+      notify(cause instanceof Error ? cause.message : '项目暂时无法保存', 'error');
     } finally {
       setBusy(false);
     }
@@ -169,7 +166,7 @@ export function ProjectManagementView({
       await load();
       window.dispatchEvent(new window.Event('waker:resources-changed'));
       onChanged?.();
-      notify('项目已删除');
+      notify('项目已删除', 'success');
     } catch (cause) {
       setImpactError(cause instanceof Error ? cause.message : '项目暂时无法删除');
     } finally {

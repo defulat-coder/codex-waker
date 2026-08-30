@@ -355,9 +355,12 @@ describe('KnowledgeManagementView', () => {
       access: 'read_write',
       createdAt: NOTEBOOK.createdAt,
     });
-    const notices: string[] = [];
+    const notices: Array<{ text: string; tone?: string }> = [];
     render(
-      <KnowledgeManagementView wakerId="waker-one" notify={(message) => notices.push(message)} />,
+      <KnowledgeManagementView
+        wakerId="waker-one"
+        notify={(text, tone) => notices.push({ text, tone })}
+      />,
     );
     await screen.findByText('快速开始');
 
@@ -370,7 +373,9 @@ describe('KnowledgeManagementView', () => {
 
     assert.ok(await screen.findByText('已导入 1 个，失败 1 个'));
     assert.ok(screen.getByText('https://example.com/fail-page：抓取失败（HTTP 404）'));
-    assert.ok(notices.includes('已导入 1 个，1 个失败'));
+    assert.ok(
+      notices.some((notice) => notice.text === '已导入 1 个，1 个失败' && notice.tone === 'error'),
+    );
     const importCall = calls.find((call) => call.url.endsWith('/documents/import-url'));
     assert.deepEqual(importCall?.body?.urls, [
       'https://example.com/a',

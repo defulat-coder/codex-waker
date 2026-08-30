@@ -212,8 +212,9 @@ describe('BoardView', () => {
 
   it('uses a protected ignore dialog and sends optimistic action version', async () => {
     const calls: Call[] = [];
+    const notices: Array<{ text: string; tone?: string }> = [];
     installApi(calls);
-    render(<BoardView wakerId="waker-one" notify={() => {}} />);
+    render(<BoardView wakerId="waker-one" notify={(text, tone) => notices.push({ text, tone })} />);
     fireEvent.click(await screen.findByRole('tab', { name: /人工操作/ }));
     fireEvent.click(await screen.findByRole('button', { name: '忽略并取消等待' }));
     const dialog = screen.getByRole('dialog', { name: `忽略“${ACTION.title}”？` });
@@ -229,6 +230,9 @@ describe('BoardView', () => {
       wakerId: 'waker-one',
       expectedVersion: 4,
     });
+    assert.ok(
+      notices.some((notice) => notice.text === '人工操作已忽略' && notice.tone === 'success'),
+    );
   });
 
   it('shows wrapped detail data, keeps derived tasks read-only and restores row focus', async () => {

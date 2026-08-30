@@ -18,11 +18,8 @@ import {
   uploadSessionAttachment,
 } from '../lib/api.js';
 import { MotionLoadingRows } from './MotionFeedback.js';
-import {
-  MOTION_DIALOG_BACKDROP,
-  MOTION_DIALOG_SURFACE,
-  MOTION_TRANSITION,
-} from '../lib/motion.js';
+import type { Notify } from './Toasts.js';
+import { MOTION_DIALOG_BACKDROP, MOTION_DIALOG_SURFACE, MOTION_TRANSITION } from '../lib/motion.js';
 
 const MAX_SELECTED_ATTACHMENTS = 8;
 const MAX_TEXT_PREVIEW_BYTES = 64 * 1024;
@@ -80,7 +77,7 @@ export function SessionOutputsPanel({
   selectedIds: string[];
   onToggle: (id: string) => void;
   onClose: () => void;
-  notify: (text: string) => void;
+  notify: Notify;
   maxSelected?: number;
 }) {
   const [data, setData] = useState<SessionOutputsResponse | null>(null);
@@ -170,7 +167,10 @@ export function SessionOutputsPanel({
       setUploadReport(report);
       const succeeded = report.filter((item) => item.status === 'success').length;
       const failed = report.length - succeeded;
-      notify(failed ? `${succeeded} 个成功，${failed} 个失败` : `已上传 ${succeeded} 个附件`);
+      notify(
+        failed ? `${succeeded} 个成功，${failed} 个失败` : `已上传 ${succeeded} 个附件`,
+        failed ? 'error' : 'success',
+      );
       await load();
     } finally {
       setBusy(false);
@@ -185,7 +185,7 @@ export function SessionOutputsPanel({
       .slice(0, remaining);
     additions.forEach((item) => onToggle(item.id));
     if (data.attachments.some((item) => !selectedIds.includes(item.id)) && additions.length === 0)
-      notify(`当前轮次最多还能选择 ${maxSelected} 个已有附件`);
+      notify(`当前轮次最多还能选择 ${maxSelected} 个已有附件`, 'info');
   };
 
   return (
@@ -344,10 +344,10 @@ export function SessionOutputsPanel({
                                 item.id,
                                 item.originalName,
                               );
-                              notify('结果已登记');
+                              notify('结果已登记', 'success');
                               await load();
                             } catch (cause) {
-                              notify(cause instanceof Error ? cause.message : '登记失败');
+                              notify(cause instanceof Error ? cause.message : '登记失败', 'error');
                             }
                           }}
                         >
@@ -411,10 +411,10 @@ export function SessionOutputsPanel({
                   try {
                     await createSessionFileChange(agentId, sessionId, change);
                     setChange({ path: '', kind: 'update', summary: '' });
-                    notify('文件变更已登记');
+                    notify('文件变更已登记', 'success');
                     await load();
                   } catch (cause) {
-                    notify(cause instanceof Error ? cause.message : '登记失败');
+                    notify(cause instanceof Error ? cause.message : '登记失败', 'error');
                   }
                 }}
               >
@@ -556,10 +556,10 @@ export function SessionOutputsPanel({
                     await deleteSessionAttachment(agentId, sessionId, deleteTarget.id);
                     if (selectedIds.includes(deleteTarget.id)) onToggle(deleteTarget.id);
                     setDeleteTarget(null);
-                    notify('附件已删除');
+                    notify('附件已删除', 'success');
                     await load();
                   } catch (cause) {
-                    notify(cause instanceof Error ? cause.message : '附件删除失败');
+                    notify(cause instanceof Error ? cause.message : '附件删除失败', 'error');
                   } finally {
                     setDeleting(false);
                   }

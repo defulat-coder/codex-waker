@@ -95,8 +95,13 @@ describe('ProjectManagementView', () => {
       return json({ error: 'unexpected request' }, 500);
     }) as typeof fetch;
 
-    const notices: string[] = [];
-    render(<ProjectManagementView wakerId="waker-one" notify={(text) => notices.push(text)} />);
+    const notices: Array<{ text: string; tone?: string }> = [];
+    render(
+      <ProjectManagementView
+        wakerId="waker-one"
+        notify={(text, tone) => notices.push({ text, tone })}
+      />,
+    );
 
     assert.ok(await screen.findByRole('heading', { name: '本地工作台' }));
     fireEvent.click(screen.getByRole('button', { name: /新建项目/ }));
@@ -154,7 +159,11 @@ describe('ProjectManagementView', () => {
     assert.equal(screen.queryByRole('heading', { name: '知识仓库' }), null);
     assert.ok(calls.some((call) => call.url.includes('/delete-impact?wakerId=waker-one')));
     assert.ok(calls.some((call) => call.method === 'DELETE'));
-    assert.deepEqual(notices, ['项目已创建', '项目已更新', '项目已删除']);
+    assert.deepEqual(notices, [
+      { text: '项目已创建', tone: 'success' },
+      { text: '项目已更新', tone: 'success' },
+      { text: '项目已删除', tone: 'success' },
+    ]);
   });
 
   it('展示加载失败恢复与空状态', async () => {
