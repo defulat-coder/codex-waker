@@ -272,6 +272,7 @@ describe('WakersView 管理视图', () => {
     assert.equal(exportLink.getAttribute('href'), '/api/v1/agents/agent-a/source');
     fireEvent.click(within(reopened).getByRole('menuitem', { name: '配置' }));
     assert.deepEqual(calls.onConfigure, ['agent-a']);
+    assert.equal(document.activeElement, trigger);
   });
 
   it('paginates client-side with a page size of 12', () => {

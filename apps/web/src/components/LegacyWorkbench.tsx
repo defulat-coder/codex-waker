@@ -586,6 +586,7 @@ export function WakersView({
                               tabIndex={-1}
                               onClick={() => {
                                 setMenuAgentId(null);
+                                moreTriggerRef.current?.focus();
                                 onConfigure(agent.id);
                               }}
                             >

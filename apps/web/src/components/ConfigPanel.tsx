@@ -26,6 +26,7 @@ import {
   updatePrompt,
 } from '../lib/api.js';
 import { useAsyncData } from '../hooks/useAsyncData.js';
+import { usePanelFocus } from '../hooks/usePanelFocus.js';
 import {
   DEFAULT_OPEN_SECTIONS,
   readModelPreference,
@@ -638,6 +639,7 @@ export function ConfigPanel({
   onClose: () => void;
   onUseSuggestion: (text: string) => void;
 }) {
+  const panelRef = usePanelFocus<HTMLElement>(onClose);
   const { workspace, notify, reloadWorkspace } = useWorkspace();
   const models = workspace.models;
   const detail = useAsyncData(() => fetchAgent(agentId), {
@@ -731,9 +733,11 @@ export function ConfigPanel({
 
   return (
     <motion.aside
+      ref={panelRef}
       role="complementary"
       aria-label="Agent 配置"
       className="config-panel"
+      tabIndex={-1}
       initial={{ opacity: 0, x: 24 }}
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: 24 }}
@@ -745,6 +749,7 @@ export function ConfigPanel({
           <button
             type="button"
             className="icon-button"
+            data-panel-close
             onClick={onClose}
             aria-label="关闭配置面板"
             disabled={saving}

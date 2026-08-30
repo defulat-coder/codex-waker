@@ -7,6 +7,7 @@ import { FileArrowUp } from '@phosphor-icons/react/dist/icons/FileArrowUp';
 import { Trash } from '@phosphor-icons/react/dist/icons/Trash';
 import { X } from '@phosphor-icons/react/dist/icons/X';
 import { useDialogFocus } from '../hooks/useDialogFocus.js';
+import { usePanelFocus } from '../hooks/usePanelFocus.js';
 import { selectSessionUploadBatch, type SessionUploadReport } from '../lib/sessionUpload.js';
 import {
   createSessionArtifact,
@@ -80,6 +81,7 @@ export function SessionOutputsPanel({
   notify: Notify;
   maxSelected?: number;
 }) {
+  const panelRef = usePanelFocus<HTMLElement>(onClose);
   const [data, setData] = useState<SessionOutputsResponse | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -190,8 +192,11 @@ export function SessionOutputsPanel({
 
   return (
     <motion.aside
+      ref={panelRef}
       className="outputs-panel"
+      role="complementary"
       aria-label="附件与结果"
+      tabIndex={-1}
       initial={{ opacity: 0, x: 20 }}
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: 20 }}
@@ -202,7 +207,13 @@ export function SessionOutputsPanel({
           <h2>附件与结果</h2>
           <p>会话输出保存在本地工作区。</p>
         </div>
-        <button className="icon-button" aria-label="关闭附件与结果" onClick={onClose}>
+        <button
+          className="icon-button"
+          type="button"
+          aria-label="关闭附件与结果"
+          data-panel-close
+          onClick={onClose}
+        >
           <X size={18} />
         </button>
       </header>
