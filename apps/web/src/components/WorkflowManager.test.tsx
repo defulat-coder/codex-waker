@@ -1,5 +1,6 @@
 import { afterEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type {
   LocalResourcesResponse,
@@ -11,6 +12,7 @@ import type {
 import { parseWorkflowDefinition, WorkflowManager } from './WorkflowManager.js';
 
 const originalFetch = globalThis.fetch;
+const styles = readFileSync(new URL('../styles.css', import.meta.url), 'utf8');
 
 const DEFINITION = {
   schemaVersion: 1 as const,
@@ -312,6 +314,15 @@ afterEach(() => {
 });
 
 describe('WorkflowManager', () => {
+  it('keeps list-only workflow cards on theme tokens', () => {
+    const rule =
+      styles.match(/\.workflow-workspace\.list-only \.workflow-list > button\s*\{([^}]*)\}/)?.[1] ??
+      '';
+    assert.match(rule, /background:\s*var\(--bg-primary\)/);
+    assert.match(rule, /border:\s*1px solid var\(--border-subtle\)/);
+    assert.match(rule, /rgba\(var\(--shadow-color\), 0\.05\)/);
+  });
+
   it('announces list failures and retries in place', async () => {
     const calls: Call[] = [];
     installApi(calls);
