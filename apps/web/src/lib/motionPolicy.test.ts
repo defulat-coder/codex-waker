@@ -35,7 +35,7 @@ describe('Motion 样式边界', () => {
       const source = readFileSync(file, 'utf8');
       assert.doesNotMatch(
         source,
-        /\b(?:initial|animate|exit)=\{\{[^}]*\b(?:width|height)\s*:/,
+        /\b(?:initial|animate|exit)=\{[\s\S]{0,240}?\b(?:width|height)\s*:/,
         file.pathname,
       );
     }

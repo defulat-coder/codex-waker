@@ -80,6 +80,7 @@ describe('Composer prompt panel', () => {
       { prompts },
     );
     const input = screen.getByRole('combobox', { name: '消息输入框' });
+    assert.equal(screen.queryByRole('listbox', { name: '提示词列表' }), null);
     fireEvent.change(input, { target: { value: '/' } });
     const listbox = screen.getByRole('listbox', { name: '提示词列表' });
     const options = within(listbox).getAllByRole('option');
@@ -95,6 +96,11 @@ describe('Composer prompt panel', () => {
     fireEvent.keyDown(input, { key: 'Enter' });
     assert.equal(sends, 0);
     assert.ok(screen.getByText(/按 Esc 关闭后可按原文发送/));
+    fireEvent.keyDown(input, { key: 'Escape' });
+    assert.equal(screen.queryByRole('listbox', { name: '提示词列表' }), null);
+    assert.equal(input.getAttribute('aria-expanded'), 'false');
+    fireEvent.keyDown(input, { key: 'Enter' });
+    assert.equal(sends, 1);
   });
 
   it('提示词读取失败时保留输入并显示可重试错误', async () => {

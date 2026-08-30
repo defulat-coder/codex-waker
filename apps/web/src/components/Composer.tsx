@@ -302,24 +302,13 @@ export function Composer({
         void addFiles(Array.from(event.dataTransfer.files));
       }}
     >
-      <motion.div
-        className="prompt-panel"
-        initial={false}
-        animate={
-          reducedMotion ? undefined : { opacity: panelOpen ? 1 : 0, height: panelOpen ? 'auto' : 0 }
-        }
-        transition={{ duration: 0.2, ease: MOTION_EASE }}
-        style={{
-          overflow: 'hidden',
-          pointerEvents: panelOpen ? 'auto' : 'none',
-          borderBottomWidth: panelOpen ? 1 : 0,
-          ...(reducedMotion
-            ? { opacity: panelOpen ? 1 : 0, height: panelOpen ? 'auto' : 0 }
-            : {}),
-        }}
-        inert={!panelOpen}
-        aria-hidden={!panelOpen}
-      >
+      {panelOpen && (
+        <motion.div
+          className="prompt-panel"
+          initial={{ opacity: 0, y: -4 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.2, ease: MOTION_EASE }}
+        >
         <p className="prompt-panel-label">
           <span>提示词</span>
           {loadingPrompt && (
@@ -383,7 +372,8 @@ export function Composer({
             {promptError}，请重试。
           </motion.p>
         )}
-      </motion.div>
+        </motion.div>
+      )}
 
       {attachments.length > 0 && (
         <div className="composer-attachments" aria-label="待发送附件">
