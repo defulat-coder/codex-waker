@@ -8,6 +8,7 @@ import type {
 import { AnimatePresence, MotionConfig, motion } from 'motion/react';
 import { Plus } from '@phosphor-icons/react/dist/icons/Plus';
 import { ClockCounterClockwise } from '@phosphor-icons/react/dist/icons/ClockCounterClockwise';
+import { CircleNotch } from '@phosphor-icons/react/dist/icons/CircleNotch';
 import {
   fetchInbox,
   fetchPreferences,
@@ -53,7 +54,7 @@ import { SessionOutputsPanel } from './components/SessionOutputsPanel.js';
 import { StopTurnButton } from './components/StopTurnButton.js';
 import { WakerOnboardingPanel } from './components/WakerOnboardingPanel.js';
 import { WakerDetailNav, type WakerDetailNavKey } from './components/WakerDetailNav.js';
-import { MotionLoadingRows } from './components/MotionFeedback.js';
+import { MotionLoadingRows, MotionSpinner } from './components/MotionFeedback.js';
 import {
   LegacyRail,
   ResourcesView,
@@ -638,7 +639,7 @@ export default function App() {
   if (fatal) {
     return (
       <div className="app-shell">
-        <main className="app-fatal">
+        <main className="app-fatal" role="alert">
           <p>Waker 加载失败。</p>
           <p className="app-fatal-detail">{fatal}</p>
           <button
@@ -658,8 +659,11 @@ export default function App() {
   if (!workspace) {
     return (
       <div className="app-shell">
-        <main className="app-loading" aria-live="polite">
-          正在加载 Waker...
+        <main className="app-loading" role="status" aria-live="polite" aria-busy="true">
+          <MotionSpinner>
+            <CircleNotch size={16} />
+          </MotionSpinner>
+          <span>正在加载 Waker...</span>
         </main>
       </div>
     );

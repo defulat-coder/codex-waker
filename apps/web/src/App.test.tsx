@@ -122,6 +122,30 @@ afterEach(() => {
 });
 
 describe('App 会话视图', () => {
+  it('启动失败时播报错误并可原地重试', async () => {
+    stubFetch();
+    const healthyFetch = globalThis.fetch;
+    let workspaceAttempts = 0;
+    globalThis.fetch = (async (input, init) => {
+      if (String(input).includes('/api/v1/workspace') && workspaceAttempts++ === 0) {
+        return new Response(JSON.stringify({ error: '工作区验证失败' }), {
+          status: 500,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      return healthyFetch(input, init);
+    }) as typeof fetch;
+
+    render(<App />);
+    assert.equal(screen.getByRole('status').getAttribute('aria-busy'), 'true');
+    const alert = await screen.findByRole('alert');
+    assert.match(alert.textContent ?? '', /工作区验证失败/);
+
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+    assert.ok(await screen.findByRole('heading', { name: '我的Wakers' }));
+    assert.equal(workspaceAttempts, 2);
+  });
+
   it('挂载后加载工作区并拉取收件箱（未读徽标来自 unreadCount）', async () => {
     const calls = stubFetch();
     render(<App />);
