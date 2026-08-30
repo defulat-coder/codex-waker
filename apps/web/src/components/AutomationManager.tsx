@@ -865,7 +865,11 @@ function AutomationEditorForm({
         if (valid) onSubmit(event);
         else {
           event.preventDefault();
+          const form = event.currentTarget;
           setSubmitted(true);
+          requestAnimationFrame(() =>
+            form.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus(),
+          );
         }
       }}
     >

@@ -248,6 +248,8 @@ describe('AutomationManager', () => {
       screen.getByRole('textbox', { name: /^执行提示/ }).getAttribute('aria-invalid'),
       'true',
     );
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    assert.equal(document.activeElement, screen.getByRole('textbox', { name: /^名称/ }));
     fireEvent.click(screen.getByRole('button', { name: '取消' }));
     await new Promise((resolve) => setTimeout(resolve, 20));
     assert.equal(document.activeElement, create);
