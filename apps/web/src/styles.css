@@ -987,7 +987,7 @@ textarea {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  color: #8c8c8c;
+  color: var(--text-quaternary);
   font-size: 12px;
 }
 .qoder-chat-groups,
@@ -1005,7 +1005,7 @@ textarea {
 }
 .qoder-chat-section-title small {
   padding: 1px 5px;
-  color: #8c8c8c;
+  color: var(--text-quaternary);
   background: #f2f2f2;
   border: 1px solid #dedede;
   border-radius: 4px;
@@ -1025,7 +1025,7 @@ textarea {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  color: #8c8c8c;
+  color: var(--text-quaternary);
   border: 1px dashed #d6d6d6;
   border-radius: 4px;
   font-size: 12px;
@@ -1107,7 +1107,7 @@ textarea {
 }
 .qoder-chat-waker-copy small,
 .qoder-chat-waker-count {
-  color: #8c8c8c;
+  color: var(--text-quaternary);
   font-size: 10px;
 }
 .qoder-chat-waker-count {
@@ -1139,7 +1139,7 @@ textarea {
   font-weight: 500;
 }
 .qoder-chat-agent > span:last-child {
-  color: #8c8c8c;
+  color: var(--text-quaternary);
   font-size: 20px;
 }
 .qoder-chat-header-actions {
@@ -1185,7 +1185,7 @@ textarea {
   align-items: center;
   justify-content: center;
   gap: 5px;
-  color: #8c8c8c;
+  color: var(--text-quaternary);
   border-radius: 4px;
   font-size: 12px;
 }
@@ -1249,12 +1249,12 @@ textarea {
 }
 .qoder-task-row small,
 .qoder-task-row > svg {
-  color: #8c8c8c;
+  color: var(--text-quaternary);
   font-size: 10px;
 }
 .qoder-task-empty {
   margin: 32px 0;
-  color: #8c8c8c;
+  color: var(--text-quaternary);
   font-size: 12px;
   text-align: center;
 }
@@ -1315,7 +1315,7 @@ textarea {
   margin: -4px 0 0;
   overflow: hidden;
   font-size: 14px;
-  color: #8c8c8c;
+  color: var(--text-quaternary);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -5337,7 +5337,7 @@ button.agent-card:hover,
   display: -webkit-box;
   margin: 8px 0 0;
   overflow: hidden;
-  color: #8c8c8c;
+  color: var(--text-quaternary);
   font-size: 12px;
   font-weight: 400;
   line-height: 18px;
@@ -6661,7 +6661,7 @@ button.agent-card:hover,
 .section-heading p {
   max-width: 68ch;
   margin: 0;
-  color: #8c8c8c;
+  color: var(--text-quaternary);
   font-size: 14px;
   line-height: 24px;
 }
@@ -6758,7 +6758,7 @@ button.agent-card:hover,
   min-height: 28px;
   flex: 1;
   padding: 0 10px;
-  color: #8c8c8c;
+  color: var(--text-quaternary);
   font-size: 12px;
   font-weight: 500;
   border: 0;
@@ -6957,7 +6957,7 @@ button.agent-card:hover,
 .waker-card-role {
   margin-left: 7px;
   padding: 0;
-  color: #8c8c8c;
+  color: var(--text-quaternary);
   background: transparent;
   border-radius: 0;
   font-size: 12px;
@@ -7075,7 +7075,7 @@ button.agent-card:hover,
   align-items: center;
   gap: 10px;
   height: 22px;
-  color: #8c8c8c;
+  color: var(--text-quaternary);
   font-size: 12px;
 }
 .waker-card .agent-chip.qoderwake-avatar {
@@ -7095,7 +7095,7 @@ button.agent-card:hover,
   display: -webkit-box;
   margin: 1px 0 0;
   overflow: hidden;
-  color: #8c8c8c;
+  color: var(--text-quaternary);
   font-size: 12px;
   line-height: 18px;
   -webkit-box-orient: vertical;
