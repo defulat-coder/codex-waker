@@ -59,7 +59,7 @@ function sseChannel() {
 
 type FetchCall = { method: string; url: string; body?: string };
 
-function stubFetch(): FetchCall[] {
+function stubFetch(agents = [AGENT]): FetchCall[] {
   const calls: FetchCall[] = [];
   globalThis.fetch = (async (input, init) => {
     const url = String(input);
@@ -73,7 +73,7 @@ function stubFetch(): FetchCall[] {
       return jsonResponse({ items: [INBOX_ITEM], total: 1, unreadCount: 1 });
     if (url.includes('/api/v1/workspace'))
       return jsonResponse({
-        agents: [AGENT],
+        agents,
         prompts: [],
         host: { name: 'test-host' },
         models: { current: {}, available: [] },
@@ -154,6 +154,9 @@ describe('App 会话视图', () => {
     await waitFor(() =>
       assert.equal(document.activeElement, screen.getByRole('combobox', { name: '消息输入框' })),
     );
+    fireEvent.change(screen.getByRole('combobox', { name: '消息输入框' }), {
+      target: { value: '上一会话草稿' },
+    });
 
     await openSession('整理文档');
     await waitFor(() =>
@@ -162,6 +165,31 @@ describe('App 会话视图', () => {
         '切换会话应拉取对应历史',
       ),
     );
+    assert.equal(
+      (screen.getByRole('combobox', { name: '消息输入框' }) as HTMLTextAreaElement).value,
+      '',
+    );
+    fireEvent.change(screen.getByRole('combobox', { name: '消息输入框' }), {
+      target: { value: '新会话前草稿' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '对话任务' }));
+    assert.equal(
+      (screen.getByRole('combobox', { name: '消息输入框' }) as HTMLTextAreaElement).value,
+      '',
+    );
+  });
+
+  it('切换 Waker 时清除原 Waker 的文本草稿', async () => {
+    const secondAgent = { ...AGENT, id: 'agent-two', name: 'Atlas', mark: 'At' };
+    stubFetch([AGENT, secondAgent]);
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Chat' }));
+    const input = screen.getByRole('combobox', { name: '消息输入框' });
+    fireEvent.change(input, { target: { value: 'Nova 的私有草稿' } });
+
+    fireEvent.click(screen.getByRole('option', { name: /Atlas/ }));
+
+    assert.equal((input as HTMLTextAreaElement).value, '');
   });
 
   it('Waker 卡片的自动任务入口只导航，不直接创建调度', async () => {

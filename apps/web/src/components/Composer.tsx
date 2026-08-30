@@ -41,6 +41,8 @@ export type ComposerProps = {
   attachments: DraftComposerAttachment[];
   onAttachmentsChange: (attachments: DraftComposerAttachment[]) => void;
   maxAttachments?: number;
+  /** Explicit context reset; does not change during the first Welcome → Thread transition. */
+  resetSignal?: number;
 };
 
 function ModelMenu({
@@ -116,6 +118,7 @@ export function Composer({
   attachments,
   onAttachmentsChange,
   maxAttachments = MAX_TURN_ATTACHMENTS,
+  resetSignal = 0,
 }: ComposerProps) {
   const { workspace } = useWorkspace();
   const reducedMotion = useReducedMotion();
@@ -135,11 +138,29 @@ export function Composer({
   const modelMenuRef = useRef<HTMLDivElement>(null);
   const modelTriggerRef = useRef<HTMLButtonElement>(null);
   const loadingPromptRef = useRef(false);
+  const promptGenerationRef = useRef(0);
+  const attachmentGenerationRef = useRef(0);
   const attachmentsRef = useRef<DraftComposerAttachment[]>([]);
   const promptListId = useId();
   attachmentsRef.current = attachments;
   const closeModelMenu = useCallback(() => setMenuOpen(false), []);
   useDismissable(modelMenuRef, closeModelMenu, menuOpen);
+
+  useEffect(() => {
+    promptGenerationRef.current += 1;
+    attachmentGenerationRef.current += 1;
+    loadingPromptRef.current = false;
+    setText('');
+    setMenuOpen(false);
+    setActivePrompt(0);
+    setPanelDismissed(false);
+    setLoadingPrompt(false);
+    setPromptError('');
+    setAttachmentErrors([]);
+    setPreparingAttachments(false);
+    setDraggingFiles(false);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }, [resetSignal]);
 
   const promptQuery = promptQueryFromInput(text);
   const panelOpen = promptQuery !== null && !panelDismissed;
@@ -160,17 +181,22 @@ export function Composer({
   const applyPrompt = async (name: string) => {
     if (loadingPromptRef.current) return;
     loadingPromptRef.current = true;
+    const generation = ++promptGenerationRef.current;
     setLoadingPrompt(true);
     setPromptError('');
     try {
       const document = await fetchPrompt(name);
+      if (generation !== promptGenerationRef.current) return;
       setText(document.content.trim());
       textareaRef.current?.focus();
     } catch (cause) {
+      if (generation !== promptGenerationRef.current) return;
       setPromptError(cause instanceof Error ? cause.message : '提示词暂时无法读取');
     } finally {
-      loadingPromptRef.current = false;
-      setLoadingPrompt(false);
+      if (generation === promptGenerationRef.current) {
+        loadingPromptRef.current = false;
+        setLoadingPrompt(false);
+      }
     }
   };
 
@@ -184,6 +210,7 @@ export function Composer({
 
   const addFiles = async (files: File[]) => {
     if (!files.length || disabled || preparingAttachments) return;
+    const generation = ++attachmentGenerationRef.current;
     setPreparingAttachments(true);
     try {
       const prepared = await prepareComposerAttachments(
@@ -191,6 +218,7 @@ export function Composer({
         attachmentsRef.current,
         maxAttachments,
       );
+      if (generation !== attachmentGenerationRef.current) return;
       const next = prepared.accepted.map<DraftComposerAttachment>((attachment) => ({
         ...attachment,
         ...(attachment.mimeType.startsWith('image/')
@@ -204,7 +232,7 @@ export function Composer({
       }
       setAttachmentErrors(prepared.rejected);
     } finally {
-      setPreparingAttachments(false);
+      if (generation === attachmentGenerationRef.current) setPreparingAttachments(false);
     }
   };
 

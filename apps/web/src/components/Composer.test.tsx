@@ -26,18 +26,28 @@ function renderComposer(
     onSuccess?: () => void,
   ) => boolean,
   workspaceOverride: Partial<WorkspaceResponse> = {},
+  resettable = false,
 ) {
   function Fixture() {
     const [attachments, setAttachments] = useState<PreparedComposerAttachment[]>([]);
+    const [resetSignal, setResetSignal] = useState(0);
     return (
-      <Composer
-        disabled={false}
-        selectedModel={undefined}
-        onSelectModel={() => undefined}
-        onSend={onSend}
-        attachments={attachments}
-        onAttachmentsChange={setAttachments}
-      />
+      <>
+        {resettable && (
+          <button type="button" onClick={() => setResetSignal((value) => value + 1)}>
+            重置 Composer
+          </button>
+        )}
+        <Composer
+          resetSignal={resetSignal}
+          disabled={false}
+          selectedModel={undefined}
+          onSelectModel={() => undefined}
+          onSend={onSend}
+          attachments={attachments}
+          onAttachmentsChange={setAttachments}
+        />
+      </>
     );
   }
   return render(
@@ -98,6 +108,34 @@ describe('Composer prompt panel', () => {
     assert.ok(await screen.findByRole('alert'));
     assert.equal((input as HTMLTextAreaElement).value, '/');
     assert.match(screen.getByRole('alert').textContent ?? '', /提示词暂时无法读取.*请重试/);
+  });
+
+  it('上下文重置会清空草稿，并忽略旧提示词请求的晚到结果', async () => {
+    let resolvePrompt!: (response: Response) => void;
+    globalThis.fetch = (() =>
+      new Promise<Response>((resolve) => {
+        resolvePrompt = resolve;
+      })) as typeof fetch;
+    renderComposer(() => true, { prompts }, true);
+    const input = screen.getByRole('combobox', { name: '消息输入框' });
+    fireEvent.change(input, { target: { value: '/' } });
+    fireEvent.click(screen.getByRole('option', { name: /explain/ }));
+    fireEvent.click(screen.getByRole('button', { name: '重置 Composer' }));
+
+    assert.equal((input as HTMLTextAreaElement).value, '');
+    assert.equal(input.getAttribute('aria-expanded'), 'false');
+
+    await act(async () => {
+      resolvePrompt(
+        Response.json({
+          name: 'explain',
+          path: '.codex/prompts/explain.md',
+          content: '旧上下文的提示词内容',
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    assert.equal((input as HTMLTextAreaElement).value, '');
   });
 });
 

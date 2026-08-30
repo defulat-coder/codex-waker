@@ -113,6 +113,7 @@ export default function App() {
   const [outputsOpen, setOutputsOpen] = useState(false);
   const [taskListOpen, setTaskListOpen] = useState(false);
   const taskListTriggerRef = useRef<HTMLButtonElement>(null);
+  const [composerResetSignal, setComposerResetSignal] = useState(0);
   const [selectedAttachmentIds, setSelectedAttachmentIds] = useState<string[]>([]);
   const [draftAttachments, setDraftAttachments] = useState<DraftComposerAttachment[]>([]);
   const draftAttachmentsRef = useRef<DraftComposerAttachment[]>([]);
@@ -327,6 +328,7 @@ export default function App() {
     if (agentId === currentAgentId && legacyView === 'chat') return;
     chat.interrupt();
     discardDraftAttachments('已清除原 Waker 中尚未发送的附件');
+    setComposerResetSignal((value) => value + 1);
     setCurrentAgentId(agentId);
     // 切换 Agent 时重置为该 Agent 的默认模型偏好；Composer 内的手动选择只活到下次切换。
     setSelectedModel(readModelPreference(agentId));
@@ -343,6 +345,7 @@ export default function App() {
     if (sessionId === chat.currentSessionId) return;
     setLegacyView('chat');
     discardDraftAttachments('已清除上一会话中尚未发送的附件');
+    setComposerResetSignal((value) => value + 1);
     if (currentAgentId) chat.openSession(currentAgentId, sessionId);
   };
 
@@ -350,6 +353,7 @@ export default function App() {
     setLegacyView('chat');
     chat.closeSession();
     discardDraftAttachments('已清除上一会话中尚未发送的附件');
+    setComposerResetSignal((value) => value + 1);
     setConfigAgentId(null);
   };
 
@@ -862,6 +866,7 @@ export default function App() {
                         </select>
                       </label>
                       <Composer
+                        resetSignal={composerResetSignal}
                         disabled={Boolean(chat.liveTurn)}
                         selectedModel={selectedModel}
                         onSelectModel={setSelectedModel}
