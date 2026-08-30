@@ -985,6 +985,27 @@ export function WorkflowManager({
     });
   };
 
+  const onDefinitionTabKeyDown = (
+    event: KeyboardEvent<HTMLButtonElement>,
+    index: number,
+  ) => {
+    const views = ['canvas', 'script'] as const;
+    let nextIndex: number;
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown')
+      nextIndex = (index + 1) % views.length;
+    else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp')
+      nextIndex = (index - 1 + views.length) % views.length;
+    else if (event.key === 'Home') nextIndex = 0;
+    else if (event.key === 'End') nextIndex = views.length - 1;
+    else return;
+    event.preventDefault();
+    setDefinitionView(views[nextIndex]!);
+    const tabs = event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>(
+      '[role="tab"]',
+    );
+    tabs?.[nextIndex]?.focus();
+  };
+
   return (
     <section className="legacy-page workflow-manager" aria-labelledby="workflows-title">
       <header className="legacy-page-header">
@@ -1185,7 +1206,7 @@ export function WorkflowManager({
                   </div>
                 </div>
                 <div className="workflow-definition-tabs" role="tablist" aria-label="定义视图">
-                  {(['canvas', 'script'] as const).map((view) => (
+                  {(['canvas', 'script'] as const).map((view, index) => (
                     <button
                       key={view}
                       id={`workflow-definition-tab-${view}`}
@@ -1193,7 +1214,9 @@ export function WorkflowManager({
                       role="tab"
                       aria-selected={definitionView === view}
                       aria-controls="workflow-definition-panel"
+                      tabIndex={definitionView === view ? 0 : -1}
                       onClick={() => setDefinitionView(view)}
+                      onKeyDown={(event) => onDefinitionTabKeyDown(event, index)}
                     >
                       {view === 'canvas' ? '画布' : '脚本'}
                     </button>

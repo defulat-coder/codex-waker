@@ -763,11 +763,16 @@ describe('WorkflowManager', () => {
     const canvasTab = screen.getByRole('tab', { name: '画布' });
     const scriptTab = screen.getByRole('tab', { name: '脚本' });
     assert.equal(scriptTab.getAttribute('aria-selected'), 'true');
+    assert.equal(scriptTab.tabIndex, 0);
+    assert.equal(canvasTab.tabIndex, -1);
     fireEvent.change(screen.getByLabelText('节点定义（JSON）'), {
       target: { value: JSON.stringify(FULL_DEFINITION, null, 2) },
     });
-    fireEvent.click(canvasTab);
+    scriptTab.focus();
+    fireEvent.keyDown(scriptTab, { key: 'ArrowLeft' });
+    assert.equal(document.activeElement, canvasTab);
     assert.equal(canvasTab.getAttribute('aria-selected'), 'true');
+    assert.equal(canvasTab.tabIndex, 0);
 
     const canvas = await screen.findByRole('list', { name: '流程画布' });
     for (const label of ['动作', 'Codex', '判断', '等待', '人工输入', '子流程', '结束']) {
