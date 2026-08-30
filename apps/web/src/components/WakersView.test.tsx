@@ -8,6 +8,11 @@ import { WakersView } from './LegacyWorkbench.js';
 const originalFetch = globalThis.fetch;
 const styles = readFileSync(new URL('../styles.css', import.meta.url), 'utf8');
 
+function cssRule(selector: string): string {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return styles.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`))?.[1] ?? '';
+}
+
 afterEach(() => {
   globalThis.fetch = originalFetch;
 });
@@ -246,9 +251,18 @@ describe('WakersView 管理视图', () => {
   });
 
   it('keeps the Waker search surface on light and dark theme tokens', () => {
-    const rule = styles.match(/\.waker-toolbar-search\s*\{([^}]*)\}/)?.[1] ?? '';
+    const rule = cssRule('.waker-toolbar-search');
     assert.match(rule, /background:\s*var\(--bg-primary\)/);
     assert.match(rule, /border:\s*1px solid var\(--border-default\)/);
+  });
+
+  it('keeps the Waker management canvas, tabs and cards on theme tokens', () => {
+    assert.match(cssRule('.legacy-page'), /background:\s*var\(--bg-secondary\)/);
+    assert.match(cssRule('.waker-tabs'), /background:\s*var\(--bg-tertiary\)/);
+    assert.match(cssRule('.waker-tab.active'), /background:\s*var\(--bg-primary\)/);
+    assert.match(cssRule('.waker-card'), /background:\s*var\(--bg-primary\)/);
+    assert.match(cssRule('.waker-card'), /border:\s*1px solid var\(--border-subtle\)/);
+    assert.match(cssRule('.waker-actions'), /border-top:\s*1px solid var\(--border-subtle\)/);
   });
 
   it('shows online status and the real device line on each card', () => {

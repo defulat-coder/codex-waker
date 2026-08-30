@@ -6652,7 +6652,7 @@ button.agent-card:hover,
   flex: 1;
   overflow: auto;
   padding: 32px 40px 48px;
-  background: #f9f9f9;
+  background: var(--bg-secondary);
 }
 .legacy-page > .legacy-page {
   padding: 0;
@@ -6717,17 +6717,17 @@ button.agent-card:hover,
 .legacy-page-header .legacy-button.primary {
   min-height: 32px;
   padding: 0 12px;
-  color: #fdfdfd;
-  background: #141414;
-  border-color: #141414;
+  color: var(--bg-primary);
+  background: var(--text-primary);
+  border-color: var(--text-primary);
   border-radius: 4px;
   font-size: 13px;
   font-weight: 500;
   box-shadow: none;
 }
 .legacy-page-header .legacy-button.primary:hover:not(:disabled) {
-  background: #2a2a2a;
-  border-color: #2a2a2a;
+  background: var(--text-secondary);
+  border-color: var(--text-secondary);
 }
 .legacy-button.primary:hover:not(:disabled) {
   background: var(--brand-hover);
@@ -6767,7 +6767,7 @@ button.agent-card:hover,
   gap: 2px;
   margin-top: 24px;
   padding: 4px;
-  background: #ededed;
+  background: var(--bg-tertiary);
   border: 0;
   border-radius: 6px;
 }
@@ -6790,8 +6790,8 @@ button.agent-card:hover,
   cursor: not-allowed;
 }
 .waker-tab.active {
-  color: #141414;
-  background: #fff;
+  color: var(--text-primary);
+  background: var(--bg-primary);
   border-bottom-color: transparent;
 }
 .waker-groups-notice {
@@ -6844,11 +6844,11 @@ button.agent-card:hover,
   border-radius: 50%;
 }
 .waker-toggle.active {
-  color: #13734f;
-  border-color: #25aa73;
+  color: var(--text-brand);
+  border-color: var(--brand);
 }
 .waker-toggle.active i {
-  background: #25aa73;
+  background: var(--brand);
 }
 .waker-env {
   position: relative;
@@ -7050,17 +7050,17 @@ button.agent-card:hover,
   grid-template-rows: minmax(0, 1fr) auto;
   gap: 12px;
   padding: 16px 12px 12px;
-  background: #fff;
-  border: 1px solid #e6e6e6;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
   border-radius: 6px;
-  box-shadow: 0 1px 2px rgba(12, 12, 13, 0.05);
+  box-shadow: 0 1px 2px rgba(var(--shadow-color), 0.05);
   transition:
     border-color 150ms ease,
     box-shadow 150ms ease;
 }
 .waker-card:hover {
-  border-color: #d6d6d6;
-  box-shadow: 0 2px 5px rgba(12, 12, 13, 0.08);
+  border-color: var(--border-default);
+  box-shadow: 0 2px 5px rgba(var(--shadow-color), 0.08);
 }
 .waker-card-identity {
   display: flex;
@@ -7106,8 +7106,8 @@ button.agent-card:hover,
   height: 48px;
   border: 0;
   border-radius: 50%;
-  background: #d6f5ec;
-  color: #141414;
+  background: var(--brand-secondary);
+  color: var(--text-primary);
   font-size: 18px;
 }
 .waker-card-open:focus-visible {
@@ -7137,7 +7137,7 @@ button.agent-card:hover,
   gap: 12px;
   margin-top: 0;
   padding-top: 8px;
-  border-top: 1px solid #e6e6e6;
+  border-top: 1px solid var(--border-subtle);
 }
 .waker-actions {
   flex-wrap: wrap;
@@ -7146,7 +7146,7 @@ button.agent-card:hover,
 .waker-actions .legacy-button.primary {
   min-height: 28px;
   padding: 0 4px;
-  color: #5d5d5d;
+  color: var(--text-quaternary);
   background: transparent;
   border: 0;
   border-radius: 3px;
@@ -7156,8 +7156,8 @@ button.agent-card:hover,
 }
 .waker-actions .legacy-button:hover:not(:disabled),
 .waker-actions .legacy-button.primary:hover:not(:disabled) {
-  color: #141414;
-  background: #f3f3f3;
+  color: var(--text-primary);
+  background: var(--bg-secondary-hover);
   border-color: transparent;
 }
 .waker-actions .waker-more {
@@ -7982,9 +7982,6 @@ button.agent-card:hover,
     font-weight: var(--shiki-dark-font-weight);
     text-decoration: var(--shiki-dark-text-decoration);
   }
-  .legacy-button.primary {
-    color: #fff;
-  }
 }
 
 /* 手动主题：data-theme='dark' 复制媒体查询的暗色覆盖；系统暗色 + data-theme='light'
@@ -8034,10 +8031,6 @@ button.agent-card:hover,
   font-weight: var(--shiki-dark-font-weight);
   text-decoration: var(--shiki-dark-text-decoration);
 }
-[data-theme='dark'] .legacy-button.primary {
-  color: #fff;
-}
-
 @media (prefers-color-scheme: dark) {
   :root[data-theme='light'] {
     --bg-primary: #ffffff;
