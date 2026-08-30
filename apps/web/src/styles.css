@@ -969,8 +969,8 @@ textarea {
   flex: 0 0 240px;
   flex-direction: column;
   overflow: hidden;
-  background: #f9f9f9;
-  border-right: 1px solid #dedede;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-default);
 }
 .qoder-chat-sidebar-header {
   display: flex;
@@ -1000,15 +1000,15 @@ textarea {
   height: 30px;
   align-items: center;
   gap: 7px;
-  color: #5d5d5d;
+  color: var(--text-quaternary);
   font-size: 13px;
   font-weight: 500;
 }
 .qoder-chat-section-title small {
   padding: 1px 5px;
   color: var(--text-quaternary);
-  background: #f2f2f2;
-  border: 1px solid #dedede;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-default);
   border-radius: 4px;
   font-size: 10px;
   line-height: 16px;
@@ -1027,7 +1027,7 @@ textarea {
   justify-content: center;
   gap: 6px;
   color: var(--text-quaternary);
-  border: 1px dashed #d6d6d6;
+  border: 1px dashed var(--border-default);
   border-radius: 4px;
   font-size: 12px;
 }
@@ -1039,7 +1039,7 @@ textarea {
 .qoder-chat-wakers h2 {
   height: 32px;
   margin: 0;
-  color: #5d5d5d;
+  color: var(--text-quaternary);
   font-size: 13px;
   font-weight: 500;
   line-height: 32px;
@@ -1062,13 +1062,13 @@ textarea {
   text-align: left;
 }
 .qoder-chat-waker:hover {
-  background: #f2f2f2;
+  background: var(--bg-secondary-hover);
 }
 .qoder-chat-waker-active {
   position: absolute;
   inset: 0;
   border-radius: 4px;
-  background: #f2f2f2;
+  background: var(--bg-secondary-hover);
   pointer-events: none;
 }
 .qoder-chat-waker > .agent-chip,
@@ -1082,8 +1082,8 @@ textarea {
 .agent-chip.qoder-welcome-avatar {
   border: 0;
   border-radius: 50%;
-  color: #141414;
-  background: #d6f5ec;
+  color: var(--text-primary);
+  background: var(--brand-secondary);
 }
 .agent-chip.qoder-chat-avatar {
   width: 32px;
@@ -1102,7 +1102,7 @@ textarea {
   white-space: nowrap;
 }
 .qoder-chat-waker-copy strong {
-  color: #141414;
+  color: var(--text-primary);
   font-size: 13px;
   font-weight: 500;
 }
@@ -1120,8 +1120,8 @@ textarea {
   flex: 0 0 52px;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid #e6e6e6;
-  background: #fff;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-primary);
 }
 .qoder-chat-agent {
   display: flex;
@@ -1155,8 +1155,8 @@ textarea {
   gap: 6px;
   margin-right: 8px;
   padding: 0 11px;
-  color: #141414;
-  border: 1px solid #dedede;
+  color: var(--text-primary);
+  border: 1px solid var(--border-default);
   border-radius: 4px;
   font-size: 12px;
 }
@@ -1170,8 +1170,8 @@ textarea {
   flex: 0 0 240px;
   flex-direction: column;
   overflow: hidden;
-  background: #f9f9f9;
-  border-left: 1px solid #dedede;
+  background: var(--bg-secondary);
+  border-left: 1px solid var(--border-default);
 }
 .qoder-task-tabs {
   display: grid;
@@ -1179,7 +1179,7 @@ textarea {
   gap: 4px;
   height: 42px;
   padding: 8px 12px 6px;
-  border-bottom: 1px solid #dedede;
+  border-bottom: 1px solid var(--border-default);
 }
 .qoder-task-tabs button {
   display: flex;
@@ -1191,8 +1191,8 @@ textarea {
   font-size: 12px;
 }
 .qoder-task-tabs button.active {
-  color: #141414;
-  background: #ededed;
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
 }
 .qoder-task-list {
   min-height: 0;
@@ -1209,16 +1209,16 @@ textarea {
   min-height: 56px;
   align-items: center;
   padding: 7px 6px;
-  border-bottom: 1px solid #e6e6e6;
+  border-bottom: 1px solid var(--border-subtle);
   text-align: left;
 }
 .qoder-task-row:hover {
-  background: #f2f2f2;
+  background: var(--bg-secondary-hover);
 }
 .qoder-task-row-active {
   position: absolute;
   inset: 0;
-  background: #f2f2f2;
+  background: var(--bg-secondary-hover);
   pointer-events: none;
 }
 .qoder-task-row > i,
@@ -1230,7 +1230,7 @@ textarea {
 .qoder-task-row > i {
   width: 6px;
   height: 6px;
-  background: #d6d6d6;
+  background: var(--border-default);
   border-radius: 50%;
 }
 .qoder-task-row > span {
@@ -1333,21 +1333,21 @@ textarea {
   gap: 14px;
   border: 0;
   border-radius: 4px;
-  background: #fafafa;
+  background: var(--bg-secondary);
   padding: 0 18px;
   font-size: 14px;
   font-weight: 500;
-  color: #141414;
+  color: var(--text-primary);
   text-align: left;
-  box-shadow: 0 1px 3px rgba(12, 12, 13, 0.04);
+  box-shadow: 0 1px 3px rgba(var(--shadow-color), 0.04);
   transition: background var(--duration-normal) var(--ease-out);
 }
 .suggestion-button:hover {
-  background: #f3f3f3;
+  background: var(--bg-secondary-hover);
 }
 .suggestion-button svg {
   flex: none;
-  color: #dedede;
+  color: var(--border-default);
 }
 .welcome-composer {
   width: 100%;

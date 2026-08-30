@@ -5,6 +5,11 @@ import { applyThemePreference } from './theme.js';
 
 const styles = readFileSync(new URL('../styles.css', import.meta.url), 'utf8');
 
+function cssRule(selector: string): string {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return styles.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`))?.[1] ?? '';
+}
+
 afterEach(() => {
   document.documentElement.removeAttribute('data-theme');
 });
@@ -49,5 +54,14 @@ describe('applyThemePreference', () => {
       /\.notebook-list button\.active small\s*\{\s*color:\s*var\(--text-brand\);\s*\}/,
     );
     assert.match(styles, /\.agent-chip\s*\{[^}]*color:\s*var\(--text-primary\);/s);
+  });
+
+  it('keeps Chat navigation, task panels and suggestions on theme tokens', () => {
+    assert.match(cssRule('.qoder-chat-sidebar'), /background:\s*var\(--bg-secondary\)/);
+    assert.match(cssRule('.qoder-chat-header'), /background:\s*var\(--bg-primary\)/);
+    assert.match(cssRule('.qoder-chat-waker-active'), /var\(--bg-secondary-hover\)/);
+    assert.match(cssRule('.qoder-task-panel'), /background:\s*var\(--bg-secondary\)/);
+    assert.match(cssRule('.suggestion-button'), /background:\s*var\(--bg-secondary\)/);
+    assert.match(cssRule('.suggestion-button'), /color:\s*var\(--text-primary\)/);
   });
 });
