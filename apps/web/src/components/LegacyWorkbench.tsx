@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type FormEvent,
+  type KeyboardEvent,
   type ReactNode,
 } from 'react';
 import { motion } from 'motion/react';
@@ -173,6 +174,7 @@ export function LegacyRail({
 }
 
 type WakersTab = 'wakers' | 'groups';
+const WAKERS_TABS: WakersTab[] = ['wakers', 'groups'];
 /** 'all' 或本机 hostname；本地模式只有一台机器，选择本机环境与全部环境结果相同但都是真实过滤。 */
 type WakerEnvironment = 'all' | (string & {});
 
@@ -233,6 +235,21 @@ export function WakersView({
   const [query, setQuery] = useState('');
   const closeEnvMenu = useCallback(() => setEnvMenuOpen(false), []);
   const closeMoreMenu = useCallback(() => setMenuAgentId(null), []);
+  const navigateTabs = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+    const current = WAKERS_TABS.indexOf(tab);
+    const next =
+      event.key === 'Home'
+        ? 0
+        : event.key === 'End'
+          ? WAKERS_TABS.length - 1
+          : (current + (event.key === 'ArrowLeft' ? -1 : 1) + WAKERS_TABS.length) %
+            WAKERS_TABS.length;
+    event.preventDefault();
+    setTab(WAKERS_TABS[next]!);
+    buttons[next]?.focus();
+  };
   useDismissable(envMenuRef, closeEnvMenu, envMenuOpen);
   useDismissable(moreMenuRef, closeMoreMenu, menuAgentId !== null);
   const closeDeleteDialog = useCallback(() => {
@@ -332,13 +349,19 @@ export function WakersView({
         )}
       </PageHeader>
       {onboarding}
-      <div className="waker-tabs" role="tablist" aria-label="管理分类">
+      <div
+        className="waker-tabs"
+        role="tablist"
+        aria-label="管理分类"
+        onKeyDown={navigateTabs}
+      >
         <button
           type="button"
           role="tab"
           id="wakers-tab-wakers"
           aria-selected={tab === 'wakers'}
           aria-controls="wakers-panel"
+          tabIndex={tab === 'wakers' ? 0 : -1}
           className={cx('waker-tab', tab === 'wakers' && 'active')}
           onClick={() => setTab('wakers')}
         >
@@ -350,6 +373,7 @@ export function WakersView({
           id="wakers-tab-groups"
           aria-selected={tab === 'groups'}
           aria-controls="wakers-panel"
+          tabIndex={tab === 'groups' ? 0 : -1}
           className={cx('waker-tab', tab === 'groups' && 'active')}
           onClick={() => setTab('groups')}
         >

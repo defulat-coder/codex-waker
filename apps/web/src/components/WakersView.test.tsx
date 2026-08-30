@@ -157,12 +157,23 @@ describe('WakersView 管理视图', () => {
       screen.getByText('跨云端、本地与其他设备管理你的 Waker，快速发起对话任务和自动任务。'),
     );
     const tablist = screen.getByRole('tablist', { name: '管理分类' });
-    assert.ok(within(tablist).getByRole('tab', { name: '我的Waker' }));
-    assert.ok(within(tablist).getByRole('tab', { name: '我的群组' }));
+    const wakers = within(tablist).getByRole('tab', { name: '我的Waker' });
+    const groups = within(tablist).getByRole('tab', { name: '我的群组' });
+    assert.ok(wakers);
+    assert.ok(groups);
     assert.equal(
-      within(tablist).getByRole('tab', { name: '我的Waker' }).getAttribute('aria-selected'),
+      wakers.getAttribute('aria-selected'),
       'true',
     );
+    assert.equal(wakers.tabIndex, 0);
+    assert.equal(groups.tabIndex, -1);
+    wakers.focus();
+    fireEvent.keyDown(wakers, { key: 'ArrowRight' });
+    assert.equal(document.activeElement, groups);
+    assert.equal(groups.getAttribute('aria-selected'), 'true');
+    assert.ok(screen.getByRole('tabpanel', { name: '我的群组' }));
+    fireEvent.keyDown(groups, { key: 'ArrowRight' });
+    assert.equal(document.activeElement, wakers);
   });
 
   it('shows an explicit degraded notice on the groups tab without any create action', () => {
