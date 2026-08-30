@@ -5,9 +5,9 @@ const COMPOSITE_ITEMS = '[role="menuitem"], [role="menuitemradio"], [role="optio
 /** Arrow/Home/End navigation shared by menu and listbox popovers. */
 export function handleCompositeKeyDown(
   event: ReactKeyboardEvent<HTMLElement>,
-  onEscape: () => void,
-): void {
-  if (event.key === 'Escape') {
+  onEscape?: () => void,
+): HTMLElement | undefined {
+  if (event.key === 'Escape' && onEscape) {
     event.preventDefault();
     event.stopPropagation();
     onEscape();
@@ -30,7 +30,9 @@ export function handleCompositeKeyDown(
             ? items.length - 1
             : 0
           : (current + (event.key === 'ArrowUp' ? -1 : 1) + items.length) % items.length;
-  items[next]?.focus();
+  const target = items[next];
+  target?.focus();
+  return target;
 }
 
 /** 点击 ref 外部或按 Escape 时触发 onDismiss；active 为 false 时不监听。 */

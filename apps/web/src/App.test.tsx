@@ -135,7 +135,7 @@ describe('App 会话视图', () => {
     assert.equal(badge.textContent, '1');
     fireEvent.click(screen.getByRole('button', { name: 'Chat' }));
     assert.ok(await screen.findByRole('complementary', { name: 'Chat 会话' }));
-    assert.ok(screen.getByRole('button', { name: /Nova/ }));
+    assert.ok(screen.getByRole('option', { name: /Nova/ }));
   });
 
   it('点击会话行打开会话并回放历史消息', async () => {

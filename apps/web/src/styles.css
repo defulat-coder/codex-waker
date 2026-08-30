@@ -1082,6 +1082,7 @@ textarea {
   gap: 2px;
 }
 .qoder-chat-waker {
+  position: relative;
   display: grid;
   grid-template-columns: 32px minmax(0, 1fr) auto;
   gap: 9px;
@@ -1092,9 +1093,21 @@ textarea {
   border-radius: 4px;
   text-align: left;
 }
-.qoder-chat-waker:hover,
-.qoder-chat-waker.active {
+.qoder-chat-waker:hover {
   background: #f2f2f2;
+}
+.qoder-chat-waker-active {
+  position: absolute;
+  inset: 0;
+  border-radius: 4px;
+  background: #f2f2f2;
+  pointer-events: none;
+}
+.qoder-chat-waker > .agent-chip,
+.qoder-chat-waker > .qoder-chat-waker-copy,
+.qoder-chat-waker > .qoder-chat-waker-count {
+  position: relative;
+  z-index: 1;
 }
 .agent-chip.qoder-chat-avatar,
 .agent-chip.qoder-chat-header-avatar,
@@ -1126,11 +1139,11 @@ textarea {
   font-weight: 500;
 }
 .qoder-chat-waker-copy small,
-.qoder-chat-waker time {
+.qoder-chat-waker-count {
   color: #8c8c8c;
   font-size: 10px;
 }
-.qoder-chat-waker time {
+.qoder-chat-waker-count {
   white-space: nowrap;
 }
 .qoder-chat-header {
