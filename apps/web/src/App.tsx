@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   AgentSummary,
   SessionSummary,
@@ -49,21 +49,11 @@ import { ConfigPanel } from './components/ConfigPanel.js';
 import { AgentChip } from './components/AgentChip.js';
 import { QoderChatSidebar } from './components/QoderChatSidebar.js';
 import { QoderTaskPanel } from './components/QoderTaskPanel.js';
-import { SkillsView } from './components/SkillsView.js';
-import { UsageView } from './components/UsageView.js';
-import { SettingsView } from './components/SettingsView.js';
-import { MemoryView } from './components/MemoryView.js';
-import { WorkflowManager } from './components/WorkflowManager.js';
-import { AutomationManager } from './components/AutomationManager.js';
-import { BoardView } from './components/BoardView.js';
 import { SessionOutputsPanel } from './components/SessionOutputsPanel.js';
 import { StopTurnButton } from './components/StopTurnButton.js';
 import { WakerOnboardingPanel } from './components/WakerOnboardingPanel.js';
-import { ProjectManagementView } from './components/ProjectManagementView.js';
-import { KnowledgeManagementView } from './components/KnowledgeManagementView.js';
-import { WakerCapabilitiesView } from './components/WakerCapabilitiesView.js';
-import { WakerHomeView } from './components/WakerHomeView.js';
 import { WakerDetailNav, type WakerDetailNavKey } from './components/WakerDetailNav.js';
+import { MotionLoadingRows } from './components/MotionFeedback.js';
 import {
   LegacyRail,
   ResourcesView,
@@ -71,11 +61,65 @@ import {
   type LegacyView,
 } from './components/LegacyWorkbench.js';
 
+const SkillsView = lazy(() =>
+  import('./components/SkillsView.js').then(({ SkillsView }) => ({ default: SkillsView })),
+);
+const UsageView = lazy(() =>
+  import('./components/UsageView.js').then(({ UsageView }) => ({ default: UsageView })),
+);
+const SettingsView = lazy(() =>
+  import('./components/SettingsView.js').then(({ SettingsView }) => ({ default: SettingsView })),
+);
+const MemoryView = lazy(() =>
+  import('./components/MemoryView.js').then(({ MemoryView }) => ({ default: MemoryView })),
+);
+const WorkflowManager = lazy(() =>
+  import('./components/WorkflowManager.js').then(({ WorkflowManager }) => ({
+    default: WorkflowManager,
+  })),
+);
+const AutomationManager = lazy(() =>
+  import('./components/AutomationManager.js').then(({ AutomationManager }) => ({
+    default: AutomationManager,
+  })),
+);
+const BoardView = lazy(() =>
+  import('./components/BoardView.js').then(({ BoardView }) => ({ default: BoardView })),
+);
+const ProjectManagementView = lazy(() =>
+  import('./components/ProjectManagementView.js').then(({ ProjectManagementView }) => ({
+    default: ProjectManagementView,
+  })),
+);
+const KnowledgeManagementView = lazy(() =>
+  import('./components/KnowledgeManagementView.js').then(({ KnowledgeManagementView }) => ({
+    default: KnowledgeManagementView,
+  })),
+);
+const WakerCapabilitiesView = lazy(() =>
+  import('./components/WakerCapabilitiesView.js').then(({ WakerCapabilitiesView }) => ({
+    default: WakerCapabilitiesView,
+  })),
+);
+const WakerHomeView = lazy(() =>
+  import('./components/WakerHomeView.js').then(({ WakerHomeView }) => ({
+    default: WakerHomeView,
+  })),
+);
+
 /** toast 自动消失时长。 */
 const TOAST_DURATION_MS = 4000;
 const ERROR_TOAST_DURATION_MS = 8000;
 /** 收件箱轮询间隔：仅页面可见时兜底刷新（无服务端推送通道）。 */
 const INBOX_POLL_INTERVAL_MS = 60_000;
+
+function ViewLoading() {
+  return (
+    <div className="legacy-page">
+      <MotionLoadingRows count={3} label="正在打开页面" />
+    </div>
+  );
+}
 
 /** 显示 Waker 详情导航的视图：进入某个 Waker 的页面时在主导航与内容区之间渲染。 */
 const DETAIL_NAV_VIEWS: ReadonlySet<LegacyView> = new Set([
@@ -732,7 +776,8 @@ export default function App() {
               animate={{ opacity: 1 }}
               transition={MOTION_TRANSITION.routine}
             >
-              {legacyView === 'wakers' ? (
+              <Suspense fallback={<ViewLoading />}>
+                {legacyView === 'wakers' ? (
                 <WakersView
                   agents={workspace.agents}
                   hostName={workspace.host.name}
@@ -978,7 +1023,8 @@ export default function App() {
                     </div>
                   </motion.div>
                 </div>
-              )}
+                )}
+              </Suspense>
             </motion.div>
           </motion.main>
 

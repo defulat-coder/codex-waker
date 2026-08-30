@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { motion } from 'motion/react';
+import { motion, useReducedMotion } from 'motion/react';
 import { cx } from '../lib/cx.js';
 
 type MotionSpinnerProps = {
@@ -9,12 +9,14 @@ type MotionSpinnerProps = {
 
 /** Shared Motion-powered rotation for loading and running-state icons. */
 export function MotionSpinner({ children, className }: MotionSpinnerProps) {
+  const reducedMotion = useReducedMotion();
+
   return (
     <motion.span
       className={cx('motion-spinner', className)}
       aria-hidden="true"
-      animate={{ rotate: 360 }}
-      transition={{ duration: 1.2, ease: 'linear', repeat: Infinity }}
+      animate={reducedMotion ? undefined : { rotate: 360 }}
+      transition={reducedMotion ? undefined : { duration: 1.2, ease: 'linear', repeat: Infinity }}
     >
       {children}
     </motion.span>
@@ -28,12 +30,18 @@ type MotionPulseDotProps = {
 
 /** Quiet opacity feedback for streaming and thinking states. */
 export function MotionPulseDot({ active = true, className }: MotionPulseDotProps) {
+  const reducedMotion = useReducedMotion();
+
   return (
     <motion.span
       className={className}
       aria-hidden="true"
-      animate={{ opacity: active ? [1, 0.15, 1] : 1 }}
-      transition={active ? { duration: 0.9, ease: 'easeInOut', repeat: Infinity } : undefined}
+      animate={{ opacity: active && !reducedMotion ? [1, 0.15, 1] : 1 }}
+      transition={
+        active && !reducedMotion
+          ? { duration: 0.9, ease: 'easeInOut', repeat: Infinity }
+          : undefined
+      }
     />
   );
 }
@@ -50,14 +58,18 @@ export function MotionLoadingRows({
   label = '正在加载',
   role = 'status',
 }: MotionLoadingRowsProps) {
+  const reducedMotion = useReducedMotion();
+
   return (
     <div className="loading-rows" role={role} aria-label={label} aria-busy="true">
       {Array.from({ length: count }, (_, index) => (
         <i key={index}>
           <motion.span
-            initial={{ x: '-120%' }}
-            animate={{ x: '340%' }}
-            transition={{ duration: 1.2, ease: 'linear', repeat: Infinity }}
+            initial={reducedMotion ? false : { x: '-120%' }}
+            animate={reducedMotion ? undefined : { x: '340%' }}
+            transition={
+              reducedMotion ? undefined : { duration: 1.2, ease: 'linear', repeat: Infinity }
+            }
           />
         </i>
       ))}
