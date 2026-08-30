@@ -1132,10 +1132,13 @@ export function WorkflowManager({
                       aria-label="名称"
                       value={editor.name}
                       aria-invalid={!editor.name.trim()}
+                      aria-describedby={!editor.name.trim() ? 'workflow-name-error' : undefined}
                       onChange={(event) => setEditor({ ...editor, name: event.target.value })}
                     />
                     {!editor.name.trim() && (
-                      <small className="workflow-field-error">请输入流程名称</small>
+                      <small id="workflow-name-error" className="workflow-field-error">
+                        请输入流程名称
+                      </small>
                     )}
                   </label>
                   <label>
@@ -1237,6 +1240,11 @@ export function WorkflowManager({
                         aria-invalid={Boolean(
                           parsedEditor?.errors.length || editorServerErrors.length,
                         )}
+                        aria-describedby={
+                          parsedEditor?.errors.length || editorServerErrors.length
+                            ? 'workflow-definition-errors'
+                            : 'workflow-definition-valid'
+                        }
                         value={editor.definitionText}
                         onChange={(event) => {
                           setEditorServerErrors([]);
@@ -1253,13 +1261,17 @@ export function WorkflowManager({
                   )}
                 </div>
                 {parsedEditor?.errors.length || editorServerErrors.length ? (
-                  <ul className="workflow-validation" aria-label="定义错误">
+                  <ul
+                    id="workflow-definition-errors"
+                    className="workflow-validation"
+                    aria-label="定义错误"
+                  >
                     {[...(parsedEditor?.errors ?? []), ...editorServerErrors].map((message) => (
                       <li key={message}>{message}</li>
                     ))}
                   </ul>
                 ) : (
-                  <p className="workflow-definition-valid" role="status">
+                  <p id="workflow-definition-valid" className="workflow-definition-valid" role="status">
                     定义有效 · {parsedEditor?.definition?.nodes.length ?? 0} 个节点
                   </p>
                 )}

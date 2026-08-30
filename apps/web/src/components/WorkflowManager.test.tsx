@@ -347,6 +347,8 @@ describe('WorkflowManager', () => {
     const definition = screen.getByLabelText('节点定义（JSON）');
     fireEvent.change(definition, { target: { value: '{"schemaVersion": 1' } });
     assert.ok(screen.getByText('流程定义不是有效的 JSON'));
+    assert.equal(definition.getAttribute('aria-describedby'), 'workflow-definition-errors');
+    assert.ok(document.getElementById('workflow-definition-errors'));
     assert.equal(screen.getByRole('button', { name: '保存定义' }).hasAttribute('disabled'), true);
     assert.equal(
       calls.some((call) => call.url.endsWith('/workflows/validate')),
@@ -533,7 +535,10 @@ describe('WorkflowManager', () => {
 
     const create = screen.getByRole('button', { name: '新建 WakerFlow' });
     fireEvent.click(create);
-    assert.equal(document.activeElement, screen.getByLabelText('名称'));
+    const name = screen.getByLabelText('名称');
+    assert.equal(document.activeElement, name);
+    assert.equal(name.getAttribute('aria-describedby'), 'workflow-name-error');
+    assert.equal(document.getElementById('workflow-name-error')?.textContent, '请输入流程名称');
     fireEvent.click(screen.getByRole('button', { name: '取消' }));
     await new Promise((resolve) => requestAnimationFrame(resolve));
     assert.equal(document.activeElement, create);
