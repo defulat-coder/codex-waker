@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from 'react';
 import { motion } from 'motion/react';
 import type {
   MemoryDocument,
@@ -47,6 +55,10 @@ type Editor = {
   content: string;
   format: 'json' | 'markdown';
 };
+const MEMORY_SCOPE_TABS: Array<Extract<MemoryScopeType, 'waker' | 'project'>> = [
+  'waker',
+  'project',
+];
 const blank: Editor = {
   mode: 'create',
   title: '',
@@ -83,6 +95,25 @@ export function MemoryView({
   const [diff, setDiff] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const navigateScopeTabs = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    const buttons = [
+      ...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]:not([disabled])'),
+    ];
+    const current = MEMORY_SCOPE_TABS.indexOf(scopeType as 'waker' | 'project');
+    const next =
+      event.key === 'Home'
+        ? 0
+        : event.key === 'End'
+          ? MEMORY_SCOPE_TABS.length - 1
+          : (current +
+              (event.key === 'ArrowLeft' ? -1 : 1) +
+              MEMORY_SCOPE_TABS.length) %
+            MEMORY_SCOPE_TABS.length;
+    event.preventDefault();
+    setScopeType(MEMORY_SCOPE_TABS[next]!);
+    buttons[next]?.focus();
+  };
   const editorTriggerRef = useRef<HTMLButtonElement>(null);
   const editorWasOpen = useRef(false);
   const closeEditorDialog = useCallback(() => {
@@ -283,29 +314,43 @@ export function MemoryView({
         </div>
       </header>
       <div className="memory-scope-bar">
-        <div className="waker-tabs memory-scope-tabs" role="tablist" aria-label="记忆范围">
+        <div
+          className="waker-tabs memory-scope-tabs"
+          role="tablist"
+          aria-label="记忆范围"
+          onKeyDown={navigateScopeTabs}
+        >
           <button
+            id="memory-scope-tab-waker"
             type="button"
             role="tab"
             aria-selected={scopeType === 'waker'}
+            aria-controls="memory-scope-panel"
+            tabIndex={scopeType === 'waker' ? 0 : -1}
             className={cx('waker-tab', scopeType === 'waker' && 'active')}
             onClick={() => setScopeType('waker')}
           >
             个人
           </button>
           <button
+            id="memory-scope-tab-project"
             type="button"
             role="tab"
             aria-selected={scopeType === 'project'}
+            aria-controls="memory-scope-panel"
+            tabIndex={scopeType === 'project' ? 0 : -1}
             className={cx('waker-tab', scopeType === 'project' && 'active')}
             onClick={() => setScopeType('project')}
           >
             项目
           </button>
           <button
+            id="memory-scope-tab-group"
             type="button"
             role="tab"
             aria-selected={scopeType === 'group'}
+            aria-controls="memory-scope-panel"
+            tabIndex={-1}
             className="waker-tab"
             disabled
             title="云端多 Waker 群组在本地模式不可用"
@@ -334,17 +379,22 @@ export function MemoryView({
             </span>
           ))}
       </div>
-      {error ? (
-        <div className="legacy-error" role="alert">
-          <p>{error}</p>
-          <button className="legacy-button" onClick={() => void load()}>
-            重试
-          </button>
-        </div>
-      ) : items === null ? (
-        <MotionLoadingRows label="正在加载记忆" />
-      ) : (
-        <div className="memory-layout">
+      <div
+        id="memory-scope-panel"
+        role="tabpanel"
+        aria-labelledby={`memory-scope-tab-${scopeType}`}
+      >
+        {error ? (
+          <div className="legacy-error" role="alert">
+            <p>{error}</p>
+            <button className="legacy-button" onClick={() => void load()}>
+              重试
+            </button>
+          </div>
+        ) : items === null ? (
+          <MotionLoadingRows label="正在加载记忆" />
+        ) : (
+          <div className="memory-layout">
           <aside className="memory-list">
             {items.length ? (
               items.map((item) => (
@@ -479,8 +529,9 @@ export function MemoryView({
             )}
             </motion.div>
           </main>
-        </div>
-      )}
+          </div>
+        )}
+      </div>
       {editor && (
         <motion.div
           className="modal-backdrop"

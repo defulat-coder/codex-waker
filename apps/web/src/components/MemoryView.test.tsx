@@ -193,4 +193,27 @@ describe('MemoryView 范围筛选', () => {
     assert.ok(tab.disabled);
     assert.equal(tab.title, '云端多 Waker 群组在本地模式不可用');
   });
+
+  it('范围 tabs 使用 roving focus 并跳过禁用群组', async () => {
+    const calls: Call[] = [];
+    mockFetch(calls);
+    render(<MemoryView wakerId="waker-one" onClose={() => {}} notify={() => {}} />);
+    await screen.findByRole('button', { name: /个人偏好/ });
+    const personal = screen.getByRole('tab', { name: '个人' });
+    const project = screen.getByRole('tab', { name: '项目' });
+    const group = screen.getByRole('tab', { name: '群组' });
+    assert.equal(personal.tabIndex, 0);
+    assert.equal(project.tabIndex, -1);
+    assert.equal(group.tabIndex, -1);
+
+    personal.focus();
+    fireEvent.keyDown(personal, { key: 'ArrowRight' });
+    assert.equal(document.activeElement, project);
+    assert.equal(project.getAttribute('aria-selected'), 'true');
+    assert.ok(screen.getByRole('tabpanel', { name: '项目' }));
+
+    fireEvent.keyDown(project, { key: 'ArrowRight' });
+    assert.equal(document.activeElement, personal);
+    assert.equal(personal.getAttribute('aria-selected'), 'true');
+  });
 });
