@@ -166,7 +166,7 @@ textarea {
   font-size: 13px;
 }
 .app-fatal button {
-  color: var(--brand);
+  color: var(--text-brand);
   font-weight: 500;
 }
 .app-fatal-detail {
@@ -1726,9 +1726,9 @@ textarea {
   color: var(--text-tertiary);
 }
 .toast-success {
-  border-color: var(--brand);
+  border-color: var(--text-brand);
   background: var(--brand-secondary);
-  color: var(--brand);
+  color: var(--text-brand);
 }
 .toast-error {
   border-color: var(--error-border);
@@ -2238,7 +2238,7 @@ textarea {
   color: var(--text-tertiary);
 }
 .markdown a {
-  color: var(--brand);
+  color: var(--text-brand);
   text-underline-offset: 3px;
   overflow-wrap: anywhere;
 }
@@ -2267,7 +2267,7 @@ textarea {
     box-shadow var(--duration-normal) var(--ease-out);
 }
 .composer.dragging-files {
-  border-color: var(--brand);
+  border-color: var(--text-brand);
   background: var(--brand-secondary);
   box-shadow: 0 0 0 3px rgba(22, 160, 106, 0.14);
 }
@@ -4710,7 +4710,7 @@ button.agent-card:hover,
   min-height: 70px;
   color: var(--text-brand);
   background: var(--brand-secondary);
-  border: 1px dashed var(--brand);
+  border: 1px dashed var(--text-brand);
   border-radius: 9px;
   cursor: pointer;
 }
@@ -6399,7 +6399,7 @@ button.agent-card:hover,
   font-weight: 600;
 }
 .capability-tabs button.active {
-  color: var(--brand);
+  color: var(--text-brand);
   border-color: var(--brand);
 }
 .connector-form {
@@ -6525,7 +6525,7 @@ button.agent-card:hover,
   color: var(--text-primary);
 }
 .legacy-rail-button.active {
-  color: #141414;
+  color: var(--text-primary);
 }
 .legacy-rail-active {
   position: absolute;
@@ -6637,7 +6637,7 @@ button.agent-card:hover,
   background: var(--bg-secondary-hover);
 }
 .waker-detail-nav-item.active {
-  color: var(--brand);
+  color: var(--text-brand);
   background: var(--brand-secondary);
 }
 .waker-detail-nav-splitter {
@@ -6745,7 +6745,7 @@ button.agent-card:hover,
   font-size: 13px;
 }
 .legacy-text-button:hover {
-  color: var(--brand);
+  color: var(--text-brand);
 }
 .legacy-text-button:disabled {
   opacity: 0.48;

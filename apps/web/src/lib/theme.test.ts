@@ -64,4 +64,13 @@ describe('applyThemePreference', () => {
     assert.match(cssRule('.suggestion-button'), /background:\s*var\(--bg-secondary\)/);
     assert.match(cssRule('.suggestion-button'), /color:\s*var\(--text-primary\)/);
   });
+
+  it('uses readable text roles for selected navigation and semantic feedback', () => {
+    assert.match(cssRule('.legacy-rail-button.active'), /color:\s*var\(--text-primary\)/);
+    assert.match(cssRule('.waker-detail-nav-item.active'), /color:\s*var\(--text-brand\)/);
+    assert.match(cssRule('.toast-success'), /color:\s*var\(--text-brand\)/);
+    assert.match(cssRule('.toast-success'), /border-color:\s*var\(--text-brand\)/);
+    assert.match(cssRule('.composer.dragging-files'), /border-color:\s*var\(--text-brand\)/);
+    assert.match(cssRule('.upload-box'), /border:\s*1px dashed var\(--text-brand\)/);
+  });
 });
