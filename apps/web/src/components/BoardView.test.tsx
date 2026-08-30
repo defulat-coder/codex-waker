@@ -67,7 +67,12 @@ function json(body: unknown, status = 200): Response {
 
 type Call = { url: string; method: string; body?: Record<string, unknown> };
 
-function installApi(calls: Call[], tasks: BoardTaskRecord[] = [MANUAL, DERIVED]) {
+function installApi(
+  calls: Call[],
+  tasks: BoardTaskRecord[] = [MANUAL, DERIVED],
+  options: { failActionLoadAfter?: number; failIgnore?: boolean } = {},
+) {
+  let actionLoadCount = 0;
   globalThis.fetch = (async (input, init) => {
     const url = String(input);
     const method = init?.method ?? 'GET';
@@ -133,7 +138,14 @@ function installApi(calls: Call[], tasks: BoardTaskRecord[] = [MANUAL, DERIVED])
         children: [],
         humanActions: [],
       });
-    if (url.includes('/board/human-actions?')) return json({ items: [ACTION], total: 1 });
+    if (url.includes('/board/human-actions?')) {
+      actionLoadCount += 1;
+      if (options.failActionLoadAfter && actionLoadCount > options.failActionLoadAfter)
+        return json({ error: '人工操作刷新失败' }, 500);
+      return json({ items: [ACTION], total: 1 });
+    }
+    if (url.endsWith('/action-one/ignore') && method === 'POST' && options.failIgnore)
+      return json({ error: '人工操作版本冲突' }, 409);
     if (url.includes('/board/human-actions/') && method === 'POST')
       return json({ ...ACTION, status: 'handled', version: 5 });
     if (url === '/api/v1/board/tasks' && method === 'POST') return json(MANUAL, 201);
@@ -256,6 +268,35 @@ describe('BoardView', () => {
     assert.ok(
       notices.some((notice) => notice.text === '人工操作已忽略' && notice.tone === 'success'),
     );
+  });
+
+  it('keeps ignore failures visible inside the confirmation dialog', async () => {
+    const calls: Call[] = [];
+    installApi(calls, [MANUAL, DERIVED], { failIgnore: true });
+    render(<BoardView wakerId="waker-one" notify={() => {}} />);
+    fireEvent.click(await screen.findByRole('tab', { name: /人工操作/ }));
+    fireEvent.click(await screen.findByRole('button', { name: '忽略并取消等待' }));
+    const dialog = screen.getByRole('dialog', { name: `忽略“${ACTION.title}”？` });
+    fireEvent.click(within(dialog).getByRole('button', { name: '确认忽略' }));
+
+    assert.ok(await within(dialog).findByRole('alert'));
+    assert.match(within(dialog).getByRole('alert').textContent ?? '', /人工操作版本冲突/);
+    assert.ok(screen.getByRole('dialog', { name: `忽略“${ACTION.title}”？` }));
+    assert.ok(screen.getByText(ACTION.title));
+  });
+
+  it('keeps the last human-action snapshot when refresh fails', async () => {
+    const calls: Call[] = [];
+    installApi(calls, [MANUAL, DERIVED], { failActionLoadAfter: 1 });
+    render(<BoardView wakerId="waker-one" notify={() => {}} />);
+    fireEvent.click(await screen.findByRole('tab', { name: /人工操作/ }));
+    assert.ok(await screen.findByText(ACTION.title));
+
+    fireEvent.click(screen.getByRole('button', { name: '刷新' }));
+
+    assert.ok(await screen.findByText(/刷新失败，仍显示上次数据：人工操作刷新失败/));
+    assert.ok(screen.getByText(ACTION.title));
+    assert.ok(screen.getByRole('button', { name: /重试/ }));
   });
 
   it('shows wrapped detail data, keeps derived tasks read-only and restores row focus', async () => {

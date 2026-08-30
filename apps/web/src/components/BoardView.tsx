@@ -189,7 +189,9 @@ export function BoardView({
   const [actionInput, setActionInput] = useState<Record<string, string>>({});
   const [actionInputIssues, setActionInputIssues] = useState<Record<string, ActionInputIssue>>({});
   const [actionError, setActionError] = useState('');
+  const [actionRefreshError, setActionRefreshError] = useState('');
   const [ignoreTarget, setIgnoreTarget] = useState<BoardHumanAction | null>(null);
+  const [ignoreError, setIgnoreError] = useState('');
   const [busy, setBusy] = useState('');
   const ownerRef = useRef(wakerId);
   const loadGenerationRef = useRef(0);
@@ -199,6 +201,7 @@ export function BoardView({
   const actionGenerationRef = useRef(0);
   const actionAbortRef = useRef<AbortController | null>(null);
   const actionInputRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
+  const hasActionSnapshotRef = useRef(false);
   const actionStatusRef = useRef(actionStatus);
   const actionSourceRef = useRef(actionSource);
   const selectedTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -231,7 +234,10 @@ export function BoardView({
   }, [busy]);
   const deleteDialogRef = useDialogFocus<HTMLDivElement>(Boolean(deleteTarget), closeDelete);
   const closeIgnore = useCallback(() => {
-    if (!busy.startsWith('ignore:')) setIgnoreTarget(null);
+    if (!busy.startsWith('ignore:')) {
+      setIgnoreTarget(null);
+      setIgnoreError('');
+    }
   }, [busy]);
   const ignoreDialogRef = useDialogFocus<HTMLDivElement>(Boolean(ignoreTarget), closeIgnore);
 
@@ -294,10 +300,12 @@ export function BoardView({
     setDeleteImpact(null);
     setDeleteImpactError('');
     setIgnoreTarget(null);
+    setIgnoreError('');
     setActionInput({});
     setActionInputIssues({});
     setError('');
     hasSnapshotRef.current = false;
+    hasActionSnapshotRef.current = false;
     loadGenerationRef.current += 1;
     loadAbortRef.current?.abort();
     const projectGeneration = ++projectGenerationRef.current;
@@ -337,7 +345,6 @@ export function BoardView({
     actionAbortRef.current?.abort();
     const controller = new AbortController();
     actionAbortRef.current = controller;
-    setActionError('');
     try {
       const params = new URLSearchParams({
         wakerId,
@@ -353,18 +360,30 @@ export function BoardView({
       if (generation === actionGenerationRef.current && ownerRef.current === owner) {
         setActions(result.items);
         setActionTotal(result.total);
+        setActionError('');
+        setActionRefreshError('');
+        hasActionSnapshotRef.current = true;
       }
     } catch (cause) {
       if (
         generation === actionGenerationRef.current &&
         ownerRef.current === owner &&
         !isAbortError(cause)
-      )
-        setActionError(cause instanceof Error ? cause.message : '人工操作暂时无法读取');
+      ) {
+        const message = cause instanceof Error ? cause.message : '人工操作暂时无法读取';
+        if (hasActionSnapshotRef.current) setActionRefreshError(message);
+        else setActionError(message);
+      }
     }
   }, [wakerId]);
   useEffect(() => {
-    if (tab === 'actions') void loadActions();
+    if (tab !== 'actions') return;
+    hasActionSnapshotRef.current = false;
+    setActions(null);
+    setActionTotal(0);
+    setActionError('');
+    setActionRefreshError('');
+    void loadActions();
   }, [actionSource, actionStatus, loadActions, tab]);
   useVisiblePolling(() => {
     if (tab === 'tasks') void load(0, false, true);
@@ -655,6 +674,7 @@ export function BoardView({
             total={actionTotal}
             loaded={actions !== null}
             error={actionError}
+            refreshError={actionRefreshError}
             status={actionStatus}
             source={actionSource}
             inputs={actionInput}
@@ -728,7 +748,10 @@ export function BoardView({
                 if (ownerRef.current === owner) setBusy('');
               }
             }}
-            onIgnore={setIgnoreTarget}
+            onIgnore={(action) => {
+              setIgnoreError('');
+              setIgnoreTarget(action);
+            }}
           />
         </div>
       )}
@@ -990,6 +1013,11 @@ export function BoardView({
                 ? '忽略会取消对应 Workflow 的等待节点；运行不会被标记为已处理。'
                 : '该 Codex 操作只读展示；忽略仅移出待处理列表，不会批准任何宿主操作。'}
             </p>
+            {ignoreError && (
+              <p className="automation-action-error" role="alert">
+                {ignoreError}
+              </p>
+            )}
             <div className="dialog-actions">
               <button className="legacy-button" type="button" onClick={closeIgnore}>
                 取消
@@ -1000,7 +1028,9 @@ export function BoardView({
                 disabled={Boolean(busy)}
                 onClick={() => {
                   const action = ignoreTarget;
+                  const owner = wakerId;
                   void (async () => {
+                    setIgnoreError('');
                     setBusy(`ignore:${action.id}`);
                     try {
                       await readJson(
@@ -1017,15 +1047,17 @@ export function BoardView({
                         ),
                         '人工操作暂时无法忽略',
                       );
+                      if (ownerRef.current !== owner) return;
                       setIgnoreTarget(null);
                       await loadActions();
                       notify('人工操作已忽略', 'success');
                     } catch (cause) {
-                      setActionError(
+                      if (ownerRef.current !== owner) return;
+                      setIgnoreError(
                         cause instanceof Error ? cause.message : '人工操作暂时无法忽略',
                       );
                     } finally {
-                      setBusy('');
+                      if (ownerRef.current === owner) setBusy('');
                     }
                   })();
                 }}
@@ -1449,6 +1481,7 @@ function HumanActionSurface({
   total,
   loaded,
   error,
+  refreshError,
   status,
   source,
   inputs,
@@ -1467,6 +1500,7 @@ function HumanActionSurface({
   total: number;
   loaded: boolean;
   error: string;
+  refreshError: string;
   status: HumanActionRecord['status'];
   source: string;
   inputs: Record<string, string>;
@@ -1507,6 +1541,14 @@ function HumanActionSurface({
           {total} 条{total > actions.length ? `（当前显示最近 ${actions.length} 条）` : ''}
         </span>
       </div>
+      {refreshError && (
+        <div className="automation-refresh-warning" role="status">
+          <span>刷新失败，仍显示上次数据：{refreshError}</span>
+          <button className="legacy-button" type="button" onClick={onRetry}>
+            <ArrowClockwise size={14} /> 重试
+          </button>
+        </div>
+      )}
       {error ? (
         <div className="legacy-error" role="alert">
           <p>{error}</p>
