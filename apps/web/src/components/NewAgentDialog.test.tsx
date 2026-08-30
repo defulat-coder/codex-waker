@@ -191,6 +191,24 @@ describe('NewAgentDialog', () => {
     assert.match(String(create.body.body), /你是 Support Triage/);
   });
 
+  it('reveals, associates and focuses the Waker id field after invalid submission', async () => {
+    installApi([]);
+    renderDialog();
+    await screen.findByRole('option', { name: /自定义角色/ });
+    fireEvent.change(nameInput(), { target: { value: '中文助手' } });
+
+    submitDialog();
+
+    const idInput = await screen.findByPlaceholderText('例如 support-triage');
+    await waitFor(() => assert.equal(document.activeElement, idInput));
+    assert.equal(idInput.getAttribute('aria-invalid'), 'true');
+    assert.equal(
+      idInput.getAttribute('aria-describedby'),
+      'new-agent-id-help new-agent-id-error',
+    );
+    assert.equal(screen.getByRole('alert').id, 'new-agent-id-error');
+  });
+
   it('validates the avatar client-side and previews a valid pick', async () => {
     installApi([]);
     renderDialog();

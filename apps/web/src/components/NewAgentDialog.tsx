@@ -27,6 +27,7 @@ const AGENT_ID = /^[a-z][a-z0-9-]{1,63}$/;
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024;
 const AVATAR_MIME_TYPES = ['image/png', 'image/jpeg'];
 const AVATAR_PAGE_SIZE = 20;
+const INVALID_AGENT_ID_MESSAGE = '中文名称或特殊字符名称需要填写合法的 Waker id。';
 const AVATAR_LIBRARY = Array.from({ length: 100 }, (_, index) => {
   const number = String(index + 1).padStart(3, '0');
   return {
@@ -106,6 +107,7 @@ export function NewAgentDialog({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const idInputRef = useRef<HTMLInputElement>(null);
   const dialogRef = useDialogFocus<HTMLFormElement>(open, onClose);
 
   useEffect(() => {
@@ -210,6 +212,7 @@ export function NewAgentDialog({
   const derived = suggestedId(name);
   const effectiveId = id.trim() || derived;
   const valid = Boolean(name.trim()) && AGENT_ID.test(effectiveId);
+  const hasIdError = error === INVALID_AGENT_ID_MESSAGE;
   const markPreview =
     selectedTemplate?.mark ?? (name.trim() ? blankAgentRequest(name, description).mark : '＋');
 
@@ -217,7 +220,8 @@ export function NewAgentDialog({
     if (!valid || saving) {
       if (name.trim() && !AGENT_ID.test(effectiveId)) {
         setAdvanced(true);
-        setError('中文名称或特殊字符名称需要填写合法的 Waker id。');
+        setError(INVALID_AGENT_ID_MESSAGE);
+        requestAnimationFrame(() => idInputRef.current?.focus());
       }
       return;
     }
@@ -572,22 +576,33 @@ export function NewAgentDialog({
                   <label className="modal-field">
                     <span>Waker id</span>
                     <input
+                      ref={idInputRef}
                       value={id}
                       maxLength={64}
                       placeholder={derived || '例如 support-triage'}
+                      aria-invalid={hasIdError || undefined}
+                      aria-describedby={
+                        hasIdError ? 'new-agent-id-help new-agent-id-error' : 'new-agent-id-help'
+                      }
                       onChange={(event) => {
                         setId(event.target.value);
                         setError('');
                       }}
                       disabled={saving}
                     />
-                    <small>用于 .codex/agents/&lt;id&gt;.md，仅支持小写字母、数字和连字符。</small>
+                    <small id="new-agent-id-help">
+                      用于 .codex/agents/&lt;id&gt;.md，仅支持小写字母、数字和连字符。
+                    </small>
                   </label>
                 </motion.div>
               )}
             </AnimatePresence>
             {error && (
-              <p className="modal-error" role="alert">
+              <p
+                className="modal-error"
+                id={hasIdError ? 'new-agent-id-error' : undefined}
+                role="alert"
+              >
                 {error}
               </p>
             )}
