@@ -225,7 +225,9 @@ describe('WakersView 管理视图', () => {
     fireEvent.click(screen.getByRole('button', { name: /环境 \/ 全部环境/ }));
     const reopened = screen.getByRole('menu', { name: '环境' });
     fireEvent.click(within(reopened).getByRole('menuitemradio', { name: new RegExp(HOST) }));
-    assert.ok(screen.getByRole('button', { name: new RegExp(`环境 / ${HOST}`) }));
+    const selectedEnvironment = screen.getByRole('button', { name: new RegExp(`环境 / ${HOST}`) });
+    assert.ok(selectedEnvironment);
+    assert.equal(document.activeElement, selectedEnvironment);
     // 本地只有一台机器：选中本机环境后列表仍是全部 Waker。
     assert.ok(screen.getByRole('heading', { name: /Agent A/ }));
     assert.ok(screen.getByRole('heading', { name: /Agent B/ }));

@@ -454,6 +454,7 @@ export function WakersView({
                         onClick={() => {
                           setEnvironment(hostName);
                           setEnvMenuOpen(false);
+                          envTriggerRef.current?.focus();
                         }}
                       >
                         <span className="waker-env-name">
@@ -472,6 +473,7 @@ export function WakersView({
                         onClick={() => {
                           setEnvironment('all');
                           setEnvMenuOpen(false);
+                          envTriggerRef.current?.focus();
                         }}
                       >
                         <span className="waker-env-name">全部环境</span>
@@ -622,6 +624,7 @@ export function WakersView({
                               tabIndex={-1}
                               onClick={() => {
                                 setMenuAgentId(null);
+                                moreTriggerRef.current?.focus();
                                 onMemory(agent.id);
                               }}
                             >
@@ -633,6 +636,7 @@ export function WakersView({
                               tabIndex={-1}
                               onClick={() => {
                                 setMenuAgentId(null);
+                                moreTriggerRef.current?.focus();
                                 onCapabilities(agent.id);
                               }}
                             >
@@ -643,7 +647,10 @@ export function WakersView({
                               tabIndex={-1}
                               href={`/api/v1/agents/${encodeURIComponent(agent.id)}/source`}
                               download={`${agent.id}.md`}
-                              onClick={() => setMenuAgentId(null)}
+                              onClick={() => {
+                                setMenuAgentId(null);
+                                moreTriggerRef.current?.focus();
+                              }}
                             >
                               导出
                             </a>
@@ -652,7 +659,10 @@ export function WakersView({
                               tabIndex={-1}
                               href={`/api/v1/agents/${encodeURIComponent(agent.id)}/export-package`}
                               download={`${agent.id}.wakerpack`}
-                              onClick={() => setMenuAgentId(null)}
+                              onClick={() => {
+                                setMenuAgentId(null);
+                                moreTriggerRef.current?.focus();
+                              }}
                             >
                               导出整包
                             </a>
