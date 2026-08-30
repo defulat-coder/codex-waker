@@ -2890,7 +2890,23 @@ textarea {
   color: var(--text-quaternary);
 }
 .config-panel-error {
-  color: #b42318;
+  color: var(--error-text);
+}
+.config-panel-error p,
+.config-section-error p {
+  margin: 0;
+}
+.config-panel-error .header-button,
+.config-section-error .header-button {
+  margin-top: var(--space-2);
+}
+.config-section-error {
+  margin-top: var(--space-2);
+  padding: var(--space-3);
+  color: var(--error-text);
+  background: var(--error-bg);
+  border: 1px solid var(--error-border);
+  border-radius: var(--radius-lg);
 }
 /* 编辑态：字段沿用 modal-field 的输入框规格（30px 高、6px 圆角、聚焦变信号蓝） */
 .config-edit-field {

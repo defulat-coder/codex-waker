@@ -159,6 +159,29 @@ describe('ConfigPanel 三上下文卡片', () => {
     assert.ok(screen.getByLabelText('身份内容'));
   });
 
+  it('资源清单失败时保留基本信息并提供局部重试', async () => {
+    const calls: Call[] = [];
+    installApi(calls, { value: SECTIONED_BODY });
+    const baseFetch = globalThis.fetch;
+    let failures = 1;
+    globalThis.fetch = (async (input, init) => {
+      if (String(input).endsWith('/agents/brainstormer/resources') && failures > 0) {
+        failures -= 1;
+        return json({ error: '资源清单暂时不可用' }, 500);
+      }
+      return baseFetch(input, init);
+    }) as typeof fetch;
+
+    renderPanel();
+    assert.ok(await screen.findByText('01 身份'));
+    assert.ok(screen.getByText('负责发散想法与方案对比。'));
+    const alert = await screen.findByRole('alert');
+    assert.match(alert.textContent ?? '', /资源清单暂时不可用/);
+
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+    assert.ok(await screen.findByText('暂无提示词模板。'));
+  });
+
   it('body 不符合小节约定时回退整段模式：说明条 + 整段预览 + 整段编辑', async () => {
     const calls: Call[] = [];
     installApi(calls, { value: FALLBACK_BODY });

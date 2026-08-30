@@ -305,11 +305,17 @@ function EditSection({
 /** 资源区行内编辑：提示词模板与 APPEND_SYSTEM.md 的就地编辑态，保存后由 onChanged 重拉清单。 */
 function ResourcesSection({
   resources,
+  loading,
+  error,
   notify,
+  onRetry,
   onChanged,
 }: {
   resources: AgentResources | null;
+  loading: boolean;
+  error: Error | null;
   notify: Notify;
+  onRetry: () => void;
   onChanged: () => void;
 }) {
   /** 非 null 即该模板的编辑态；content 来自 fetchPrompt 全文，保存前不回读。 */
@@ -374,7 +380,21 @@ function ResourcesSection({
     }
   };
 
-  if (!resources) return <p className="config-section-note">正在读取资源清单…</p>;
+  if (error)
+    return (
+      <div className="config-section-error" role="alert">
+        <p>{error.message}</p>
+        <button type="button" className="header-button" onClick={onRetry}>
+          重试
+        </button>
+      </div>
+    );
+  if (!resources)
+    return (
+      <p className="config-section-note" role="status" aria-busy={loading}>
+        正在读取资源清单…
+      </p>
+    );
   return (
     <>
       <div className="config-card">
@@ -539,6 +559,7 @@ function ResourcesSection({
 function RuntimeSection({
   models,
   resources,
+  resourcesError,
   thinking,
   onThinkingChange,
   model,
@@ -546,6 +567,7 @@ function RuntimeSection({
 }: {
   models: WorkspaceResponse['models'];
   resources: AgentResources | null;
+  resourcesError: boolean;
   thinking: ThinkingPreference;
   onThinkingChange: (level: ThinkingPreference) => void;
   /** 该 Agent 的默认模型偏好；undefined 表示跟随全局默认。 */
@@ -575,11 +597,11 @@ function RuntimeSection({
       <div className="config-card">
         <div className="config-kv">
           <span>会话数</span>
-          <strong>{resources ? resources.stats.sessionCount : '…'}</strong>
+          <strong>{resources ? resources.stats.sessionCount : resourcesError ? '—' : '…'}</strong>
         </div>
         <div className="config-kv">
           <span>累计提问</span>
-          <strong>{resources ? resources.stats.questionCount : '…'}</strong>
+          <strong>{resources ? resources.stats.questionCount : resourcesError ? '—' : '…'}</strong>
         </div>
       </div>
       <div className="config-card">
@@ -758,9 +780,19 @@ export function ConfigPanel({
           </button>
         </div>
         {error && (
-          <p className="config-panel-error" role="alert">
-            {error}
-          </p>
+          <div className="config-panel-error" role="alert">
+            <p>{error}</p>
+            <button
+              type="button"
+              className="header-button"
+              onClick={() => {
+                setError('');
+                void reloadDetail();
+              }}
+            >
+              重试
+            </button>
+          </div>
         )}
         {!error && !detail.data && <p className="config-panel-loading">正在读取配置…</p>}
         {!error && detail.data && (
@@ -797,7 +829,10 @@ export function ConfigPanel({
             >
               <ResourcesSection
                 resources={resources.data}
+                loading={resources.loading}
+                error={resources.error}
                 notify={notify}
+                onRetry={() => void reloadResources()}
                 onChanged={() => {
                   void reloadResources();
                   reloadWorkspace();
@@ -813,6 +848,7 @@ export function ConfigPanel({
               <RuntimeSection
                 models={models}
                 resources={resources.data}
+                resourcesError={Boolean(resources.error)}
                 thinking={thinking}
                 onThinkingChange={changeThinking}
                 model={model}
