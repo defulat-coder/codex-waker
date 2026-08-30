@@ -26,7 +26,7 @@ const sessions: SessionSummary[] = [
 ];
 
 describe('QoderTaskPanel', () => {
-  it('进入焦点，暴露 tabs/listbox 语义，并支持方向键与 Escape', () => {
+  it('进入焦点，暴露诚实的导航/listbox 语义，并支持 Escape', () => {
     const opened: string[] = [];
     let automations = 0;
     let closes = 0;
@@ -44,16 +44,16 @@ describe('QoderTaskPanel', () => {
       />,
     );
 
-    const conversationTab = screen.getByRole('tab', { name: '对话任务' });
-    const automationTab = screen.getByRole('tab', { name: '自动任务' });
-    const panel = screen.getByRole('tabpanel');
-    assert.equal(document.activeElement, conversationTab);
-    assert.equal(conversationTab.tabIndex, 0);
-    assert.equal(automationTab.tabIndex, -1);
-    assert.equal(conversationTab.getAttribute('aria-controls'), panel.id);
+    const navigation = screen.getByRole('navigation', { name: '任务类型' });
+    const conversation = within(navigation).getByRole('button', { name: '对话任务' });
+    const automation = within(navigation).getByRole('button', { name: '自动任务' });
+    assert.equal(document.activeElement, conversation);
+    assert.equal(conversation.getAttribute('aria-current'), 'page');
+    assert.equal(conversation.tabIndex, 0);
+    assert.equal(automation.tabIndex, 0);
+    assert.ok(screen.getByRole('region', { name: '对话任务' }));
 
-    fireEvent.keyDown(conversationTab, { key: 'ArrowRight' });
-    assert.equal(document.activeElement, automationTab);
+    fireEvent.click(automation);
     assert.equal(automations, 1);
 
     const listbox = screen.getByRole('listbox', { name: '对话任务' });

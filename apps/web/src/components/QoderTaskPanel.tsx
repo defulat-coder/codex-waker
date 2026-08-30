@@ -1,6 +1,5 @@
 import type { SessionSummary } from '@waker/contracts';
 import { motion, useReducedMotion } from 'motion/react';
-import type { KeyboardEvent } from 'react';
 import { ChatCircle } from '@phosphor-icons/react/dist/icons/ChatCircle';
 import { ClockCounterClockwise } from '@phosphor-icons/react/dist/icons/ClockCounterClockwise';
 import { DotsThree } from '@phosphor-icons/react/dist/icons/DotsThree';
@@ -27,21 +26,6 @@ export function QoderTaskPanel({
     : null;
   const focusSessionId = selectedSessionId ?? sessions[0]?.id;
 
-  const navigateTabs = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-    const tabs = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
-    const current = tabs.indexOf(document.activeElement as HTMLButtonElement);
-    const next =
-      event.key === 'Home'
-        ? 0
-        : event.key === 'End'
-          ? tabs.length - 1
-          : (current + (event.key === 'ArrowLeft' ? -1 : 1) + tabs.length) % tabs.length;
-    event.preventDefault();
-    tabs[next]?.focus();
-    tabs[next]?.click();
-  };
-
   return (
     <motion.aside
       id="qoder-task-panel"
@@ -57,39 +41,26 @@ export function QoderTaskPanel({
         onClose();
       }}
     >
-      <div
-        className="qoder-task-tabs"
-        role="tablist"
-        aria-label="任务类型"
-        onKeyDown={navigateTabs}
-      >
+      <nav className="qoder-task-tabs" aria-label="任务类型">
         <button
           autoFocus
           type="button"
-          id="qoder-conversation-tab"
-          role="tab"
-          aria-selected="true"
-          aria-controls="qoder-conversation-panel"
-          tabIndex={0}
+          aria-current="page"
           className="active"
         >
           <ChatCircle size={14} /> 对话任务
         </button>
         <button
           type="button"
-          role="tab"
-          aria-selected="false"
-          tabIndex={-1}
           onClick={onOpenAutomations}
         >
           <ClockCounterClockwise size={14} /> 自动任务
         </button>
-      </div>
+      </nav>
       <div
         className="qoder-task-list"
-        id="qoder-conversation-panel"
-        role="tabpanel"
-        aria-labelledby="qoder-conversation-tab"
+        role="region"
+        aria-label="对话任务"
       >
         {sessions.length ? (
           <div
