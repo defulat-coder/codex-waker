@@ -2393,7 +2393,7 @@ textarea {
     transform var(--duration-fast) var(--ease-out);
 }
 .composer-wrap:has(.qoder-composer-project) .composer-toolbar-left {
-  margin-left: 132px;
+  margin-left: 148px;
 }
 .qoder-composer-project {
   position: absolute;
@@ -2401,6 +2401,7 @@ textarea {
   bottom: 25px;
   z-index: 3;
   display: flex;
+  max-width: 128px;
   height: 26px;
   align-items: center;
   padding: 0 7px;
@@ -2408,6 +2409,11 @@ textarea {
   background: #fafafa;
   border-radius: 4px;
   font-size: 12px;
+}
+.qoder-composer-project > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .composer-inner > .qoder-composer-project {
   left: 38px;

@@ -8,6 +8,14 @@ import App from './App.js';
 
 const originalFetch = globalThis.fetch;
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
 const AGENT = {
   id: 'agent-one',
   name: 'Nova',
@@ -190,6 +198,90 @@ describe('App 会话视图', () => {
     fireEvent.click(screen.getByRole('option', { name: /Atlas/ }));
 
     assert.equal((input as HTMLTextAreaElement).value, '');
+  });
+
+  it('忽略旧项目列表，并让手动项目选择胜过晚到的会话上下文', async () => {
+    const secondAgent = { ...AGENT, id: 'agent-two', name: 'Atlas', mark: 'At' };
+    stubFetch([AGENT, secondAgent]);
+    const fallbackFetch = globalThis.fetch;
+    const firstProjects = deferred<Response>();
+    const secondProjects = deferred<Response>();
+    const firstContext = deferred<Response>();
+    const secondContext = deferred<Response>();
+    let firstProjectCalls = 0;
+    globalThis.fetch = ((input, init) => {
+      const url = String(input);
+      if (url.includes('/api/v1/local-resources')) {
+        if (url.includes('agent-two')) return secondProjects.promise;
+        firstProjectCalls += 1;
+        return firstProjectCalls === 1
+          ? firstProjects.promise
+          : Promise.resolve(
+              jsonResponse({
+                projects: [
+                  {
+                    id: 'project-one',
+                    wakerId: 'agent-one',
+                    name: 'Nova 项目',
+                    visibility: 'private',
+                  },
+                ],
+              }),
+            );
+      }
+      if (url.includes('/sessions/s1/context')) return firstContext.promise;
+      if (url.includes('/sessions/s2/context')) return secondContext.promise;
+      return fallbackFetch(input, init);
+    }) as typeof fetch;
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Chat' }));
+    assert.equal(screen.getByTitle('正在读取项目…').getAttribute('aria-busy'), 'true');
+
+    fireEvent.click(screen.getByRole('option', { name: /Atlas/ }));
+    await act(async () => {
+      secondProjects.resolve(
+        jsonResponse({
+          projects: [
+            { id: 'project-two', wakerId: 'agent-two', name: 'Atlas 项目', visibility: 'private' },
+          ],
+        }),
+      );
+      await secondProjects.promise;
+    });
+    assert.ok(await screen.findByRole('option', { name: 'Atlas 项目' }));
+
+    await act(async () => {
+      firstProjects.resolve(
+        jsonResponse({
+          projects: [
+            { id: 'project-one', wakerId: 'agent-one', name: 'Nova 项目', visibility: 'private' },
+          ],
+        }),
+      );
+      await firstProjects.promise;
+    });
+    assert.equal(screen.queryByRole('option', { name: 'Nova 项目' }), null);
+
+    fireEvent.click(screen.getByRole('option', { name: /Nova/ }));
+    assert.ok(await screen.findByRole('option', { name: 'Nova 项目' }));
+    await openSession('排查构建失败');
+    await openSession('整理文档');
+    const projectSelect = screen.getByRole('combobox', { name: '对话项目' });
+    fireEvent.change(projectSelect, { target: { value: 'project-one' } });
+    await act(async () => {
+      secondContext.resolve(
+        jsonResponse({ sessionId: 's2', wakerId: 'agent-one', projectId: 'late-project' }),
+      );
+      firstContext.resolve(
+        jsonResponse({ sessionId: 's1', wakerId: 'agent-one', projectId: 'late-project' }),
+      );
+      await Promise.all([firstContext.promise, secondContext.promise]);
+    });
+    assert.equal((projectSelect as HTMLSelectElement).value, 'project-one');
+    assert.equal(
+      document.querySelector('.qoder-composer-project > span')?.textContent,
+      'Nova 项目',
+    );
   });
 
   it('Waker 卡片的自动任务入口只导航，不直接创建调度', async () => {

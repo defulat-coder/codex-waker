@@ -120,6 +120,11 @@ export default function App() {
   draftAttachmentsRef.current = draftAttachments;
   const [projects, setProjects] = useState<WakerProject[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState('');
+  const [projectsLoading, setProjectsLoading] = useState(false);
+  const [sessionContextLoading, setSessionContextLoading] = useState(false);
+  const [projectContextError, setProjectContextError] = useState('');
+  const projectLoadGenerationRef = useRef(0);
+  const sessionContextGenerationRef = useRef(0);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const toastSeq = useRef(0);
   const toastTimers = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
@@ -285,34 +290,67 @@ export default function App() {
     notify(reason);
   };
 
+  const resetProjectContext = useCallback((clearProjects = false) => {
+    sessionContextGenerationRef.current += 1;
+    setSelectedProjectId('');
+    setSessionContextLoading(false);
+    setProjectContextError('');
+    if (clearProjects) setProjects([]);
+  }, []);
+
   const reloadProjects = useCallback(async () => {
+    const generation = ++projectLoadGenerationRef.current;
     if (!currentAgentId) {
       setProjects([]);
+      setProjectsLoading(false);
       return;
     }
+    setProjectsLoading(true);
+    setProjectContextError('');
     try {
       const data = await fetchLocalResources(currentAgentId);
+      if (generation !== projectLoadGenerationRef.current) return;
       const nextProjects = data.projects ?? [];
       setProjects(nextProjects);
       setSelectedProjectId((current) =>
         nextProjects.some((project) => project.id === current) ? current : '',
       );
     } catch {
+      if (generation !== projectLoadGenerationRef.current) return;
       setProjects([]);
+      setProjectContextError('项目列表暂时无法读取');
+    } finally {
+      if (generation === projectLoadGenerationRef.current) setProjectsLoading(false);
     }
   }, [currentAgentId]);
 
   useEffect(() => {
-    setSelectedProjectId('');
+    resetProjectContext();
     void reloadProjects();
-  }, [currentAgentId, reloadProjects]);
+  }, [currentAgentId, reloadProjects, resetProjectContext]);
 
   useEffect(() => {
     const sessionId = chat.currentSessionId;
-    if (!currentAgentId || !sessionId || sessionId.startsWith('draft-')) return;
+    const generation = ++sessionContextGenerationRef.current;
+    if (!currentAgentId || !sessionId || sessionId.startsWith('draft-')) {
+      setSessionContextLoading(false);
+      return;
+    }
+    setSessionContextLoading(true);
+    setProjectContextError('');
     void fetchSessionContext(currentAgentId, sessionId)
-      .then((context) => setSelectedProjectId(context.projectId ?? ''))
-      .catch(() => setSelectedProjectId(''));
+      .then((context) => {
+        if (generation === sessionContextGenerationRef.current)
+          setSelectedProjectId(context.projectId ?? '');
+      })
+      .catch(() => {
+        if (generation !== sessionContextGenerationRef.current) return;
+        setSelectedProjectId('');
+        setProjectContextError('会话项目上下文暂时无法读取');
+      })
+      .finally(() => {
+        if (generation === sessionContextGenerationRef.current) setSessionContextLoading(false);
+      });
   }, [chat.currentSessionId, currentAgentId]);
 
   /** 恢复卡「重试」：重发当前线程最后一条用户消息（沿用 composer 的会话/草稿推导，不传 targetSessionId）。 */
@@ -329,6 +367,7 @@ export default function App() {
     chat.interrupt();
     discardDraftAttachments('已清除原 Waker 中尚未发送的附件');
     setComposerResetSignal((value) => value + 1);
+    resetProjectContext(true);
     setCurrentAgentId(agentId);
     // 切换 Agent 时重置为该 Agent 的默认模型偏好；Composer 内的手动选择只活到下次切换。
     setSelectedModel(readModelPreference(agentId));
@@ -346,6 +385,7 @@ export default function App() {
     setLegacyView('chat');
     discardDraftAttachments('已清除上一会话中尚未发送的附件');
     setComposerResetSignal((value) => value + 1);
+    resetProjectContext();
     if (currentAgentId) chat.openSession(currentAgentId, sessionId);
   };
 
@@ -354,6 +394,7 @@ export default function App() {
     chat.closeSession();
     discardDraftAttachments('已清除上一会话中尚未发送的附件');
     setComposerResetSignal((value) => value + 1);
+    resetProjectContext();
     setConfigAgentId(null);
   };
 
@@ -551,6 +592,15 @@ export default function App() {
   const viewKey = legacyView;
 
   const chatVisible = legacyView === 'chat';
+  const selectedProjectName = projects.find((project) => project.id === selectedProjectId)?.name;
+  const projectContextBusy = projectsLoading || sessionContextLoading;
+  const projectContextLabel = projectsLoading
+    ? '正在读取项目…'
+    : sessionContextLoading
+      ? '正在恢复项目…'
+      : projectContextError
+        ? '项目上下文不可用'
+        : (selectedProjectName ?? '选择工作目录');
 
   return (
     <WorkspaceProvider value={{ workspace, sessionsByAgent, notify, reloadWorkspace }}>
@@ -850,12 +900,30 @@ export default function App() {
                     <div className="composer-inner">
                       {chat.liveTurn && <TurnProgress turn={chat.liveTurn} />}
                       {chat.liveTurn && <StopTurnButton running onStop={chat.interrupt} />}
-                      <label className="qoder-composer-project">
-                        <span>选择工作目录</span>
+                      <label
+                        className="qoder-composer-project"
+                        aria-busy={projectContextBusy}
+                        title={projectContextError || projectContextLabel}
+                      >
+                        <motion.span
+                          key={projectContextLabel}
+                          role={projectContextError ? 'alert' : 'status'}
+                          initial={{ opacity: 0, y: 2 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={MOTION_TRANSITION.feedback}
+                        >
+                          {projectContextLabel}
+                        </motion.span>
                         <select
                           aria-label={showWelcome ? '新会话项目' : '对话项目'}
                           value={selectedProjectId}
-                          onChange={(event) => setSelectedProjectId(event.target.value)}
+                          disabled={Boolean(chat.liveTurn) || projectsLoading}
+                          onChange={(event) => {
+                            sessionContextGenerationRef.current += 1;
+                            setSessionContextLoading(false);
+                            setProjectContextError('');
+                            setSelectedProjectId(event.target.value);
+                          }}
                         >
                           <option value="">当前仓库根（由服务端控制）</option>
                           {projects.map((project) => (
