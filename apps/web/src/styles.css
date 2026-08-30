@@ -140,30 +140,6 @@ textarea {
   background: transparent;
 }
 
-/* ===== 按压反馈：可点击元素 :active 统一 0.97 缩放（各类的 transform 过渡在既有 transition 列表内追加） ===== */
-.icon-button:active,
-.nav-row:active,
-.agent-row:active,
-.session-row:active,
-.send-button:active,
-.suggestion-button:active,
-.mini-button:active,
-.header-button:active,
-.model-button:active,
-.composer-actions:active,
-.agent-card:active,
-.inbox-row:active,
-.prompt-row:active,
-.model-option:active,
-.session-tab:active,
-.workspace-button:active,
-.group-add-button:active,
-.inbox-refresh:active,
-.toggle:active,
-.thinking-block summary:active {
-  transform: scale(0.97);
-}
-
 /* ===== 布局 ===== */
 .app-shell {
   display: flex;
@@ -318,9 +294,7 @@ textarea {
   letter-spacing: -0.56px;
   color: var(--text-secondary);
   white-space: nowrap;
-  transition:
-    background var(--duration-normal) var(--ease-out),
-    transform var(--duration-fast) var(--ease-out);
+  transition: background var(--duration-normal) var(--ease-out);
 }
 .workspace-button:hover {
   background: var(--bg-secondary);
@@ -374,8 +348,7 @@ textarea {
   color: var(--text-secondary);
   transition:
     background var(--duration-normal) var(--ease-out),
-    color var(--duration-normal) var(--ease-out),
-    transform var(--duration-fast) var(--ease-out);
+    color var(--duration-normal) var(--ease-out);
 }
 .icon-button:hover {
   background: var(--bg-secondary);
@@ -458,9 +431,7 @@ textarea {
   line-height: 13.8px;
   color: var(--text-primary);
   text-align: left;
-  transition:
-    background var(--duration-normal) var(--ease-out),
-    transform var(--duration-fast) var(--ease-out);
+  transition: background var(--duration-normal) var(--ease-out);
   white-space: nowrap;
 }
 /* 旧实现 导航行文字为 12px/500（实测 label 12px/18px w500） */
@@ -547,8 +518,7 @@ textarea {
   color: var(--text-secondary);
   transition:
     background var(--duration-fast),
-    color var(--duration-fast),
-    transform var(--duration-fast) var(--ease-out);
+    color var(--duration-fast);
 }
 .session-tab:hover {
   background: var(--bg-secondary-hover);
@@ -595,7 +565,6 @@ textarea {
 }
 .group-header-chevron {
   flex: none;
-  transition: transform var(--duration-normal) var(--ease-out);
 }
 .group-header-chevron.closed {
   transform: rotate(-90deg);
@@ -627,8 +596,7 @@ textarea {
   padding: 2px;
   transition:
     background var(--duration-normal) var(--ease-out),
-    color var(--duration-normal) var(--ease-out),
-    transform var(--duration-fast) var(--ease-out);
+    color var(--duration-normal) var(--ease-out);
 }
 .group-add-button:hover {
   background: var(--bg-secondary-hover);
@@ -756,8 +724,7 @@ textarea {
   color: var(--text-quaternary);
   transition:
     background var(--duration-normal),
-    color var(--duration-normal),
-    transform var(--duration-fast) var(--ease-out);
+    color var(--duration-normal);
 }
 .mini-button:hover {
   background: var(--bg-secondary-hover);
@@ -1372,9 +1339,7 @@ textarea {
   color: #141414;
   text-align: left;
   box-shadow: 0 1px 3px rgba(12, 12, 13, 0.04);
-  transition:
-    background var(--duration-normal) var(--ease-out),
-    transform var(--duration-fast) var(--ease-out);
+  transition: background var(--duration-normal) var(--ease-out);
 }
 .suggestion-button:hover {
   background: #f3f3f3;
@@ -1596,9 +1561,6 @@ textarea {
 .citation-sources summary::-webkit-details-marker {
   display: none;
 }
-.citation-sources summary .caret {
-  transition: transform var(--duration-normal) var(--ease-out);
-}
 .citation-sources[open] summary .caret {
   transform: rotate(90deg);
 }
@@ -1806,18 +1768,13 @@ textarea {
   color: var(--text-quaternary);
   border-radius: var(--radius-sm);
   padding: 3px 8px;
-  transition:
-    background var(--duration-normal),
-    transform var(--duration-fast) var(--ease-out);
+  transition: background var(--duration-normal);
 }
 .thinking-block summary::-webkit-details-marker {
   display: none;
 }
 .thinking-block summary:hover {
   background: var(--bg-secondary);
-}
-.thinking-block summary .caret {
-  transition: transform var(--duration-normal);
 }
 .thinking-block details[open] summary .caret {
   transform: rotate(90deg);
@@ -1897,7 +1854,6 @@ textarea {
   flex: none;
   margin-left: auto;
   color: var(--text-quaternary);
-  transition: transform var(--duration-normal) var(--ease-out);
 }
 .tool-group-chevron.open {
   transform: rotate(90deg);
@@ -1924,7 +1880,6 @@ textarea {
 }
 .tool-card summary .caret {
   margin-left: 2px;
-  transition: transform var(--duration-normal);
 }
 .tool-card[open] > summary .caret {
   transform: rotate(90deg);
@@ -2421,9 +2376,7 @@ textarea {
   border-radius: var(--radius-sm);
   padding: var(--space-1);
   color: var(--text-secondary);
-  transition:
-    background var(--duration-normal) var(--ease-out),
-    transform var(--duration-fast) var(--ease-out);
+  transition: background var(--duration-normal) var(--ease-out);
 }
 .composer-wrap:has(.qoder-composer-project) .composer-toolbar-left {
   margin-left: 148px;
@@ -2481,7 +2434,6 @@ textarea {
 }
 .turn-progress-chevron {
   color: var(--text-quaternary);
-  transition: transform var(--duration-normal) var(--ease-out);
 }
 .turn-progress-chevron.open {
   transform: rotate(90deg);
@@ -2547,9 +2499,7 @@ textarea {
   border-radius: var(--radius-full);
   background: var(--brand);
   color: #fff;
-  transition:
-    background var(--duration-normal) var(--ease-out),
-    transform var(--duration-fast) var(--ease-out);
+  transition: background var(--duration-normal) var(--ease-out);
 }
 .send-button:hover:not(:disabled) {
   background: var(--brand-hover);
@@ -2571,9 +2521,7 @@ textarea {
   line-height: 16.1px;
   letter-spacing: -0.56px;
   color: var(--text-secondary);
-  transition:
-    background var(--duration-normal) var(--ease-out),
-    transform var(--duration-fast) var(--ease-out);
+  transition: background var(--duration-normal) var(--ease-out);
 }
 .model-button:hover {
   background: var(--bg-secondary);
@@ -2614,9 +2562,7 @@ textarea {
   text-align: left;
   font-size: 14px;
   color: var(--text-primary);
-  transition:
-    background var(--duration-fast),
-    transform var(--duration-fast) var(--ease-out);
+  transition: background var(--duration-fast);
 }
 .model-option:hover,
 .model-option.selected {
@@ -2800,9 +2746,6 @@ textarea {
   text-align: left;
   font-size: 13px;
   font-weight: 600;
-}
-.config-section-chevron {
-  transition: transform var(--duration-normal) var(--ease-out);
 }
 .config-section-chevron.open {
   transform: rotate(180deg);
@@ -3087,9 +3030,7 @@ textarea {
   letter-spacing: -0.26px;
   color: var(--text-secondary);
   box-shadow: var(--button-shadow);
-  transition:
-    background var(--duration-normal) var(--ease-out),
-    transform var(--duration-fast) var(--ease-out);
+  transition: background var(--duration-normal) var(--ease-out);
 }
 .header-button:hover {
   background: var(--bg-secondary);
@@ -3221,8 +3162,7 @@ textarea {
   color: var(--text-quaternary);
   transition:
     background var(--duration-normal),
-    color var(--duration-normal),
-    transform var(--duration-fast) var(--ease-out);
+    color var(--duration-normal);
 }
 .inbox-refresh:hover:not(:disabled) {
   background: var(--bg-secondary);
@@ -3249,9 +3189,7 @@ textarea {
   border-bottom: 1px solid var(--border-subtle);
   text-align: left;
   cursor: pointer;
-  transition:
-    background var(--duration-fast),
-    transform var(--duration-fast) var(--ease-out);
+  transition: background var(--duration-fast);
 }
 .inbox-row:hover {
   background: var(--bg-secondary);
@@ -3309,7 +3247,6 @@ textarea {
   gap: 2px;
   flex: none;
   opacity: 0;
-  transition: opacity var(--duration-fast) var(--ease-out);
 }
 .inbox-row:hover .inbox-row-actions,
 .inbox-row.selected .inbox-row-actions,
@@ -3474,9 +3411,7 @@ textarea {
     0 1px 2px rgba(var(--shadow-color), 0.06);
   padding: var(--space-5);
   text-align: left;
-  transition:
-    background var(--duration-normal) var(--ease-out),
-    transform var(--duration-fast) var(--ease-out);
+  transition: background var(--duration-normal) var(--ease-out);
 }
 button.agent-card:hover,
 .template-card:hover {
@@ -4006,9 +3941,6 @@ button.agent-card:hover,
   font-size: 12px;
   font-weight: 500;
 }
-.agent-create-advanced svg {
-  transition: transform var(--duration-fast) var(--ease-out);
-}
 .agent-create-advanced svg.open {
   transform: rotate(180deg);
 }
@@ -4169,11 +4101,9 @@ button.agent-card:hover,
   border-radius: 50%;
   background: var(--bg-primary);
   transition:
-    border-color var(--duration-fast) var(--ease-out),
-    transform var(--duration-fast) var(--ease-out);
+    border-color var(--duration-fast) var(--ease-out);
 }
 .agent-avatar-grid button:hover:not(:disabled) {
-  transform: translateY(-1px);
   border-color: var(--border-default);
 }
 .agent-avatar-grid button.selected {
@@ -4585,45 +4515,6 @@ button.agent-card:hover,
   padding: var(--space-2) var(--space-3);
   font-size: 13px;
   color: var(--text-secondary);
-}
-
-/* ===== 降低动态效果（prefers-reduced-motion） ===== */
-@media (prefers-reduced-motion: reduce) {
-  /* 位移反馈在 reduced 下移除：按压不再缩放，布局宽度/箭头旋转瞬时完成 */
-  .icon-button:active,
-  .nav-row:active,
-  .agent-row:active,
-  .session-row:active,
-  .send-button:active,
-  .suggestion-button:active,
-  .mini-button:active,
-  .header-button:active,
-  .model-button:active,
-  .composer-actions:active,
-  .agent-card:active,
-  .inbox-row:active,
-  .prompt-row:active,
-  .model-option:active,
-  .session-tab:active,
-  .workspace-button:active,
-  .group-add-button:active,
-  .inbox-refresh:active,
-  .toggle:active,
-  .thinking-block summary:active {
-    transform: none;
-  }
-  .sidebar,
-  .inbox-column,
-  .group-header-chevron,
-  .config-section-chevron,
-  .thinking-block summary .caret,
-  .tool-card summary .caret,
-  .tool-group-chevron,
-  .tool-group-count,
-  .turn-progress-chevron,
-  .toggle-thumb {
-    transition-duration: 0.01ms !important;
-  }
 }
 
 /* Local P0/P1 management surfaces */
@@ -5276,7 +5167,6 @@ button.agent-card:hover,
 }
 .automation-run-caret {
   color: var(--text-quaternary);
-  transition: transform var(--duration-fast) ease;
 }
 .automation-run[open] .automation-run-caret {
   transform: rotate(180deg);
@@ -5856,7 +5746,6 @@ button.agent-card:hover,
 }
 .workflow-run-caret {
   color: var(--text-quaternary);
-  transition: transform var(--duration-fast) ease;
 }
 .workflow-run[open] .workflow-run-caret {
   transform: rotate(180deg);
@@ -6643,9 +6532,6 @@ button.agent-card:hover,
   opacity: 0;
   pointer-events: none;
   transform: translate(-4px, -50%);
-  transition:
-    opacity 120ms ease,
-    transform 120ms ease;
 }
 .legacy-rail-button:hover > .legacy-rail-label,
 .legacy-rail-button:focus-visible > .legacy-rail-label {
@@ -6796,15 +6682,11 @@ button.agent-card:hover,
   box-shadow: var(--button-shadow);
   transition:
     background 150ms ease,
-    border-color 150ms ease,
-    transform 100ms ease;
+    border-color 150ms ease;
 }
 .legacy-button:hover:not(:disabled) {
   background: var(--bg-secondary);
   border-color: var(--text-placeholder);
-}
-.legacy-button:active:not(:disabled) {
-  transform: scale(0.98);
 }
 .legacy-button.primary {
   color: #fff;
