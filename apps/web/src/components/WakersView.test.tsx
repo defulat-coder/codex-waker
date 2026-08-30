@@ -237,6 +237,7 @@ describe('WakersView 管理视图', () => {
     renderWakers();
     const input = screen.getByLabelText('搜索 Waker');
     assert.equal(input.getAttribute('placeholder'), '搜索员工或者设备...');
+    assert.equal(input.closest('label')?.className, 'waker-toolbar-search');
     fireEvent.change(input, { target: { value: 'Agent B' } });
     assert.equal(screen.queryByRole('heading', { name: /Agent A/ }), null);
     assert.ok(screen.getByRole('heading', { name: /Agent B/ }));

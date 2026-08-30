@@ -483,7 +483,7 @@ export function WakersView({
                   )}
                 </>
               </div>
-              <div className="waker-toolbar-search">
+              <label className="waker-toolbar-search">
                 <MagnifyingGlass size={16} aria-hidden="true" />
                 <input
                   aria-label="搜索 Waker"
@@ -494,7 +494,7 @@ export function WakersView({
                 <span>
                   {visibleAgents.length}/{agents.length}
                 </span>
-              </div>
+              </label>
               {totalUnread > 0 && (
                 <button
                   type="button"

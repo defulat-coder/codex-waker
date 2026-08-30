@@ -6938,6 +6938,12 @@ button.agent-card:hover,
   background: #fff;
   border: 1px solid #dedede;
   border-radius: 4px;
+  cursor: text;
+}
+.waker-toolbar-search:focus-within {
+  border-color: var(--brand);
+  outline: 2px solid var(--brand);
+  outline-offset: 1px;
 }
 .waker-toolbar-search input {
   flex: 1;
