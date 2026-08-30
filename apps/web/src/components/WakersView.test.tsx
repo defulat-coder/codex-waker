@@ -1,10 +1,12 @@
 import { afterEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import type { AgentDeleteImpact, AgentSummary } from '@waker/contracts';
 import { WakersView } from './LegacyWorkbench.js';
 
 const originalFetch = globalThis.fetch;
+const styles = readFileSync(new URL('../styles.css', import.meta.url), 'utf8');
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
@@ -241,6 +243,12 @@ describe('WakersView 管理视图', () => {
     fireEvent.change(input, { target: { value: 'Agent B' } });
     assert.equal(screen.queryByRole('heading', { name: /Agent A/ }), null);
     assert.ok(screen.getByRole('heading', { name: /Agent B/ }));
+  });
+
+  it('keeps the Waker search surface on light and dark theme tokens', () => {
+    const rule = styles.match(/\.waker-toolbar-search\s*\{([^}]*)\}/)?.[1] ?? '';
+    assert.match(rule, /background:\s*var\(--bg-primary\)/);
+    assert.match(rule, /border:\s*1px solid var\(--border-default\)/);
   });
 
   it('shows online status and the real device line on each card', () => {

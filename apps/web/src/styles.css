@@ -6935,8 +6935,8 @@ button.agent-card:hover,
   margin-left: auto;
   padding: 0 10px;
   color: var(--text-quaternary);
-  background: #fff;
-  border: 1px solid #dedede;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
   border-radius: 4px;
   cursor: text;
 }
