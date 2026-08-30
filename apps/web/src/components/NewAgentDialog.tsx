@@ -49,7 +49,7 @@ interface AvatarDraft {
   previewUrl: string;
 }
 
-function navigateRoleOptions(event: KeyboardEvent<HTMLButtonElement>) {
+function navigateRoleOptions(event: KeyboardEvent<HTMLButtonElement>, activate = true) {
   if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key))
     return;
   const listbox = event.currentTarget.closest('[role="listbox"]');
@@ -72,7 +72,7 @@ function navigateRoleOptions(event: KeyboardEvent<HTMLButtonElement>) {
               options.length
           ];
   next?.focus();
-  next?.click();
+  if (activate) next?.click();
 }
 
 export function NewAgentDialog({
@@ -98,6 +98,7 @@ export function NewAgentDialog({
   const [avatar, setAvatar] = useState<AvatarDraft | null>(null);
   const [avatarLibraryOpen, setAvatarLibraryOpen] = useState(false);
   const [avatarPage, setAvatarPage] = useState(0);
+  const [avatarFocusId, setAvatarFocusId] = useState('');
   const [avatarDirection, setAvatarDirection] = useState(1);
   const [selectedLibraryAvatar, setSelectedLibraryAvatar] = useState('');
   const [loadingLibraryAvatar, setLoadingLibraryAvatar] = useState('');
@@ -200,6 +201,11 @@ export function NewAgentDialog({
     avatarPage * AVATAR_PAGE_SIZE,
     (avatarPage + 1) * AVATAR_PAGE_SIZE,
   );
+  const focusedAvatarId = visibleAvatars.some((entry) => entry.id === avatarFocusId)
+    ? avatarFocusId
+    : visibleAvatars.some((entry) => entry.id === selectedLibraryAvatar)
+      ? selectedLibraryAvatar
+      : visibleAvatars[0]?.id;
 
   const derived = suggestedId(name);
   const effectiveId = id.trim() || derived;
@@ -518,9 +524,12 @@ export function NewAgentDialog({
                             role="option"
                             aria-label={`头像 ${entry.id}`}
                             aria-selected={selectedLibraryAvatar === entry.id}
+                            tabIndex={focusedAvatarId === entry.id ? 0 : -1}
                             className={cx(selectedLibraryAvatar === entry.id && 'selected')}
                             disabled={saving || Boolean(loadingLibraryAvatar)}
                             onClick={() => void pickLibraryAvatar(entry)}
+                            onFocus={() => setAvatarFocusId(entry.id)}
+                            onKeyDown={(event) => navigateRoleOptions(event, false)}
                             key={entry.id}
                             whileTap={{ scale: 0.94 }}
                           >

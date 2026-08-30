@@ -261,6 +261,30 @@ describe('NewAgentDialog', () => {
     assert.ok(calls.some((call) => call.url.endsWith('/waker-avatar-hq-001.jpg')));
   });
 
+  it('uses roving focus in the avatar library without selecting on arrow keys', async () => {
+    const calls: Call[] = [];
+    installApi(calls);
+    renderDialog();
+    await screen.findByRole('option', { name: /自定义角色/ });
+    fireEvent.click(screen.getByRole('button', { name: '选择内置头像' }));
+    const library = screen.getByRole('listbox', { name: '内置头像' });
+    const first = within(library).getByRole('option', { name: '头像 001' });
+    const second = within(library).getByRole('option', { name: '头像 002' });
+    assert.equal(first.tabIndex, 0);
+    assert.equal(second.tabIndex, -1);
+
+    fireEvent.focus(first);
+    fireEvent.keyDown(first, { key: 'ArrowRight' });
+    assert.equal(document.activeElement, second);
+    assert.equal(first.tabIndex, -1);
+    assert.equal(second.tabIndex, 0);
+    assert.ok(screen.getByRole('listbox', { name: '内置头像' }));
+    assert.equal(
+      calls.some((call) => call.url.includes('/waker-avatar-hq-002.jpg')),
+      false,
+    );
+  });
+
   it('keeps the created Waker and reports when the avatar upload fails after create', async () => {
     const calls: Call[] = [];
     installApi(calls, { failAvatar: true });
