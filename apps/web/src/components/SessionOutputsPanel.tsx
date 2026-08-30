@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { motion } from 'motion/react';
 import type { SessionAttachment, SessionOutputsResponse } from '@waker/contracts';
 import { DownloadSimple } from '@phosphor-icons/react/dist/icons/DownloadSimple';
@@ -89,6 +89,8 @@ export function SessionOutputsPanel({
   const [dragActive, setDragActive] = useState(false);
   const [previewTarget, setPreviewTarget] = useState<SessionAttachment | null>(null);
   const [previewContent, setPreviewContent] = useState<PreviewContent>({ status: 'loading' });
+  const [previewNonce, setPreviewNonce] = useState(0);
+  const previewCloseRef = useRef<HTMLButtonElement>(null);
   const [deleteTarget, setDeleteTarget] = useState<SessionAttachment | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [change, setChange] = useState<{
@@ -143,7 +145,7 @@ export function SessionOutputsPanel({
       controller.abort();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [agentId, previewTarget, sessionId]);
+  }, [agentId, previewNonce, previewTarget, sessionId]);
 
   const uploadFiles = async (files: File[]) => {
     if (!files.length || busy) return;
@@ -485,7 +487,9 @@ export function SessionOutputsPanel({
             <div className="modal-head">
               <h2 id="attachment-preview-title">{previewTarget.originalName}</h2>
               <button
+                ref={previewCloseRef}
                 className="icon-button"
+                type="button"
                 aria-label="关闭预览"
                 autoFocus
                 onClick={closePreview}
@@ -494,11 +498,25 @@ export function SessionOutputsPanel({
               </button>
             </div>
             <div className="attachment-preview-content">
-              {previewContent.status === 'loading' && <p>正在读取本地附件…</p>}
-              {previewContent.status === 'error' && (
-                <p className="legacy-error" role="alert">
-                  {previewContent.message}
+              {previewContent.status === 'loading' && (
+                <p role="status" aria-busy="true">
+                  正在读取本地附件…
                 </p>
+              )}
+              {previewContent.status === 'error' && (
+                <div className="legacy-error" role="alert">
+                  <p>{previewContent.message}</p>
+                  <button
+                    type="button"
+                    className="legacy-button"
+                    onClick={() => {
+                      previewCloseRef.current?.focus();
+                      setPreviewNonce((value) => value + 1);
+                    }}
+                  >
+                    重新读取
+                  </button>
+                </div>
               )}
               {previewContent.status === 'image' && (
                 <img src={previewContent.url} alt={`${previewTarget.originalName} 预览`} />

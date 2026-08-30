@@ -216,7 +216,7 @@ describe('KnowledgeManagementView', () => {
     });
     render(<KnowledgeManagementView wakerId="waker-one" notify={() => undefined} />);
     const input = await screen.findByRole('textbox', { name: '搜索知识库' });
-    const mode = screen.getByRole('combobox', { name: '检索方式' });
+    const mode = await screen.findByRole('combobox', { name: '检索方式' });
 
     for (const value of ['hybrid', 'keyword', 'vector']) {
       fireEvent.change(input, { target: { value: '本地' } });

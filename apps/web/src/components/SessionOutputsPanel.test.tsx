@@ -196,6 +196,31 @@ describe('SessionOutputsPanel', () => {
     }
   });
 
+  it('预览失败后可原地重试并保持安全焦点', async () => {
+    const target = attachment(1, { originalName: 'retry.txt', mimeType: 'text/plain' });
+    let attempts = 0;
+    globalThis.fetch = (async (input) => {
+      const url = String(input);
+      if (url.includes('/outputs?')) return jsonResponse(outputs([target]));
+      if (url.includes('/attachments/')) {
+        attempts += 1;
+        return attempts === 1
+          ? jsonResponse({ error: '附件读取验证失败' }, 500)
+          : new Response('恢复后的正文', { headers: { 'content-type': 'text/plain' } });
+      }
+      return jsonResponse({ error: 'unexpected request' }, 500);
+    }) as typeof fetch;
+
+    renderPanel();
+    fireEvent.click(await screen.findByRole('button', { name: '预览' }));
+    assert.ok(await screen.findByRole('alert'));
+    fireEvent.click(screen.getByRole('button', { name: '重新读取' }));
+
+    assert.equal(document.activeElement, screen.getByRole('button', { name: '关闭预览' }));
+    assert.ok(await screen.findByText('恢复后的正文'));
+    assert.equal(attempts, 2);
+  });
+
   it('确认后删除附件并清除其下次对话选择', async () => {
     const target = attachment(1, { originalName: 'remove.txt', mimeType: 'text/plain' });
     let current = outputs([target]);
