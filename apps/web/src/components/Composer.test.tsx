@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { describe, it } from 'node:test';
+import { afterEach, describe, it } from 'node:test';
 import { useState } from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { WorkspaceResponse } from '@waker/contracts';
@@ -13,6 +13,11 @@ const workspace: WorkspaceResponse = {
   host: { name: 'test-host' },
   models: { current: {}, available: [] },
 };
+const originalFetch = globalThis.fetch;
+
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+});
 
 function renderComposer(
   onSend: (
@@ -20,6 +25,7 @@ function renderComposer(
     attachments?: PreparedComposerAttachment[],
     onSuccess?: () => void,
   ) => boolean,
+  workspaceOverride: Partial<WorkspaceResponse> = {},
 ) {
   function Fixture() {
     const [attachments, setAttachments] = useState<PreparedComposerAttachment[]>([]);
@@ -36,12 +42,64 @@ function renderComposer(
   }
   return render(
     <WorkspaceProvider
-      value={{ workspace, sessionsByAgent: {}, notify: () => undefined, reloadWorkspace: () => {} }}
+      value={{
+        workspace: { ...workspace, ...workspaceOverride },
+        sessionsByAgent: {},
+        notify: () => undefined,
+        reloadWorkspace: () => {},
+      }}
     >
       <Fixture />
     </WorkspaceProvider>,
   );
 }
+
+describe('Composer prompt panel', () => {
+  const prompts = [
+    { name: 'explain', path: '.codex/prompts/explain.md', description: '解释概念' },
+    { name: 'review', path: '.codex/prompts/review.md', description: '评审代码' },
+  ];
+
+  it('通过 combobox 关联选项，并阻止无匹配时的 Enter 绕过禁用发送按钮', () => {
+    let sends = 0;
+    renderComposer(
+      () => {
+        sends += 1;
+        return true;
+      },
+      { prompts },
+    );
+    const input = screen.getByRole('combobox', { name: '消息输入框' });
+    fireEvent.change(input, { target: { value: '/' } });
+    const listbox = screen.getByRole('listbox', { name: '提示词列表' });
+    const options = within(listbox).getAllByRole('option');
+    assert.equal(input.getAttribute('aria-expanded'), 'true');
+    assert.equal(input.getAttribute('aria-controls'), listbox.id);
+    assert.equal(input.getAttribute('aria-activedescendant'), options[0]!.id);
+    assert.ok(options.every((option) => option.tabIndex === -1));
+
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    assert.equal(input.getAttribute('aria-activedescendant'), options[1]!.id);
+    fireEvent.change(input, { target: { value: '/missing' } });
+    assert.equal(screen.getByRole('button', { name: '发送消息' }).hasAttribute('disabled'), true);
+    fireEvent.keyDown(input, { key: 'Enter' });
+    assert.equal(sends, 0);
+    assert.ok(screen.getByText(/按 Esc 关闭后可按原文发送/));
+  });
+
+  it('提示词读取失败时保留输入并显示可重试错误', async () => {
+    globalThis.fetch = (async () =>
+      Response.json({ error: '提示词暂时无法读取' }, { status: 500 })) as typeof fetch;
+    renderComposer(() => true, { prompts });
+    const input = screen.getByRole('combobox', { name: '消息输入框' });
+    fireEvent.change(input, { target: { value: '/' } });
+    fireEvent.click(screen.getByRole('option', { name: /explain/ }));
+
+    assert.ok(await screen.findByRole('alert'));
+    assert.equal((input as HTMLTextAreaElement).value, '/');
+    assert.match(screen.getByRole('alert').textContent ?? '', /提示词暂时无法读取.*请重试/);
+  });
+});
 
 describe('Composer attachments', () => {
   it('批量选择保留成功文件、逐项报告失败，并只在 turn 成功后清理', async () => {

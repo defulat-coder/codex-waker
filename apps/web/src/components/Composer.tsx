@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { WorkspaceResponse } from '@waker/contracts';
-import { motion } from 'motion/react';
+import { motion, useReducedMotion } from 'motion/react';
 import { ArrowUp } from '@phosphor-icons/react/dist/icons/ArrowUp';
 import { CaretDown } from '@phosphor-icons/react/dist/icons/CaretDown';
 import { Check } from '@phosphor-icons/react/dist/icons/Check';
@@ -14,7 +14,7 @@ import { Terminal } from '@phosphor-icons/react/dist/icons/Terminal';
 import { X } from '@phosphor-icons/react/dist/icons/X';
 import { fetchPrompt } from '../lib/api.js';
 import { cx } from '../lib/cx.js';
-import { MOTION_EASE } from '../lib/motion.js';
+import { MOTION_EASE, MOTION_LAYOUT_TRANSITION, MOTION_TRANSITION } from '../lib/motion.js';
 import { filterPrompts, movePromptSelection, promptQueryFromInput } from '../lib/prompts.js';
 import { handleCompositeKeyDown, useDismissable } from '../hooks/useDismissable.js';
 import { useWorkspace } from '../context/WorkspaceContext.js';
@@ -118,6 +118,7 @@ export function Composer({
   maxAttachments = MAX_TURN_ATTACHMENTS,
 }: ComposerProps) {
   const { workspace } = useWorkspace();
+  const reducedMotion = useReducedMotion();
   const prompts = workspace.prompts;
   const models = workspace.models;
   const [text, setText] = useState('');
@@ -125,6 +126,7 @@ export function Composer({
   const [activePrompt, setActivePrompt] = useState(0);
   const [panelDismissed, setPanelDismissed] = useState(false);
   const [loadingPrompt, setLoadingPrompt] = useState(false);
+  const [promptError, setPromptError] = useState('');
   const [attachmentErrors, setAttachmentErrors] = useState<RejectedComposerAttachment[]>([]);
   const [preparingAttachments, setPreparingAttachments] = useState(false);
   const [draggingFiles, setDraggingFiles] = useState(false);
@@ -132,7 +134,9 @@ export function Composer({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const modelMenuRef = useRef<HTMLDivElement>(null);
   const modelTriggerRef = useRef<HTMLButtonElement>(null);
+  const loadingPromptRef = useRef(false);
   const attachmentsRef = useRef<DraftComposerAttachment[]>([]);
+  const promptListId = useId();
   attachmentsRef.current = attachments;
   const closeModelMenu = useCallback(() => setMenuOpen(false), []);
   useDismissable(modelMenuRef, closeModelMenu, menuOpen);
@@ -154,15 +158,18 @@ export function Composer({
     : (models?.current?.model ?? '默认');
 
   const applyPrompt = async (name: string) => {
+    if (loadingPromptRef.current) return;
+    loadingPromptRef.current = true;
     setLoadingPrompt(true);
+    setPromptError('');
     try {
       const document = await fetchPrompt(name);
       setText(document.content.trim());
       textareaRef.current?.focus();
-    } catch (error) {
-      // 拉取失败不清空用户已输入的内容；Composer 没有 notify 通道，先打日志保留现场。
-      console.error('提示词暂时无法读取', error);
+    } catch (cause) {
+      setPromptError(cause instanceof Error ? cause.message : '提示词暂时无法读取');
     } finally {
+      loadingPromptRef.current = false;
       setLoadingPrompt(false);
     }
   };
@@ -211,7 +218,7 @@ export function Composer({
 
   const send = () => {
     const value = text.trim();
-    if (!value || disabled || loadingPrompt || preparingAttachments) return;
+    if (!value || disabled || loadingPrompt || preparingAttachments || panelOpen) return;
     const accepted = onSend(value, attachmentsRef.current, clearAttachments);
     if (accepted) setText('');
   };
@@ -270,28 +277,60 @@ export function Composer({
       <motion.div
         className="prompt-panel"
         initial={false}
-        animate={{ opacity: panelOpen ? 1 : 0, height: panelOpen ? 'auto' : 0 }}
+        animate={
+          reducedMotion ? undefined : { opacity: panelOpen ? 1 : 0, height: panelOpen ? 'auto' : 0 }
+        }
         transition={{ duration: 0.2, ease: MOTION_EASE }}
         style={{
           overflow: 'hidden',
           pointerEvents: panelOpen ? 'auto' : 'none',
           borderBottomWidth: panelOpen ? 1 : 0,
+          ...(reducedMotion
+            ? { opacity: panelOpen ? 1 : 0, height: panelOpen ? 'auto' : 0 }
+            : {}),
         }}
         inert={!panelOpen}
         aria-hidden={!panelOpen}
       >
-        <p className="prompt-panel-label">提示词</p>
-        <div className="prompt-panel-list" role="listbox" aria-label="提示词列表">
+        <p className="prompt-panel-label">
+          <span>提示词</span>
+          {loadingPrompt && (
+            <span className="prompt-panel-loading" role="status">
+              <MotionSpinner>
+                <CircleNotch size={12} />
+              </MotionSpinner>
+              正在读取…
+            </span>
+          )}
+        </p>
+        <div
+          className="prompt-panel-list"
+          id={promptListId}
+          role="listbox"
+          aria-label="提示词列表"
+          aria-busy={loadingPrompt}
+        >
           {filtered.map((prompt, index) => (
             <button
               type="button"
               role="option"
+              id={`${promptListId}-option-${index}`}
+              tabIndex={-1}
               aria-selected={index === activePrompt}
+              disabled={loadingPrompt}
               key={prompt.name}
               className={cx('prompt-row', index === activePrompt && 'active')}
               onMouseEnter={() => setActivePrompt(index)}
               onClick={() => void applyPrompt(prompt.name)}
             >
+              {index === activePrompt && (
+                <motion.span
+                  className="prompt-row-active"
+                  layoutId={reducedMotion ? undefined : `prompt-row-active-${promptListId}`}
+                  transition={MOTION_LAYOUT_TRANSITION}
+                  aria-hidden="true"
+                />
+              )}
               <Terminal size={16} />
               <span className="prompt-row-copy">
                 <span className="prompt-row-name">/{prompt.name}</span>
@@ -301,8 +340,21 @@ export function Composer({
               </span>
             </button>
           ))}
-          {!filtered.length && <p className="prompt-panel-empty">没有匹配的提示词</p>}
+          {!filtered.length && (
+            <p className="prompt-panel-empty">没有匹配的提示词，按 Esc 关闭后可按原文发送</p>
+          )}
         </div>
+        {promptError && (
+          <motion.p
+            className="prompt-panel-error"
+            role="alert"
+            initial={{ opacity: 0, y: -3 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={MOTION_TRANSITION.feedback}
+          >
+            {promptError}，请重试。
+          </motion.p>
+        )}
       </motion.div>
 
       {attachments.length > 0 && (
@@ -338,13 +390,20 @@ export function Composer({
       )}
 
       {attachmentErrors.length > 0 && (
-        <div className="composer-attachment-errors" role="status" aria-live="polite">
+        <motion.div
+          className="composer-attachment-errors"
+          role="status"
+          aria-live="polite"
+          initial={{ opacity: 0, y: -3 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={MOTION_TRANSITION.feedback}
+        >
           {attachmentErrors.map((error, index) => (
             <span key={`${error.originalName}-${index}`}>
               {error.originalName}：{error.reason}
             </span>
           ))}
-        </div>
+        </motion.div>
       )}
 
       <textarea
@@ -353,6 +412,7 @@ export function Composer({
         onChange={(event) => {
           setText(event.target.value);
           setPanelDismissed(false);
+          setPromptError('');
         }}
         onKeyDown={onKeyDown}
         onPaste={(event) => {
@@ -363,6 +423,14 @@ export function Composer({
         }}
         placeholder="输入消息，@ 选择当前工作区上下文..."
         aria-label="消息输入框"
+        role="combobox"
+        aria-autocomplete="list"
+        aria-haspopup="listbox"
+        aria-expanded={panelOpen}
+        aria-controls={promptListId}
+        aria-activedescendant={
+          panelOpen && filtered.length ? `${promptListId}-option-${activePrompt}` : undefined
+        }
         rows={1}
       />
 
@@ -376,6 +444,7 @@ export function Composer({
             onClick={() => {
               setText('/');
               setPanelDismissed(false);
+              setPromptError('');
               textareaRef.current?.focus();
             }}
           >
