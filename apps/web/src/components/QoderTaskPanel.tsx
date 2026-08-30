@@ -1,56 +1,138 @@
 import type { SessionSummary } from '@waker/contracts';
-import { motion } from 'motion/react';
+import { motion, useReducedMotion } from 'motion/react';
+import type { KeyboardEvent } from 'react';
 import { ChatCircle } from '@phosphor-icons/react/dist/icons/ChatCircle';
 import { ClockCounterClockwise } from '@phosphor-icons/react/dist/icons/ClockCounterClockwise';
 import { DotsThree } from '@phosphor-icons/react/dist/icons/DotsThree';
 import { cx } from '../lib/cx.js';
 import { MOTION_TRANSITION } from '../lib/motion.js';
+import { handleCompositeKeyDown } from '../hooks/useDismissable.js';
 
 export function QoderTaskPanel({
   sessions,
   currentSessionId,
   onOpenSession,
   onOpenAutomations,
+  onClose,
 }: {
   sessions: SessionSummary[];
   currentSessionId: string | null;
   onOpenSession: (sessionId: string) => void;
   onOpenAutomations: () => void;
+  onClose: () => void;
 }) {
+  const reducedMotion = useReducedMotion();
+  const selectedSessionId = sessions.some((session) => session.id === currentSessionId)
+    ? currentSessionId
+    : null;
+  const focusSessionId = selectedSessionId ?? sessions[0]?.id;
+
+  const navigateTabs = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    const tabs = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+    const current = tabs.indexOf(document.activeElement as HTMLButtonElement);
+    const next =
+      event.key === 'Home'
+        ? 0
+        : event.key === 'End'
+          ? tabs.length - 1
+          : (current + (event.key === 'ArrowLeft' ? -1 : 1) + tabs.length) % tabs.length;
+    event.preventDefault();
+    tabs[next]?.focus();
+    tabs[next]?.click();
+  };
+
   return (
     <motion.aside
+      id="qoder-task-panel"
       className="qoder-task-panel"
       aria-label="任务列表"
       initial={{ opacity: 0, x: 16 }}
       animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: 16 }}
       transition={MOTION_TRANSITION.panel}
+      onKeyDown={(event) => {
+        if (event.key !== 'Escape') return;
+        event.preventDefault();
+        event.stopPropagation();
+        onClose();
+      }}
     >
-      <div className="qoder-task-tabs" role="tablist" aria-label="任务类型">
-        <button type="button" role="tab" aria-selected="true" className="active">
+      <div
+        className="qoder-task-tabs"
+        role="tablist"
+        aria-label="任务类型"
+        onKeyDown={navigateTabs}
+      >
+        <button
+          autoFocus
+          type="button"
+          id="qoder-conversation-tab"
+          role="tab"
+          aria-selected="true"
+          aria-controls="qoder-conversation-panel"
+          tabIndex={0}
+          className="active"
+        >
           <ChatCircle size={14} /> 对话任务
         </button>
-        <button type="button" role="tab" aria-selected="false" onClick={onOpenAutomations}>
+        <button
+          type="button"
+          role="tab"
+          aria-selected="false"
+          tabIndex={-1}
+          onClick={onOpenAutomations}
+        >
           <ClockCounterClockwise size={14} /> 自动任务
         </button>
       </div>
-      <div className="qoder-task-list">
-        {sessions.map((session) => (
-          <button
-            type="button"
-            key={session.id}
-            className={cx('qoder-task-row', session.id === currentSessionId && 'active')}
-            onClick={() => onOpenSession(session.id)}
+      <div
+        className="qoder-task-list"
+        id="qoder-conversation-panel"
+        role="tabpanel"
+        aria-labelledby="qoder-conversation-tab"
+      >
+        {sessions.length ? (
+          <div
+            className="qoder-task-options"
+            role="listbox"
+            aria-label="对话任务"
+            onKeyDown={(event) => handleCompositeKeyDown(event)?.click()}
           >
-            <i aria-hidden="true" />
-            <span>
-              <strong>{session.title}</strong>
-              <small>{session.questionCount} 次提问</small>
-            </span>
-            <DotsThree size={14} aria-hidden="true" />
-          </button>
-        ))}
-        {!sessions.length && <p className="qoder-task-empty">暂无对话任务</p>}
+            {sessions.map((session) => {
+              const selected = session.id === selectedSessionId;
+              return (
+                <button
+                  type="button"
+                  key={session.id}
+                  role="option"
+                  aria-selected={selected}
+                  tabIndex={session.id === focusSessionId ? 0 : -1}
+                  className={cx('qoder-task-row', selected && 'active')}
+                  onClick={() => onOpenSession(session.id)}
+                >
+                  {selected && (
+                    <motion.span
+                      className="qoder-task-row-active"
+                      layoutId={reducedMotion ? undefined : 'qoder-task-row-active'}
+                      transition={MOTION_TRANSITION.routine}
+                      aria-hidden="true"
+                    />
+                  )}
+                  <i aria-hidden="true" />
+                  <span>
+                    <strong>{session.title}</strong>
+                    <small>{session.questionCount} 次提问</small>
+                  </span>
+                  <DotsThree size={14} aria-hidden="true" />
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="qoder-task-empty" role="status">
+            暂无对话任务
+          </p>
+        )}
       </div>
     </motion.aside>
   );

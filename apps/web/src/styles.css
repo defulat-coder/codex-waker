@@ -1233,6 +1233,7 @@ textarea {
   padding: 8px 12px;
 }
 .qoder-task-row {
+  position: relative;
   display: grid;
   grid-template-columns: 8px minmax(0, 1fr) 16px;
   gap: 8px;
@@ -1243,9 +1244,20 @@ textarea {
   border-bottom: 1px solid #e6e6e6;
   text-align: left;
 }
-.qoder-task-row:hover,
-.qoder-task-row.active {
+.qoder-task-row:hover {
   background: #f2f2f2;
+}
+.qoder-task-row-active {
+  position: absolute;
+  inset: 0;
+  background: #f2f2f2;
+  pointer-events: none;
+}
+.qoder-task-row > i,
+.qoder-task-row > span:not(.qoder-task-row-active),
+.qoder-task-row > svg {
+  position: relative;
+  z-index: 1;
 }
 .qoder-task-row > i {
   width: 6px;

@@ -112,6 +112,7 @@ export default function App() {
   const [onboardingAgentId, setOnboardingAgentId] = useState<string | null>(null);
   const [outputsOpen, setOutputsOpen] = useState(false);
   const [taskListOpen, setTaskListOpen] = useState(false);
+  const taskListTriggerRef = useRef<HTMLButtonElement>(null);
   const [selectedAttachmentIds, setSelectedAttachmentIds] = useState<string[]>([]);
   const [draftAttachments, setDraftAttachments] = useState<DraftComposerAttachment[]>([]);
   const draftAttachmentsRef = useRef<DraftComposerAttachment[]>([]);
@@ -627,8 +628,10 @@ export default function App() {
                     <Plus size={14} /> 自动任务
                   </button>
                   <button
+                    ref={taskListTriggerRef}
                     type="button"
-                    aria-pressed={taskListOpen}
+                    aria-expanded={taskListOpen}
+                    aria-controls="qoder-task-panel"
                     onClick={() => setTaskListOpen((open) => !open)}
                   >
                     <ClockCounterClockwise size={14} /> 任务列表
@@ -874,7 +877,7 @@ export default function App() {
             </motion.div>
           </motion.main>
 
-          <AnimatePresence initial={false}>
+          <>
             {taskListOpen && chatVisible && currentAgent && (
               <QoderTaskPanel
                 key="chat-task-panel"
@@ -883,15 +886,24 @@ export default function App() {
                 onOpenSession={(sessionId) => {
                   selectSession(sessionId);
                   setTaskListOpen(false);
+                  requestAnimationFrame(() =>
+                    document
+                      .querySelector<HTMLTextAreaElement>('[aria-label="消息输入框"]')
+                      ?.focus(),
+                  );
                 }}
                 onOpenAutomations={() => {
                   setTaskListOpen(false);
                   setTaskSurface('automations');
                   setLegacyView('tasks');
                 }}
+                onClose={() => {
+                  setTaskListOpen(false);
+                  taskListTriggerRef.current?.focus();
+                }}
               />
             )}
-          </AnimatePresence>
+          </>
 
           <AnimatePresence initial={false}>
             {outputsOpen && currentAgentId && chat.currentSessionId && (

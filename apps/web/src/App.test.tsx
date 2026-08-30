@@ -105,7 +105,7 @@ async function openSession(title: string) {
   const chat = await screen.findByRole('button', { name: 'Chat' });
   if (chat.getAttribute('aria-current') !== 'page') fireEvent.click(chat);
   fireEvent.click(await screen.findByRole('button', { name: '任务列表' }));
-  const row = await screen.findByRole('button', { name: new RegExp(title) });
+  const row = await screen.findByRole('option', { name: new RegExp(title) });
   fireEvent.click(row);
 }
 
@@ -151,6 +151,9 @@ describe('App 会话视图', () => {
       ),
     );
     assert.ok(await screen.findByText('你好'), '历史消息应渲染到会话区');
+    await waitFor(() =>
+      assert.equal(document.activeElement, screen.getByRole('combobox', { name: '消息输入框' })),
+    );
 
     await openSession('整理文档');
     await waitFor(() =>
