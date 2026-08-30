@@ -4609,6 +4609,10 @@ button.agent-card:hover,
   min-height: 48px;
   border-bottom: 1px solid var(--border-subtle);
 }
+.waker-home .timeline-list > div {
+  content-visibility: auto;
+  contain-intrinsic-block-size: 48px;
+}
 .timeline-list span {
   display: grid;
   flex: 1;
@@ -7225,6 +7229,10 @@ button.agent-card:hover,
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-xl);
 }
+.waker-home-section {
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto 420px;
+}
 .waker-home-profile {
   display: flex;
   align-items: flex-start;
@@ -7322,6 +7330,8 @@ button.agent-card:hover,
   gap: var(--space-3);
   min-height: 44px;
   border-bottom: 1px solid var(--border-subtle);
+  content-visibility: auto;
+  contain-intrinsic-block-size: 44px;
 }
 .waker-home-task-row strong {
   overflow: hidden;
