@@ -40,7 +40,7 @@ import { useAsyncData } from './hooks/useAsyncData.js';
 import { useChatController } from './hooks/useChatController.js';
 import { useVisiblePolling } from './hooks/useVisiblePolling.js';
 import { WorkspaceProvider } from './context/WorkspaceContext.js';
-import { Toasts, type Toast } from './components/Toasts.js';
+import { Toasts, type Toast, type ToastTone } from './components/Toasts.js';
 import { Welcome } from './components/Welcome.js';
 import { Composer } from './components/Composer.js';
 import { ThreadView } from './components/ThreadView.js';
@@ -73,6 +73,7 @@ import {
 
 /** toast 自动消失时长。 */
 const TOAST_DURATION_MS = 4000;
+const ERROR_TOAST_DURATION_MS = 8000;
 /** 收件箱轮询间隔：仅页面可见时兜底刷新（无服务端推送通道）。 */
 const INBOX_POLL_INTERVAL_MS = 60_000;
 
@@ -127,26 +128,38 @@ export default function App() {
   const sessionContextGenerationRef = useRef(0);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const toastSeq = useRef(0);
-  const toastTimers = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+  const toastTimers = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+  const [markingAllRead, setMarkingAllRead] = useState(false);
+  const markingAllReadRef = useRef(false);
 
   // 卸载时清掉未决的 toast timer，避免卸载后 setState。
   useEffect(() => {
     const timers = toastTimers.current;
     return () => {
-      for (const timer of timers) clearTimeout(timer);
+      for (const timer of timers.values()) clearTimeout(timer);
       timers.clear();
     };
   }, []);
 
-  /** 用户可见的错误通知；到时自动消失。 */
-  const notify = useCallback((text: string) => {
+  const dismissToast = useCallback((id: number) => {
+    const timer = toastTimers.current.get(id);
+    if (timer) clearTimeout(timer);
+    toastTimers.current.delete(id);
+    setToasts((current) => current.filter((toast) => toast.id !== id));
+  }, []);
+
+  /** 用户可见的操作通知；错误保留更久，也可由用户立即关闭。 */
+  const notify = useCallback((text: string, tone: ToastTone = 'info') => {
     const id = ++toastSeq.current;
-    setToasts((prev) => [...prev, { id, text }]);
-    const timer = setTimeout(() => {
-      toastTimers.current.delete(timer);
-      setToasts((prev) => prev.filter((toast) => toast.id !== id));
-    }, TOAST_DURATION_MS);
-    toastTimers.current.add(timer);
+    setToasts((prev) => [...prev, { id, text, tone }]);
+    const timer = setTimeout(
+      () => {
+        toastTimers.current.delete(id);
+        setToasts((prev) => prev.filter((toast) => toast.id !== id));
+      },
+      tone === 'error' ? ERROR_TOAST_DURATION_MS : TOAST_DURATION_MS,
+    );
+    toastTimers.current.set(id, timer);
   }, []);
 
   const currentAgent: AgentSummary | undefined = workspace?.agents.find(
@@ -162,7 +175,7 @@ export default function App() {
   );
 
   const inbox = useAsyncData(() => fetchInbox('attention'), {
-    onError: () => notify('收件箱暂时无法读取'),
+    onError: () => notify('收件箱暂时无法读取', 'error'),
   });
   const usage = useAsyncData(fetchUsage);
   const settings = useAsyncData(fetchSettings);
@@ -178,7 +191,7 @@ export default function App() {
         const items = await fetchSessions(agentId);
         setSessionsByAgent((prev) => ({ ...prev, [agentId]: items }));
       } catch {
-        notify('会话列表暂时无法读取');
+        notify('会话列表暂时无法读取', 'error');
       }
     },
     [notify],
@@ -199,7 +212,7 @@ export default function App() {
     setUiPreferences((current) => writeUiPreference(current, key, value));
     void savePreference(serverKeyForPreference(key), value).catch(() => {
       // 服务端写穿失败时 localStorage 仍是权威缓存，但让用户知道没有持久化。
-      notify('偏好已在本机生效，但未能同步到服务端');
+      notify('偏好已在本机生效，但未能同步到服务端', 'error');
     });
   };
 
@@ -553,6 +566,31 @@ export default function App() {
       });
   }, []);
 
+  const handleMarkAllRead = useCallback(async () => {
+    if (markingAllReadRef.current) return;
+    markingAllReadRef.current = true;
+    setMarkingAllRead(true);
+    try {
+      await markAllInboxRead();
+      setWorkspace((current) =>
+        current
+          ? {
+              ...current,
+              agents: current.agents.map((agent) => ({ ...agent, unreadCount: 0 })),
+            }
+          : current,
+      );
+      notify('全部会话已标为已读', 'success');
+      reloadWorkspace();
+      void reloadInbox();
+    } catch {
+      notify('一键已读失败，请重试', 'error');
+    } finally {
+      markingAllReadRef.current = false;
+      setMarkingAllRead(false);
+    }
+  }, [notify, reloadInbox, reloadWorkspace]);
+
   if (fatal) {
     return (
       <div className="app-shell">
@@ -631,14 +669,8 @@ export default function App() {
                 agents={workspace.agents}
                 currentAgentId={currentAgent.id}
                 onSelectAgent={selectAgent}
-                onMarkAllRead={() => {
-                  void markAllInboxRead()
-                    .then(() => {
-                      reloadWorkspace();
-                      return reloadInbox();
-                    })
-                    .catch(() => notify('一键已读失败'));
-                }}
+                markingAllRead={markingAllRead}
+                onMarkAllRead={() => void handleMarkAllRead()}
               />
             )}
           </AnimatePresence>
@@ -1014,7 +1046,7 @@ export default function App() {
             )}
           </AnimatePresence>
 
-          <Toasts toasts={toasts} />
+          <Toasts toasts={toasts} onDismiss={dismissToast} />
         </div>
       </MotionConfig>
     </WorkspaceProvider>

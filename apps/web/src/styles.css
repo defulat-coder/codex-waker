@@ -1750,12 +1750,45 @@ textarea {
   align-items: center;
   gap: 6px;
   padding: 7px 14px;
-  border-radius: var(--radius-full);
-  border: 1px solid var(--error-border);
-  background: var(--error-bg);
+  max-width: min(520px, calc(100vw - 48px));
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-default);
+  background: var(--bg-primary);
   font-size: 12.5px;
-  color: var(--error-text);
+  color: var(--text-primary);
   box-shadow: 0 4px 16px rgba(var(--shadow-color), 0.08);
+  pointer-events: auto;
+}
+.toast-info > svg {
+  color: var(--text-tertiary);
+}
+.toast-success {
+  border-color: var(--brand);
+  background: var(--brand-secondary);
+  color: var(--brand);
+}
+.toast-error {
+  border-color: var(--error-border);
+  background: var(--error-bg);
+  color: var(--error-text);
+}
+.toast-message {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.toast > button {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  margin: -4px -7px -4px 0;
+  border-radius: var(--radius-sm);
+  color: currentColor;
+}
+.toast > button:hover {
+  background: rgba(var(--shadow-color), 0.06);
 }
 
 /* thinking 折叠区 */

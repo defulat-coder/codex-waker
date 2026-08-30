@@ -14,6 +14,7 @@ const agents: AgentSummary[] = [
     description: '第一个 Waker',
     suggestions: [],
     sessionCount: 12,
+    unreadCount: 2,
   },
   {
     id: 'agent-b',
@@ -40,6 +41,7 @@ describe('QoderChatSidebar', () => {
             setCurrent(id);
           }}
           onMarkAllRead={() => {}}
+          markingAllRead={false}
         />
       );
     }
@@ -63,6 +65,41 @@ describe('QoderChatSidebar', () => {
     assert.deepEqual(
       options.map((option) => option.tabIndex),
       [-1, 0],
+    );
+  });
+
+  it('一键已读按未读数和提交状态禁用并给出准确名称', () => {
+    let calls = 0;
+    const props = {
+      agents,
+      currentAgentId: 'agent-a',
+      onSelectAgent: () => {},
+      onMarkAllRead: () => {
+        calls += 1;
+      },
+    };
+    const view = render(<QoderChatSidebar {...props} markingAllRead={false} />);
+    const action = screen.getByRole('button', { name: '一键已读，2 个未读会话' });
+    assert.equal(action.hasAttribute('disabled'), false);
+    fireEvent.click(action);
+    assert.equal(calls, 1);
+
+    view.rerender(<QoderChatSidebar {...props} markingAllRead />);
+    const busy = screen.getByRole('button', { name: '正在将全部会话标为已读' });
+    assert.equal(busy.getAttribute('aria-busy'), 'true');
+    assert.equal(busy.hasAttribute('disabled'), true);
+    assert.match(busy.textContent ?? '', /正在标记/);
+
+    view.rerender(
+      <QoderChatSidebar
+        {...props}
+        agents={agents.map((agent) => ({ ...agent, unreadCount: 0 }))}
+        markingAllRead={false}
+      />,
+    );
+    assert.equal(
+      screen.getByRole('button', { name: '没有未读会话' }).hasAttribute('disabled'),
+      true,
     );
   });
 });

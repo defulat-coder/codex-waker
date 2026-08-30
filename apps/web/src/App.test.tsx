@@ -146,6 +146,53 @@ describe('App 会话视图', () => {
     assert.ok(screen.getByRole('option', { name: /Nova/ }));
   });
 
+  it('一键已读防止重复提交，成功后禁用并可关闭通知', async () => {
+    const unreadAgent = { ...AGENT, unreadCount: 2 };
+    stubFetch([unreadAgent]);
+    const fallbackFetch = globalThis.fetch;
+    let readCalls = 0;
+    let marked = false;
+    globalThis.fetch = ((input, init) => {
+      const url = String(input);
+      if (url.endsWith('/api/v1/inbox/read-all')) {
+        readCalls += 1;
+        marked = true;
+        return Promise.resolve(Response.json({ updated: 2 }));
+      }
+      if (marked && url.includes('/api/v1/workspace'))
+        return Promise.resolve(
+          jsonResponse({
+            agents: [{ ...unreadAgent, unreadCount: 0 }],
+            prompts: [],
+            host: { name: 'test-host' },
+            models: { current: {}, available: [] },
+          }),
+        );
+      return fallbackFetch(input, init);
+    }) as typeof fetch;
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Chat' }));
+    const action = screen.getByRole('button', { name: '一键已读，2 个未读会话' });
+
+    fireEvent.click(action);
+    fireEvent.click(action);
+    assert.equal(readCalls, 1);
+    assert.equal(
+      screen.getByRole('button', { name: '正在将全部会话标为已读' }).hasAttribute('disabled'),
+      true,
+    );
+
+    const message = await screen.findByText('全部会话已标为已读');
+    assert.equal(message.closest('[role]')?.getAttribute('role'), 'status');
+    assert.equal(
+      screen.getByRole('button', { name: '没有未读会话' }).hasAttribute('disabled'),
+      true,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '关闭通知：全部会话已标为已读' }));
+    await waitFor(() => assert.equal(screen.queryByText('全部会话已标为已读'), null));
+  });
+
   it('点击会话行打开会话并回放历史消息', async () => {
     const calls = stubFetch();
     render(<App />);

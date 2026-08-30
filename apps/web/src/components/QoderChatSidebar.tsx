@@ -1,9 +1,11 @@
 import type { AgentSummary } from '@waker/contracts';
 import { motion, useReducedMotion } from 'motion/react';
 import { Check } from '@phosphor-icons/react/dist/icons/Check';
+import { CircleNotch } from '@phosphor-icons/react/dist/icons/CircleNotch';
 import { MagnifyingGlass } from '@phosphor-icons/react/dist/icons/MagnifyingGlass';
 import { Plus } from '@phosphor-icons/react/dist/icons/Plus';
 import { AgentChip } from './AgentChip.js';
+import { MotionSpinner } from './MotionFeedback.js';
 import { cx } from '../lib/cx.js';
 import { MOTION_TRANSITION } from '../lib/motion.js';
 import { handleCompositeKeyDown } from '../hooks/useDismissable.js';
@@ -13,16 +15,19 @@ export function QoderChatSidebar({
   currentAgentId,
   onSelectAgent,
   onMarkAllRead,
+  markingAllRead,
 }: {
   agents: AgentSummary[];
   currentAgentId?: string;
   onSelectAgent: (agentId: string) => void;
   onMarkAllRead: () => void;
+  markingAllRead: boolean;
 }) {
   const reducedMotion = useReducedMotion();
   const selectedAgentId = agents.some((agent) => agent.id === currentAgentId)
     ? currentAgentId
     : agents[0]?.id;
+  const unreadCount = agents.reduce((total, agent) => total + (agent.unreadCount ?? 0), 0);
 
   return (
     <motion.aside
@@ -35,8 +40,27 @@ export function QoderChatSidebar({
     >
       <header className="qoder-chat-sidebar-header">
         <strong>Chat</strong>
-        <button type="button" aria-label="一键已读" onClick={onMarkAllRead}>
-          <Check size={14} /> 一键已读
+        <button
+          type="button"
+          aria-label={
+            markingAllRead
+              ? '正在将全部会话标为已读'
+              : unreadCount
+                ? `一键已读，${unreadCount} 个未读会话`
+                : '没有未读会话'
+          }
+          aria-busy={markingAllRead}
+          disabled={markingAllRead || unreadCount === 0}
+          onClick={onMarkAllRead}
+        >
+          {markingAllRead ? (
+            <MotionSpinner>
+              <CircleNotch size={14} />
+            </MotionSpinner>
+          ) : (
+            <Check size={14} />
+          )}
+          {markingAllRead ? '正在标记…' : '一键已读'}
         </button>
       </header>
 
