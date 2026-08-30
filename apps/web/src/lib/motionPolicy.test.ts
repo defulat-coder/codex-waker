@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 
 const styles = readFileSync(new URL('../styles.css', import.meta.url), 'utf8');
+const app = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8');
+const feedback = readFileSync(new URL('../components/MotionFeedback.tsx', import.meta.url), 'utf8');
 
 describe('Motion 样式边界', () => {
   it('不使用 CSS keyframes 或 animation', () => {
@@ -18,5 +20,10 @@ describe('Motion 样式边界', () => {
         declaration,
       );
     }
+  });
+
+  it('应用与共享持续动画都遵守用户的 reduced-motion 偏好', () => {
+    assert.match(app, /<MotionConfig\s+reducedMotion="user">/);
+    assert.match(feedback, /useReducedMotion\(\)/);
   });
 });
