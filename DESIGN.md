@@ -17,7 +17,7 @@ colors:
   border-subtle: '#e2e8f0'
   success: '#25aa73'
   warning-surface: '#fef0c7'
-  warning-text: '#cd6002'
+  warning-text: '#865604'
   error-surface: '#fef3f2'
   error-text: '#b42318'
   dark-canvas: '#171a19'

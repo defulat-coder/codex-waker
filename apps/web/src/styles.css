@@ -45,7 +45,7 @@
 
   /* 状态色：warning 取自 §11.1 实测；error 红色系按同一令牌风格推断 */
   --warning-bg: #fef0c7;
-  --warning-text: #cd6002;
+  --warning-text: #865604;
   --error-bg: #fef3f2;
   --error-border: #fecdca;
   --error-text: #b42318;
@@ -7588,7 +7588,7 @@ button.agent-card:hover,
 .resource-status.waiting,
 .resource-status.waiting_input,
 .resource-status.paused {
-  color: #865604;
+  color: var(--warning-text);
   background: var(--warning-bg);
 }
 .legacy-subsection {
@@ -7774,7 +7774,7 @@ button.agent-card:hover,
   background: var(--brand-secondary);
 }
 .notebook-list button.active small {
-  color: #236b50;
+  color: var(--text-brand);
 }
 .notebook-list button span {
   display: grid;
@@ -7954,6 +7954,12 @@ button.agent-card:hover,
     --brand-secondary: #17392d;
     --brand-secondary-hover: #1d4738;
     --text-brand: #79deb3;
+    --warning-bg: #3a3018;
+    --warning-text: #ffd58a;
+    --error-bg: #3a211f;
+    --error-border: #7f443e;
+    --error-text: #ffb4ab;
+    --error-text-detail: #ffd0cc;
     --shadow-color: 0, 0, 0;
     color-scheme: dark;
   }
@@ -8003,6 +8009,12 @@ button.agent-card:hover,
   --brand-secondary: #17392d;
   --brand-secondary-hover: #1d4738;
   --text-brand: #79deb3;
+  --warning-bg: #3a3018;
+  --warning-text: #ffd58a;
+  --error-bg: #3a211f;
+  --error-border: #7f443e;
+  --error-text: #ffb4ab;
+  --error-text-detail: #ffd0cc;
   --shadow-color: 0, 0, 0;
   color-scheme: dark;
 }
@@ -8049,6 +8061,12 @@ button.agent-card:hover,
     --brand-secondary: #e7f7f0;
     --brand-secondary-hover: #d4f0e4;
     --text-brand: #0d6947;
+    --warning-bg: #fef0c7;
+    --warning-text: #865604;
+    --error-bg: #fef3f2;
+    --error-border: #fecdca;
+    --error-text: #b42318;
+    --error-text-detail: #912018;
     --shadow-color: 16, 24, 40;
     color-scheme: light;
   }

@@ -1,6 +1,9 @@
 import { afterEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { applyThemePreference } from './theme.js';
+
+const styles = readFileSync(new URL('../styles.css', import.meta.url), 'utf8');
 
 afterEach(() => {
   document.documentElement.removeAttribute('data-theme');
@@ -20,5 +23,30 @@ describe('applyThemePreference', () => {
 
   it('tolerates a missing document root', () => {
     assert.doesNotThrow(() => applyThemePreference('dark', undefined));
+  });
+
+  it('maps warning and error roles for automatic dark, manual dark and forced light themes', () => {
+    for (const declaration of [
+      '--warning-bg: #3a3018',
+      '--warning-text: #ffd58a',
+      '--error-bg: #3a211f',
+      '--error-text: #ffb4ab',
+      '--error-text-detail: #ffd0cc',
+    ]) {
+      assert.equal(styles.split(declaration).length - 1, 2, declaration);
+    }
+    for (const declaration of [
+      '--warning-bg: #fef0c7',
+      '--warning-text: #865604',
+      '--error-bg: #fef3f2',
+      '--error-text: #b42318',
+      '--error-text-detail: #912018',
+    ]) {
+      assert.equal(styles.split(declaration).length - 1, 2, declaration);
+    }
+    assert.match(
+      styles,
+      /\.notebook-list button\.active small\s*\{\s*color:\s*var\(--text-brand\);\s*\}/,
+    );
   });
 });
