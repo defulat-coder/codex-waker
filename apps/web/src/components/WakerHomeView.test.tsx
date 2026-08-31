@@ -336,14 +336,15 @@ describe('WakerHomeView', () => {
     globalThis.fetch = (async () => {
       if (failures > 0) {
         failures -= 1;
-        throw new Error('网络不可用');
+        throw new TypeError('Failed to fetch');
       }
       return Response.json({});
     }) as typeof fetch;
     renderHome();
     await settle();
-    assert.ok(screen.getByRole('alert'));
-    assert.ok(screen.getByText('网络不可用'));
+    const alert = screen.getByRole('alert');
+    assert.match(alert.textContent ?? '', /Waker 主页数据暂时无法读取/);
+    assert.doesNotMatch(alert.textContent ?? '', /Failed to fetch/);
     mockFetch();
     fireEvent.click(screen.getByRole('button', { name: '重试' }));
     await settle();

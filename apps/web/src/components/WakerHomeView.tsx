@@ -17,6 +17,7 @@ import {
   summarizeAgentProfile,
 } from '../lib/api.js';
 import { cx } from '../lib/cx.js';
+import { readableErrorMessage } from '../lib/errors.js';
 import { MOTION_EASE } from '../lib/motion.js';
 import { formatRelativeTime } from '../lib/sessions.js';
 import { AgentChip } from './AgentChip.js';
@@ -166,7 +167,7 @@ export function WakerHomeView({ agent, onEdit }: { agent: AgentSummary; onEdit: 
       setData({ detail, home, sessions, runs: runs.items });
       setNow(new Date());
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Waker 主页数据暂时无法读取');
+      setError(readableErrorMessage(cause, 'Waker 主页数据暂时无法读取'));
     }
   }, [agent.id]);
   useEffect(() => {
@@ -182,7 +183,7 @@ export function WakerHomeView({ agent, onEdit }: { agent: AgentSummary; onEdit: 
       await summarizeAgentProfile(agent.id, { apply: true });
       await load();
     } catch (cause) {
-      setDeriveError(cause instanceof Error ? cause.message : '画像派生失败，请稍后重试');
+      setDeriveError(readableErrorMessage(cause, '画像暂时无法派生，请稍后重试'));
     } finally {
       setDeriving(false);
     }
