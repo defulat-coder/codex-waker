@@ -14,6 +14,7 @@ import { Terminal } from '@phosphor-icons/react/dist/icons/Terminal';
 import { X } from '@phosphor-icons/react/dist/icons/X';
 import { fetchPrompt } from '../lib/api.js';
 import { cx } from '../lib/cx.js';
+import { readableErrorMessage } from '../lib/errors.js';
 import { MOTION_EASE, MOTION_LAYOUT_TRANSITION, MOTION_TRANSITION } from '../lib/motion.js';
 import { filterPrompts, movePromptSelection, promptQueryFromInput } from '../lib/prompts.js';
 import { handleCompositeKeyDown, useDismissable } from '../hooks/useDismissable.js';
@@ -191,7 +192,8 @@ export function Composer({
       textareaRef.current?.focus();
     } catch (cause) {
       if (generation !== promptGenerationRef.current) return;
-      setPromptError(cause instanceof Error ? cause.message : '提示词暂时无法读取');
+      setPromptError(readableErrorMessage(cause, '提示词暂时无法读取'));
+      textareaRef.current?.focus();
     } finally {
       if (generation === promptGenerationRef.current) {
         loadingPromptRef.current = false;

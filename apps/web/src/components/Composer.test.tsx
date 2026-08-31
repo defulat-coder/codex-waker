@@ -104,16 +104,21 @@ describe('Composer prompt panel', () => {
   });
 
   it('提示词读取失败时保留输入并显示可重试错误', async () => {
-    globalThis.fetch = (async () =>
-      Response.json({ error: '提示词暂时无法读取' }, { status: 500 })) as typeof fetch;
+    globalThis.fetch = (async () => {
+      throw new TypeError('Failed to fetch');
+    }) as typeof fetch;
     renderComposer(() => true, { prompts });
     const input = screen.getByRole('combobox', { name: '消息输入框' });
     fireEvent.change(input, { target: { value: '/' } });
-    fireEvent.click(screen.getByRole('option', { name: /explain/ }));
+    const option = screen.getByRole('option', { name: /explain/ });
+    option.focus();
+    fireEvent.click(option);
 
     assert.ok(await screen.findByRole('alert'));
     assert.equal((input as HTMLTextAreaElement).value, '/');
+    assert.equal(document.activeElement, input);
     assert.match(screen.getByRole('alert').textContent ?? '', /提示词暂时无法读取.*请重试/);
+    assert.doesNotMatch(screen.getByRole('alert').textContent ?? '', /Failed to fetch/);
   });
 
   it('上下文重置会清空草稿，并忽略旧提示词请求的晚到结果', async () => {
