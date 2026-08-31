@@ -18,7 +18,7 @@ export function useDialogFocus<T extends HTMLElement>(
       if (event.target instanceof HTMLElement && !event.target.closest('[role="dialog"]'))
         previousRef.current = event.target;
     };
-    const rememberPointer = (event: PointerEvent) => {
+    const rememberPointer = (event: Event) => {
       const target =
         event.target instanceof Element ? event.target.closest<HTMLElement>(FOCUSABLE) : null;
       if (target && !target.closest('[role="dialog"]')) previousRef.current = target;
@@ -27,9 +27,11 @@ export function useDialogFocus<T extends HTMLElement>(
       previousRef.current = document.activeElement;
     document.addEventListener('focusin', remember);
     document.addEventListener('pointerdown', rememberPointer, true);
+    document.addEventListener('mousedown', rememberPointer, true);
     return () => {
       document.removeEventListener('focusin', remember);
       document.removeEventListener('pointerdown', rememberPointer, true);
+      document.removeEventListener('mousedown', rememberPointer, true);
     };
   }, [open]);
 

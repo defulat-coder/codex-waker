@@ -56,6 +56,19 @@ describe('useDialogFocus', () => {
     assert.equal(document.activeElement, trigger);
   });
 
+  it('restores a mouse trigger that the platform does not focus on click', async () => {
+    const view = render(<Fixture />);
+    const trigger = view.getByText('open');
+    fireEvent.mouseDown(trigger);
+    fireEvent.click(trigger);
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    assert.equal(document.activeElement, view.getByLabelText('first'));
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    assert.equal(document.activeElement, trigger);
+  });
+
   it('preserves focus already placed inside the dialog before its fallback frame', async () => {
     const view = render(<PreFocusedFixture />);
     fireEvent.click(view.getByText('open preferred'));
