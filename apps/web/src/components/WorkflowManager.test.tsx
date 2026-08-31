@@ -613,6 +613,7 @@ describe('WorkflowManager', () => {
     assert.equal(secondTab.getAttribute('aria-selected'), 'true');
     assert.equal(secondTab.tabIndex, 0);
     const panel = screen.getByRole('tabpanel');
+    assert.equal(panel.tagName, 'SECTION');
     assert.equal(panel.getAttribute('aria-labelledby'), secondTab.id);
     assert.equal(secondTab.getAttribute('aria-controls'), panel.id);
   });

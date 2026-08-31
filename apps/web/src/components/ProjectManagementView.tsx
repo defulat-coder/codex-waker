@@ -238,7 +238,7 @@ export function ProjectManagementView({
               </motion.button>
             ))}
           </aside>
-          <main className="memory-detail">
+          <section className="memory-detail">
             {selected && (
               <motion.div
                 className="master-detail-content"
@@ -312,7 +312,7 @@ export function ProjectManagementView({
                 </section>
               </motion.div>
             )}
-          </main>
+          </section>
         </div>
       ) : (
         <div className="legacy-empty">

@@ -120,7 +120,9 @@ describe('MemoryView 范围筛选', () => {
       return healthyFetch(input, init);
     }) as typeof fetch;
 
-    render(<MemoryView wakerId="waker-one" onClose={() => {}} notify={() => {}} />);
+    const view = render(
+      <MemoryView wakerId="waker-one" onClose={() => {}} notify={() => {}} />,
+    );
     const alert = await screen.findByRole('alert');
     assert.match(alert.textContent ?? '', /记忆暂时无法读取/);
     assert.doesNotMatch(alert.textContent ?? '', /Failed to fetch/);
@@ -130,6 +132,8 @@ describe('MemoryView 范围筛选', () => {
     assert.ok(screen.getByText('创建'));
     const status = screen.getByText('成功');
     assert.ok(status.classList.contains('success'));
+    assert.equal(view.container.querySelector('main'), null);
+    assert.equal(view.container.querySelector('.memory-detail')?.tagName, 'SECTION');
   });
 
   it('默认个人范围，切换项目后按新 scope 拉取且列表隔离', async () => {

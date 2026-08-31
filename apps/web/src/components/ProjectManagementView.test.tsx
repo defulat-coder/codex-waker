@@ -47,7 +47,7 @@ describe('ProjectManagementView', () => {
       return json(emptyResources([PROJECT]));
     }) as typeof fetch;
 
-    render(<ProjectManagementView wakerId="waker-one" notify={() => {}} />);
+    const view = render(<ProjectManagementView wakerId="waker-one" notify={() => {}} />);
     const alert = await screen.findByRole('alert');
     assert.match(alert.textContent ?? '', /项目暂时无法读取/);
     assert.doesNotMatch(alert.textContent ?? '', /Failed to fetch/);
@@ -56,6 +56,8 @@ describe('ProjectManagementView', () => {
     assert.ok(await screen.findByRole('heading', { name: PROJECT.name }));
     assert.ok(screen.getByText('就绪'));
     assert.equal(attempts, 2);
+    assert.equal(view.container.querySelector('main'), null);
+    assert.equal(view.container.querySelector('.memory-detail')?.tagName, 'SECTION');
   });
 
   it('创建、编辑并在展示真实影响后删除项目', async () => {

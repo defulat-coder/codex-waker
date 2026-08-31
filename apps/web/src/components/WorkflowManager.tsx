@@ -1095,7 +1095,7 @@ export function WorkflowManager({
             {!items.length && <p className="outputs-empty">还没有 WakerFlow</p>}
           </nav>
 
-          <main
+          <section
             className="workflow-detail"
             id={selectedId ? workflowPanelId(selectedId) : undefined}
             role={selectedId ? 'tabpanel' : undefined}
@@ -1522,7 +1522,7 @@ export function WorkflowManager({
               </div>
             )}
             </motion.div>
-          </main>
+          </section>
         </div>
       )}
 

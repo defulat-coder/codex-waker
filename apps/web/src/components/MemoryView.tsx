@@ -428,7 +428,7 @@ export function MemoryView({
               </div>
             )}
           </aside>
-          <main className="memory-detail">
+          <section className="memory-detail">
             <motion.div
               className="master-detail-content"
               key={selected?.id ?? 'none'}
@@ -540,7 +540,7 @@ export function MemoryView({
               </div>
             )}
             </motion.div>
-          </main>
+          </section>
           </div>
         )}
       </div>
