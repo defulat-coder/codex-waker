@@ -125,7 +125,6 @@ export function LegacyRail({
             className={cx('legacy-rail-button', active === item.id && 'active')}
             aria-current={active === item.id ? 'page' : undefined}
             aria-label={item.label}
-            title={item.label}
             onClick={() => onChange(item.id)}
           >
             {active === item.id && (
@@ -154,7 +153,6 @@ export function LegacyRail({
             className={cx('legacy-rail-button', active === item.id && 'active')}
             aria-current={active === item.id ? 'page' : undefined}
             aria-label={item.label}
-            title={item.label}
             onClick={() => onChange(item.id)}
           >
             {active === item.id && (
