@@ -2392,8 +2392,8 @@ textarea {
   height: 26px;
   align-items: center;
   padding: 0 7px;
-  color: #5d5d5d;
-  background: #fafafa;
+  color: var(--text-quaternary);
+  background: var(--bg-secondary);
   border-radius: 4px;
   font-size: 12px;
 }
@@ -2506,7 +2506,7 @@ textarea {
   background: var(--brand-hover);
 }
 .send-button:disabled {
-  background: #fafbfd;
+  background: var(--bg-tertiary);
   color: var(--text-disabled);
 }
 

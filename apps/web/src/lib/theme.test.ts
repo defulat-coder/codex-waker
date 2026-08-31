@@ -63,6 +63,9 @@ describe('applyThemePreference', () => {
     assert.match(cssRule('.qoder-task-panel'), /background:\s*var\(--bg-secondary\)/);
     assert.match(cssRule('.suggestion-button'), /background:\s*var\(--bg-secondary\)/);
     assert.match(cssRule('.suggestion-button'), /color:\s*var\(--text-primary\)/);
+    assert.match(cssRule('.qoder-composer-project'), /color:\s*var\(--text-quaternary\)/);
+    assert.match(cssRule('.qoder-composer-project'), /background:\s*var\(--bg-secondary\)/);
+    assert.match(cssRule('.send-button:disabled'), /background:\s*var\(--bg-tertiary\)/);
   });
 
   it('uses readable text roles for selected navigation and semantic feedback', () => {
