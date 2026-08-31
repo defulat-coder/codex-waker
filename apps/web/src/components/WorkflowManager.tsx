@@ -36,6 +36,7 @@ import { Trash } from '@phosphor-icons/react/dist/icons/Trash';
 import { X } from '@phosphor-icons/react/dist/icons/X';
 import { fetchLocalResources } from '../lib/api.js';
 import { cx } from '../lib/cx.js';
+import { readableErrorMessage } from '../lib/errors.js';
 import { useDialogFocus } from '../hooks/useDialogFocus.js';
 import { useVisiblePolling } from '../hooks/useVisiblePolling.js';
 import { MotionLoadingRows } from './MotionFeedback.js';
@@ -449,7 +450,7 @@ export function WorkflowManager({
         hasSnapshotRef.current = true;
       } catch (cause) {
         if (generation !== loadGenerationRef.current || isAbortError(cause)) return;
-        const message = cause instanceof Error ? cause.message : 'WakerFlow 加载失败';
+        const message = readableErrorMessage(cause, 'WakerFlow 暂时无法读取');
         if (background && hasSnapshotRef.current) setRefreshError(message);
         else setError(message);
       }
@@ -492,7 +493,7 @@ export function WorkflowManager({
       } catch (cause) {
         if (generation !== runGenerationRef.current || isAbortError(cause)) return;
         if (!background)
-          setActionError(cause instanceof Error ? cause.message : '运行记录暂时无法读取');
+          setActionError(readableErrorMessage(cause, '运行记录暂时无法读取'));
       } finally {
         if (generation === runGenerationRef.current && ownerRef.current === wakerId)
           setRunsLoading(false);
@@ -595,7 +596,7 @@ export function WorkflowManager({
         }
       } catch (cause) {
         if (generation !== detailGenerationRef.current || isAbortError(cause)) return;
-        setDetailError(cause instanceof Error ? cause.message : '流程定义暂时无法读取');
+        setDetailError(readableErrorMessage(cause, '流程定义暂时无法读取'));
       }
     })();
   }, [detailNonce, selectedId, wakerId]);
@@ -642,7 +643,7 @@ export function WorkflowManager({
         await load();
         return;
       }
-      const message = cause instanceof Error ? cause.message : '操作失败';
+      const message = readableErrorMessage(cause, '操作暂时无法完成');
       setActionError(message);
       notify(message, 'error');
     } finally {
@@ -668,7 +669,7 @@ export function WorkflowManager({
       setConflictWorkflowId('');
     } catch (cause) {
       if (ownerRef.current !== owner) return;
-      setActionError(cause instanceof Error ? cause.message : '最新流程定义暂时无法读取');
+      setActionError(readableErrorMessage(cause, '最新流程定义暂时无法读取'));
     }
   };
 
@@ -696,7 +697,7 @@ export function WorkflowManager({
       );
     } catch (cause) {
       if (ownerRef.current === owner)
-        setEditorServerErrors([cause instanceof Error ? cause.message : '流程定义暂时无法验证']);
+        setEditorServerErrors([readableErrorMessage(cause, '流程定义暂时无法验证')]);
       return;
     }
     if (ownerRef.current !== owner) return;
@@ -768,7 +769,7 @@ export function WorkflowManager({
     } catch (cause) {
       if (generation !== aiGenerationRef.current || ownerRef.current !== owner) return;
       setAiStatus('failed');
-      setAiError(cause instanceof Error ? cause.message : 'AI 生成定义失败');
+      setAiError(readableErrorMessage(cause, 'AI 暂时无法生成定义'));
     }
   };
 
@@ -802,7 +803,7 @@ export function WorkflowManager({
         );
     } catch (cause) {
       if (generation !== versionGenerationRef.current || ownerRef.current !== owner) return;
-      setActionError(cause instanceof Error ? cause.message : '版本记录暂时无法读取');
+      setActionError(readableErrorMessage(cause, '版本记录暂时无法读取'));
     } finally {
       if (generation === versionGenerationRef.current && ownerRef.current === owner)
         setVersionsLoading(false);
@@ -825,7 +826,7 @@ export function WorkflowManager({
       setDiff(result.diff);
       setRollbackTarget(null);
     } catch (cause) {
-      setActionError(cause instanceof Error ? cause.message : '版本差异暂时无法读取');
+      setActionError(readableErrorMessage(cause, '版本差异暂时无法读取'));
     }
   };
 
@@ -873,7 +874,7 @@ export function WorkflowManager({
         setTraces((current) => ({ ...current, [runId]: result }));
     } catch (cause) {
       if (generation !== traceGenerationRef.current) return;
-      setActionError(cause instanceof Error ? cause.message : '运行轨迹暂时无法读取');
+      setActionError(readableErrorMessage(cause, '运行轨迹暂时无法读取'));
     }
   };
 
@@ -951,7 +952,7 @@ export function WorkflowManager({
         ),
       );
     } catch (cause) {
-      setDeleteError(cause instanceof Error ? cause.message : '删除影响暂时无法读取');
+      setDeleteError(readableErrorMessage(cause, '删除影响暂时无法读取'));
     }
   };
 

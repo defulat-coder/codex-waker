@@ -342,6 +342,28 @@ describe('WorkflowManager', () => {
     assert.ok(await screen.findByRole('heading', { name: WORKFLOW.name }));
   });
 
+  it('网络中断时本地化错误并可重试恢复流程列表', async () => {
+    const calls: Call[] = [];
+    installApi(calls);
+    const healthyFetch = globalThis.fetch;
+    let shouldFail = true;
+    globalThis.fetch = (async (input, init) => {
+      if (String(input).includes('/local-resources') && shouldFail) {
+        shouldFail = false;
+        throw new TypeError('Failed to fetch');
+      }
+      return healthyFetch(input, init);
+    }) as typeof fetch;
+
+    render(<WorkflowManager wakerId="waker-one" notify={() => {}} />);
+    const alert = await screen.findByRole('alert');
+    assert.match(alert.textContent ?? '', /WakerFlow 暂时无法读取/);
+    assert.doesNotMatch(alert.textContent ?? '', /Failed to fetch/);
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+
+    assert.ok(await screen.findByRole('heading', { name: WORKFLOW.name }));
+  });
+
   it('validates the JSON definition before saving and preserves optimistic versioning', async () => {
     const calls: Call[] = [];
     const notices: Array<{ text: string; tone?: string }> = [];
