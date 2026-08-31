@@ -327,17 +327,19 @@ describe('AutomationManager', () => {
     assert.ok(calls.some((call) => call.url.endsWith('/automation-runs/run-queued/cancel')));
   });
 
-  it('加载失败后可恢复到空状态', async () => {
+  it('网络中断时本地化错误并可恢复到空状态', async () => {
     let resourceAttempts = 0;
     globalThis.fetch = (async (input) => {
       if (String(input).endsWith('/api/v1/workspace')) return json(workspace);
       if (String(input).includes('/automation-runs')) return json({ items: [], total: 0 });
       resourceAttempts += 1;
-      if (resourceAttempts === 1) return json({ error: 'SQLite 忙' }, 500);
+      if (resourceAttempts === 1) throw new TypeError('Failed to fetch');
       return json(resources([]));
     }) as typeof fetch;
     render(<AutomationManager wakerId="waker-one" notify={() => {}} />);
-    assert.ok(await screen.findByRole('alert'));
+    const alert = await screen.findByRole('alert');
+    assert.match(alert.textContent ?? '', /自动任务暂时无法读取/);
+    assert.doesNotMatch(alert.textContent ?? '', /Failed to fetch/);
     fireEvent.click(screen.getByRole('button', { name: /重试/ }));
     assert.ok(await screen.findByRole('heading', { name: '还没有自动任务' }));
   });

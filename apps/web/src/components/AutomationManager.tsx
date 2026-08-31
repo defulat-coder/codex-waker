@@ -29,6 +29,7 @@ import {
   type AutomationDeleteImpact,
 } from '../lib/api.js';
 import { cx } from '../lib/cx.js';
+import { readableErrorMessage } from '../lib/errors.js';
 import { useVisiblePolling } from '../hooks/useVisiblePolling.js';
 import { useDialogFocus } from '../hooks/useDialogFocus.js';
 import { MotionLoadingRows } from './MotionFeedback.js';
@@ -283,7 +284,7 @@ export function AutomationManager({
         setLastUpdatedAt(new Date().toISOString());
       } catch (cause) {
         if (generation !== loadGenerationRef.current || isAbortError(cause)) return;
-        const message = cause instanceof Error ? cause.message : '自动任务加载失败';
+        const message = readableErrorMessage(cause, '自动任务暂时无法读取');
         if (background && hasSnapshotRef.current) setRefreshError(message);
         else setError(message);
       }
@@ -332,7 +333,7 @@ export function AutomationManager({
       await load();
       notify(success, 'success');
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : '操作失败';
+      const message = readableErrorMessage(cause, '操作暂时无法完成');
       setActionError(message);
       notify(message, 'error');
     } finally {
@@ -416,7 +417,7 @@ export function AutomationManager({
     try {
       setDeleteImpact(await fetchAutomationDeleteImpact(item.id, wakerId));
     } catch (cause) {
-      setDeleteError(cause instanceof Error ? cause.message : '删除影响暂时无法读取');
+      setDeleteError(readableErrorMessage(cause, '删除影响暂时无法读取'));
     }
   };
 
@@ -432,7 +433,7 @@ export function AutomationManager({
       await load();
       notify('自动任务已删除，历史运行保留', 'success');
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : '自动任务暂时无法删除';
+      const message = readableErrorMessage(cause, '自动任务暂时无法删除');
       setDeleteError(message);
       notify(message, 'error');
     } finally {
