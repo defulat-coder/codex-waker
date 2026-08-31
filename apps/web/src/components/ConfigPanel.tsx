@@ -665,9 +665,12 @@ export function ConfigPanel({
   const { workspace, notify, reloadWorkspace } = useWorkspace();
   const models = workspace.models;
   const detail = useAsyncData(() => fetchAgent(agentId), {
+    fallbackError: 'Waker 配置暂时无法读取',
     onError: (cause) => setError(cause.message),
   });
-  const resources = useAsyncData(() => fetchAgentResources(agentId));
+  const resources = useAsyncData(() => fetchAgentResources(agentId), {
+    fallbackError: 'Waker 资源暂时无法读取',
+  });
   const [error, setError] = useState('');
   const [openSections, setOpenSections] = useState<ConfigSectionId[]>([...DEFAULT_OPEN_SECTIONS]);
   const [thinking, setThinking] = useState<ThinkingPreference>(() =>

@@ -48,6 +48,23 @@ describe('useAsyncData', () => {
     assert.equal(view.result.current.loaded, true);
   });
 
+  it('replaces browser network errors with the caller fallback', async () => {
+    const request = deferred<string>();
+    const errors: string[] = [];
+    const view = renderHook(() =>
+      useAsyncData(() => request.promise, {
+        fallbackError: '设置信息暂时无法读取',
+        onError: (error) => errors.push(error.message),
+      }),
+    );
+
+    act(() => void view.result.current.reload());
+    await act(async () => request.reject(new TypeError('Failed to fetch')));
+
+    assert.equal(view.result.current.error?.message, '设置信息暂时无法读取');
+    assert.deepEqual(errors, ['设置信息暂时无法读取']);
+  });
+
   it('ignores a request that settles after unmount', async () => {
     const request = deferred<string>();
     const errors: string[] = [];

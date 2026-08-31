@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { readableErrorMessage } from '../lib/errors.js';
 
 /**
  * 统一的「加载中 + 静默失败」数据加载模板：loading 置位 → fetch → 失败走 onError。
@@ -6,7 +7,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
  */
 export function useAsyncData<T>(
   fetcher: () => Promise<T>,
-  options: { onError?: (error: Error) => void } = {},
+  options: { fallbackError?: string; onError?: (error: Error) => void } = {},
 ) {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(false);
@@ -17,6 +18,8 @@ export function useAsyncData<T>(
   fetcherRef.current = fetcher;
   const onErrorRef = useRef(options.onError);
   onErrorRef.current = options.onError;
+  const fallbackErrorRef = useRef(options.fallbackError ?? '数据暂时无法读取');
+  fallbackErrorRef.current = options.fallbackError ?? '数据暂时无法读取';
   const generationRef = useRef(0);
 
   useEffect(
@@ -35,7 +38,8 @@ export function useAsyncData<T>(
       if (generation === generationRef.current) setData(result);
     } catch (cause) {
       if (generation === generationRef.current) {
-        const error = cause instanceof Error ? cause : new Error(String(cause));
+        const message = readableErrorMessage(cause, fallbackErrorRef.current);
+        const error = cause instanceof Error && !(cause instanceof TypeError) ? cause : new Error(message);
         setError(error);
         onErrorRef.current?.(error);
       }

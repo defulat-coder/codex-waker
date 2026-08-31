@@ -222,10 +222,11 @@ export default function App() {
   );
 
   const inbox = useAsyncData(() => fetchInbox('attention'), {
+    fallbackError: '收件箱暂时无法读取',
     onError: () => notify('收件箱暂时无法读取', 'error'),
   });
-  const usage = useAsyncData(fetchUsage);
-  const settings = useAsyncData(fetchSettings);
+  const usage = useAsyncData(fetchUsage, { fallbackError: '用量数据暂时无法读取' });
+  const settings = useAsyncData(fetchSettings, { fallbackError: '设置信息暂时无法读取' });
   const { reload: reloadInbox } = inbox;
   const { reload: reloadSettings } = settings;
 
