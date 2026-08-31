@@ -6990,7 +6990,7 @@ button.agent-card:hover,
 }
 .waker-card-device {
   margin: 0;
-  color: #168cff;
+  color: var(--text-tertiary);
   font-size: 12px;
 }
 .waker-more {

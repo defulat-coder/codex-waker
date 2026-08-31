@@ -292,6 +292,7 @@ describe('WakersView 管理视图', () => {
     assert.match(cssRule('.waker-card'), /background:\s*var\(--bg-primary\)/);
     assert.match(cssRule('.waker-card'), /border:\s*1px solid var\(--border-subtle\)/);
     assert.match(cssRule('.waker-actions'), /border-top:\s*1px solid var\(--border-subtle\)/);
+    assert.match(cssRule('.waker-card-device'), /color:\s*var\(--text-tertiary\)/);
   });
 
   it('shows online status and the real device line on each card', () => {
