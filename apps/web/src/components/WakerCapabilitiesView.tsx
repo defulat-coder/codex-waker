@@ -18,16 +18,27 @@ import {
   type PermissionEnvelope,
 } from '../lib/api.js';
 import { cx } from '../lib/cx.js';
+import { readableErrorMessage } from '../lib/errors.js';
 import { MotionLoadingRows } from './MotionFeedback.js';
 import type { Notify } from './Toasts.js';
 
 type Tab = 'connectors' | 'permissions' | 'actions';
 const TABS: Tab[] = ['connectors', 'permissions', 'actions'];
+const CONNECTOR_STATUS: Record<WakerConnector['status'], string> = {
+  disabled: '已禁用',
+  ready: '就绪',
+  error: '异常',
+};
+const ACTION_STATUS: Record<HumanActionRecord['status'], string> = {
+  pending: '待处理',
+  handled: '已处理',
+  ignored: '已忽略',
+};
 
 function tabLabel(tab: Tab, actionCount = 0): string {
-  if (tab === 'connectors') return 'Connectors';
-  if (tab === 'permissions') return 'Permissions';
-  return `Human Actions${actionCount ? ` (${actionCount})` : ''}`;
+  if (tab === 'connectors') return '连接器';
+  if (tab === 'permissions') return '权限';
+  return `人工操作${actionCount ? ` (${actionCount})` : ''}`;
 }
 
 export function WakerCapabilitiesView({
@@ -88,7 +99,7 @@ export function WakerCapabilitiesView({
       setPermissions(p);
       setActions(a);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '能力暂时无法读取');
+      setError(readableErrorMessage(cause, '能力暂时无法读取'));
     }
   }, [wakerId]);
   useEffect(() => {
@@ -111,7 +122,7 @@ export function WakerCapabilitiesView({
       await load();
       notify('连接器已创建，默认保持禁用', 'success');
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '创建失败', 'error');
+      notify(readableErrorMessage(cause, '连接器暂时无法创建'), 'error');
     } finally {
       finishAction();
     }
@@ -128,7 +139,7 @@ export function WakerCapabilitiesView({
       await load();
       notify(success, 'success');
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : failure, 'error');
+      notify(readableErrorMessage(cause, failure), 'error');
     } finally {
       finishAction();
     }
@@ -147,7 +158,7 @@ export function WakerCapabilitiesView({
       await load();
       notify('权限已收紧，由 codex-host 执行', 'success');
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '保存失败', 'error');
+      notify(readableErrorMessage(cause, '权限暂时无法保存'), 'error');
     } finally {
       finishAction();
     }
@@ -244,14 +255,16 @@ export function WakerCapabilitiesView({
                   <div>
                     <strong>{item.name}</strong>
                     <small>
-                      {item.transport} · {item.command ?? item.url} · {item.tools.length} tools
+                      {item.transport} · {item.command ?? item.url} · {item.tools.length} 个工具
                       {item.tools.length
                         ? `：${item.tools.map((tool) => tool.name).join('、')}`
                         : ''}
                     </small>
                     {item.error ? <small className="connector-error">{item.error}</small> : null}
                   </div>
-                  <span className={cx('resource-status', item.status)}>{item.status}</span>
+                  <span className={cx('resource-status', item.status)}>
+                    {CONNECTOR_STATUS[item.status]}
+                  </span>
                   <button
                     className="legacy-button"
                     disabled={Boolean(busy)}
@@ -357,7 +370,9 @@ export function HumanActionsList({ actions }: { actions: HumanActionRecord[] }) 
                   {item.prompt} · {item.source}:{item.sourceId}
                 </small>
               </div>
-              <span className={cx('resource-status', item.status)}>{item.status}</span>
+              <span className={cx('resource-status', item.status)}>
+                {ACTION_STATUS[item.status]}
+              </span>
             </div>
           ))}
         </div>

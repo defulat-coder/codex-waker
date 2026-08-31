@@ -60,7 +60,7 @@ describe('WakerCapabilitiesView', () => {
     renderCapabilities();
     await settle();
     assert.equal(
-      screen.getByRole('tab', { name: 'Connectors' }).getAttribute('aria-selected'),
+      screen.getByRole('tab', { name: '连接器' }).getAttribute('aria-selected'),
       'true',
     );
     assert.ok(screen.getByLabelText('连接器名称'));
@@ -71,11 +71,11 @@ describe('WakerCapabilitiesView', () => {
     renderCapabilities('permissions');
     await settle();
     assert.equal(
-      screen.getByRole('tab', { name: 'Permissions' }).getAttribute('aria-selected'),
+      screen.getByRole('tab', { name: '权限' }).getAttribute('aria-selected'),
       'true',
     );
     assert.equal(
-      screen.getByRole('tab', { name: 'Connectors' }).getAttribute('aria-selected'),
+      screen.getByRole('tab', { name: '连接器' }).getAttribute('aria-selected'),
       'false',
     );
     assert.ok(screen.getByRole('heading', { name: 'Host 上限' }));
@@ -85,9 +85,9 @@ describe('WakerCapabilitiesView', () => {
     mockFetch();
     renderCapabilities();
     await settle();
-    const connectors = screen.getByRole('tab', { name: 'Connectors' });
-    const permissionsTab = screen.getByRole('tab', { name: 'Permissions' });
-    const actionsTab = screen.getByRole('tab', { name: 'Human Actions' });
+    const connectors = screen.getByRole('tab', { name: '连接器' });
+    const permissionsTab = screen.getByRole('tab', { name: '权限' });
+    const actionsTab = screen.getByRole('tab', { name: '人工操作' });
     assert.equal(connectors.tabIndex, 0);
     assert.equal(permissionsTab.tabIndex, -1);
 
@@ -95,11 +95,81 @@ describe('WakerCapabilitiesView', () => {
     fireEvent.keyDown(connectors, { key: 'ArrowRight' });
     assert.equal(document.activeElement, permissionsTab);
     assert.equal(permissionsTab.getAttribute('aria-selected'), 'true');
-    assert.ok(screen.getByRole('tabpanel', { name: 'Permissions' }));
+    assert.ok(screen.getByRole('tabpanel', { name: '权限' }));
 
     fireEvent.keyDown(permissionsTab, { key: 'End' });
     assert.equal(document.activeElement, actionsTab);
     assert.equal(actionsTab.getAttribute('aria-selected'), 'true');
+  });
+
+  it('网络中断时本地化错误并可重试恢复能力配置', async () => {
+    mockFetch();
+    const healthyFetch = globalThis.fetch;
+    let shouldFail = true;
+    globalThis.fetch = (async (input, init) => {
+      if (String(input).includes('/connectors') && shouldFail) {
+        shouldFail = false;
+        throw new TypeError('Failed to fetch');
+      }
+      return healthyFetch(input, init);
+    }) as typeof fetch;
+
+    renderCapabilities();
+    const alert = await screen.findByRole('alert');
+    assert.match(alert.textContent ?? '', /能力暂时无法读取/);
+    assert.doesNotMatch(alert.textContent ?? '', /Failed to fetch/);
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+
+    assert.ok(await screen.findByText('还没有连接器。'));
+  });
+
+  it('本地化连接器与人工操作状态', async () => {
+    globalThis.fetch = (async (input) => {
+      const url = String(input);
+      if (url.includes('/connectors'))
+        return Response.json({
+          items: [
+            {
+              id: 'connector-one',
+              wakerId: 'agent-a',
+              name: '本地工具',
+              transport: 'stdio',
+              command: 'tool-server',
+              metadata: {},
+              status: 'disabled',
+              tools: [],
+              createdAt: '2026-08-31T00:00:00.000Z',
+              updatedAt: '2026-08-31T00:00:00.000Z',
+            },
+          ],
+        });
+      if (url.includes('/permissions')) return Response.json(permissions);
+      if (url.includes('/human-actions'))
+        return Response.json({
+          items: [
+            {
+              id: 'action-one',
+              wakerId: 'agent-a',
+              source: 'workflow',
+              sourceId: 'workflow-one',
+              kind: 'confirm',
+              title: '确认发布',
+              prompt: '是否继续？',
+              status: 'pending',
+              version: 1,
+              createdAt: '2026-08-31T00:00:00.000Z',
+              updatedAt: '2026-08-31T00:00:00.000Z',
+            },
+          ],
+        });
+      throw new Error(`未 mock 的请求：${url}`);
+    }) as typeof fetch;
+
+    renderCapabilities();
+    assert.ok(await screen.findByText('本地工具'));
+    assert.ok(screen.getByText('已禁用'));
+    fireEvent.click(screen.getByRole('tab', { name: '人工操作 (1)' }));
+    assert.ok(screen.getByText('待处理'));
   });
 
   it('announces a successful permission update with success semantics', async () => {
