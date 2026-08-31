@@ -287,6 +287,7 @@ describe('AutomationManager', () => {
       )
       .closest('summary');
     assert.ok(failedSummary);
+    assert.equal(failedSummary.querySelector('.resource-status')?.textContent, '失败');
     fireEvent.click(failedSummary);
     const failedRun = failedSummary.closest('details');
     assert.ok(failedRun);

@@ -1209,7 +1209,7 @@ function AutomationRunHistory({
                     {formatDate(run.createdAt)} · {run.id}
                   </small>
                 </span>
-                <span className={cx('resource-status', run.status)}>{run.status}</span>
+                <span className={cx('resource-status', run.status)}>{RUN_STATUS[run.status]}</span>
                 <CaretDown className="automation-run-caret" size={14} />
               </summary>
               <div className="automation-run-detail">
