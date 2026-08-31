@@ -256,6 +256,37 @@ describe('KnowledgeManagementView', () => {
     }
   });
 
+  it('知识检索网络失败时保留查询并显示本地化错误', async () => {
+    stubKnowledgeFetch({
+      notebookId: NOTEBOOK.id,
+      scope: { kind: 'waker', id: 'waker-one' },
+      access: 'read_write',
+      createdAt: NOTEBOOK.createdAt,
+    });
+    const healthyFetch = globalThis.fetch;
+    globalThis.fetch = (async (input, init) => {
+      if (String(input).endsWith('/api/v1/knowledge/search'))
+        throw new TypeError('Failed to fetch');
+      return healthyFetch(input, init);
+    }) as typeof fetch;
+    const notices: Array<{ text: string; tone?: string }> = [];
+    render(
+      <KnowledgeManagementView
+        wakerId="waker-one"
+        notify={(text, tone) => notices.push({ text, tone })}
+      />,
+    );
+    const input = await screen.findByRole('textbox', { name: '搜索知识库' });
+    fireEvent.change(input, { target: { value: '本地架构' } });
+    fireEvent.click(screen.getByRole('button', { name: '搜索' }));
+
+    await waitFor(() =>
+      assert.deepEqual(notices.at(-1), { text: '知识检索暂时无法运行', tone: 'error' }),
+    );
+    assert.equal((input as HTMLInputElement).value, '本地架构');
+    assert.equal(notices.some((notice) => notice.text.includes('Failed to fetch')), false);
+  });
+
   it('批量导入时保留成功文件，并在页面报告不支持的文件', async () => {
     const calls = stubKnowledgeFetch({
       notebookId: NOTEBOOK.id,

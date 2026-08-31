@@ -246,7 +246,7 @@ export function KnowledgeManagementView({ wakerId, notify }: { wakerId?: string;
       setSelectedId(notebook.id);
       notify('知识库已创建并连接到当前 Waker', 'success');
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '知识库创建失败', 'error');
+      notify(readableErrorMessage(cause, '知识库暂时无法创建'), 'error');
       await loadCatalog();
     } finally {
       setBusy(false);
@@ -270,7 +270,7 @@ export function KnowledgeManagementView({ wakerId, notify }: { wakerId?: string;
       }
       await loadCatalog();
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '知识库连接更新失败', 'error');
+      notify(readableErrorMessage(cause, '知识库连接暂时无法更新'), 'error');
     } finally {
       setBusy(false);
     }
@@ -304,7 +304,7 @@ export function KnowledgeManagementView({ wakerId, notify }: { wakerId?: string;
       await loadCatalog();
       notify('知识文档已保存', 'success');
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '知识文档保存失败', 'error');
+      notify(readableErrorMessage(cause, '知识文档暂时无法保存'), 'error');
     } finally {
       setBusy(false);
     }
@@ -320,7 +320,7 @@ export function KnowledgeManagementView({ wakerId, notify }: { wakerId?: string;
       await loadCatalog();
       notify(`已删除“${document.title}”`, 'success');
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '知识文档删除失败', 'error');
+      notify(readableErrorMessage(cause, '知识文档暂时无法删除'), 'error');
     } finally {
       setBusy(false);
     }
@@ -420,7 +420,7 @@ export function KnowledgeManagementView({ wakerId, notify }: { wakerId?: string;
         imported.length && !rejected.length ? 'success' : 'error',
       );
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '无法导入网页链接，请稍后重试。', 'error');
+      notify(readableErrorMessage(cause, '无法导入网页链接，请稍后重试。'), 'error');
     } finally {
       setBusy(false);
     }
@@ -441,7 +441,7 @@ export function KnowledgeManagementView({ wakerId, notify }: { wakerId?: string;
       setResults(response);
       if (response.degraded) setNeedsCheck(true);
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '知识检索失败', 'error');
+      notify(readableErrorMessage(cause, '知识检索暂时无法运行'), 'error');
     } finally {
       setBusy(false);
     }
@@ -457,7 +457,7 @@ export function KnowledgeManagementView({ wakerId, notify }: { wakerId?: string;
       notify(`已重建 ${chunks} 个分块`, 'success');
     } catch (cause) {
       setNeedsCheck(true);
-      notify(cause instanceof Error ? cause.message : '索引重建失败', 'error');
+      notify(readableErrorMessage(cause, '索引暂时无法重建'), 'error');
     } finally {
       setBusy(false);
     }
