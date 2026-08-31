@@ -51,8 +51,18 @@ describe('CitationSources', () => {
 
   it('opens the current session Outputs panel from the message footer', () => {
     let opened = 0;
-    render(<CitationSources onOpenOutputs={() => (opened += 1)} />);
-    fireEvent.click(screen.getByRole('button', { name: '查看附件与结果' }));
+    let trigger: HTMLButtonElement | undefined;
+    render(
+      <CitationSources
+        onOpenOutputs={(value) => {
+          opened += 1;
+          trigger = value;
+        }}
+      />,
+    );
+    const button = screen.getByRole('button', { name: '查看附件与结果' });
+    fireEvent.click(button);
     assert.equal(opened, 1);
+    assert.equal(trigger, button);
   });
 });

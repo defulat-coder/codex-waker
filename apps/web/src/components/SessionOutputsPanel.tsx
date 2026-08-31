@@ -70,6 +70,7 @@ export function SessionOutputsPanel({
   selectedIds,
   onToggle,
   onClose,
+  returnFocusId,
   notify,
   maxSelected = MAX_SELECTED_ATTACHMENTS,
 }: {
@@ -78,10 +79,11 @@ export function SessionOutputsPanel({
   selectedIds: string[];
   onToggle: (id: string) => void;
   onClose: () => void;
+  returnFocusId?: string;
   notify: Notify;
   maxSelected?: number;
 }) {
-  const panelRef = usePanelFocus<HTMLElement>(onClose);
+  const panelRef = usePanelFocus<HTMLElement>(onClose, returnFocusId);
   const [data, setData] = useState<SessionOutputsResponse | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);

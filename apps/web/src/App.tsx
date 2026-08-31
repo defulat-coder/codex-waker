@@ -157,6 +157,7 @@ export default function App() {
   const [wakerHomeAgentId, setWakerHomeAgentId] = useState<string | null>(null);
   const [onboardingAgentId, setOnboardingAgentId] = useState<string | null>(null);
   const [outputsOpen, setOutputsOpen] = useState(false);
+  const outputsTriggerIdRef = useRef('');
   const [taskListOpen, setTaskListOpen] = useState(false);
   const taskListTriggerRef = useRef<HTMLButtonElement>(null);
   const [composerResetSignal, setComposerResetSignal] = useState(0);
@@ -972,7 +973,10 @@ export default function App() {
                           onOpenOutputs={
                             chat.currentSessionId?.startsWith('draft-')
                               ? undefined
-                              : () => setOutputsOpen(true)
+                              : (trigger) => {
+                                  outputsTriggerIdRef.current = trigger.id;
+                                  setOutputsOpen(true);
+                                }
                           }
                         />
                       </motion.div>
@@ -1083,6 +1087,7 @@ export default function App() {
                   )
                 }
                 onClose={() => setOutputsOpen(false)}
+                returnFocusId={outputsTriggerIdRef.current}
                 notify={notify}
               />
             )}

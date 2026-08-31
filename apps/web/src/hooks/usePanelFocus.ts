@@ -1,7 +1,10 @@
 import { useLayoutEffect, useRef, type RefObject } from 'react';
 
 /** Non-modal side panels receive focus, close on Escape, and return focus to their trigger. */
-export function usePanelFocus<T extends HTMLElement>(onClose: () => void): RefObject<T | null> {
+export function usePanelFocus<T extends HTMLElement>(
+  onClose: () => void,
+  returnFocusId?: string,
+): RefObject<T | null> {
   const panelRef = useRef<T>(null);
   const closeRef = useRef(onClose);
   const previousRef = useRef<HTMLElement | null>(
@@ -27,7 +30,8 @@ export function usePanelFocus<T extends HTMLElement>(onClose: () => void): RefOb
     document.addEventListener('keydown', onKeyDown);
     return () => {
       document.removeEventListener('keydown', onKeyDown);
-      const previous = previousRef.current;
+      const explicit = returnFocusId ? document.getElementById(returnFocusId) : null;
+      const previous = explicit ?? previousRef.current;
       if (previous?.isConnected) previous.focus();
     };
   }, []);

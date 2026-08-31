@@ -388,7 +388,7 @@ function MessageItem({
   onOpenOutputs,
 }: {
   message: ChatMessage;
-  onOpenOutputs?: () => void;
+  onOpenOutputs?: (trigger: HTMLButtonElement) => void;
 }) {
   const citationScope = message.id;
   if (message.role === 'user') {
@@ -467,7 +467,7 @@ export type ThreadViewProps = {
   onRetry?: () => void;
   onContinue?: () => void;
   /** Opens this session's contextual attachment/artifact/file-change panel. */
-  onOpenOutputs?: () => void;
+  onOpenOutputs?: (trigger: HTMLButtonElement) => void;
 };
 
 export function ThreadView({

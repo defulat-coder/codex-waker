@@ -44,9 +44,10 @@ export function CitationSources({
 }: {
   sources?: ChatCitationSource[];
   citationScope?: string;
-  onOpenOutputs?: () => void;
+  onOpenOutputs?: (trigger: HTMLButtonElement) => void;
 }) {
   if (!sources.length && !onOpenOutputs) return null;
+  const outputsTriggerId = `session-outputs-${citationScope.replace(/[^A-Za-z0-9_-]/g, '')}`;
   return (
     <div className="message-provenance">
       {sources.length > 0 && (
@@ -89,7 +90,12 @@ export function CitationSources({
         </details>
       )}
       {onOpenOutputs && (
-        <button type="button" className="message-outputs-link" onClick={onOpenOutputs}>
+        <button
+          id={outputsTriggerId}
+          type="button"
+          className="message-outputs-link"
+          onClick={(event) => onOpenOutputs(event.currentTarget)}
+        >
           <FolderOpen size={14} aria-hidden="true" />
           查看附件与结果
         </button>
