@@ -35,6 +35,7 @@ import {
   upsertKnowledgeDocument,
 } from '../lib/api.js';
 import { cx } from '../lib/cx.js';
+import { readableErrorMessage } from '../lib/errors.js';
 import { useDialogFocus } from '../hooks/useDialogFocus.js';
 import { prepareKnowledgeFiles, type RejectedKnowledgeFile } from './knowledgeFileImport.js';
 import { MAX_KNOWLEDGE_IMPORT_URLS, parseKnowledgeUrls } from './knowledgeUrlImport.js';
@@ -170,7 +171,7 @@ export function KnowledgeManagementView({ wakerId, notify }: { wakerId?: string;
             ''),
       );
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '知识库加载失败');
+      setError(readableErrorMessage(cause, '知识库暂时无法读取'));
       setNotebooks([]);
     }
   }, [wakerId]);
@@ -466,7 +467,7 @@ export function KnowledgeManagementView({ wakerId, notify }: { wakerId?: string;
     ? { label: '未连接', className: '' }
     : selectedBinding.access === 'read_only'
       ? { label: '只读', className: 'initializing' }
-      : { label: 'Connected', className: 'connected' };
+      : { label: '已连接', className: 'connected' };
 
   return (
     <section className="legacy-page knowledge-management-page">
@@ -599,7 +600,7 @@ export function KnowledgeManagementView({ wakerId, notify }: { wakerId?: string;
                   <span>
                     {notebook.title}
                     <small>
-                      {binding?.access === 'read_only' ? '只读' : binding ? 'Connected' : '未连接'}{' '}
+                      {binding?.access === 'read_only' ? '只读' : binding ? '已连接' : '未连接'}{' '}
                       · {notebook.documentCount} 篇
                     </small>
                   </span>
@@ -628,7 +629,7 @@ export function KnowledgeManagementView({ wakerId, notify }: { wakerId?: string;
                         {connectionStatus.label}
                       </span>
                       {selectedBinding && needsCheck && (
-                        <span className="resource-status error">Needs check</span>
+                        <span className="resource-status error">需要检查</span>
                       )}
                     </div>
                     <p>{selectedNotebook.description || '这个知识库没有说明。'}</p>

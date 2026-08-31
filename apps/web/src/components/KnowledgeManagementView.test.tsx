@@ -167,6 +167,27 @@ describe('parseKnowledgeUrls', () => {
 });
 
 describe('KnowledgeManagementView', () => {
+  it('网络中断时本地化错误并可重试恢复知识库目录', async () => {
+    stubKnowledgeFetch();
+    const healthyFetch = globalThis.fetch;
+    let shouldFail = true;
+    globalThis.fetch = (async (input, init) => {
+      if (String(input).endsWith('/api/v1/knowledge/notebooks') && shouldFail) {
+        shouldFail = false;
+        throw new TypeError('Failed to fetch');
+      }
+      return healthyFetch(input, init);
+    }) as typeof fetch;
+
+    render(<KnowledgeManagementView wakerId="waker-one" notify={() => undefined} />);
+    const alert = await screen.findByRole('alert');
+    assert.match(alert.textContent ?? '', /知识库暂时无法读取/);
+    assert.doesNotMatch(alert.textContent ?? '', /Failed to fetch/);
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+
+    assert.ok(await screen.findByRole('button', { name: /产品手册/ }));
+  });
+
   it('只读绑定显示真实状态，并禁用写操作但保留审计查看', async () => {
     stubKnowledgeFetch({
       notebookId: NOTEBOOK.id,
@@ -203,7 +224,7 @@ describe('KnowledgeManagementView', () => {
     await waitFor(() =>
       assert.ok(calls.some((call) => call.method === 'POST' && call.url.endsWith('/bindings'))),
     );
-    assert.ok(await screen.findByText('Connected'));
+    assert.ok(await screen.findByText('已连接'));
     assert.ok(await screen.findByText('快速开始'));
   });
 
@@ -261,7 +282,7 @@ describe('KnowledgeManagementView', () => {
     );
   });
 
-  it('只读连接读取失败时同时显示权限和 Needs check，并提供重试', async () => {
+  it('只读连接读取失败时同时显示权限和检查状态，并提供重试', async () => {
     const binding: KnowledgeBinding = {
       notebookId: NOTEBOOK.id,
       scope: { kind: 'waker', id: 'waker-one' },
@@ -279,7 +300,7 @@ describe('KnowledgeManagementView', () => {
     }) as typeof fetch;
 
     render(<KnowledgeManagementView wakerId="waker-one" notify={() => undefined} />);
-    assert.ok(await screen.findByText('Needs check'));
+    assert.ok(await screen.findByText('需要检查'));
     assert.ok(screen.getAllByText('只读').length >= 1);
     assert.ok(screen.getByRole('alert'));
     assert.ok(screen.getByRole('button', { name: '重新读取' }));
