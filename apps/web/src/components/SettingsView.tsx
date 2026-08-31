@@ -1,7 +1,6 @@
 import { motion } from 'motion/react';
 import type { KeyboardEvent } from 'react';
 import type { SettingsResponse } from '@waker/contracts';
-import { GearSix } from '@phosphor-icons/react/dist/icons/GearSix';
 import type {
   AgentOutputLanguagePreference,
   ThemePreference,
@@ -146,15 +145,12 @@ export function SettingsView({
 }: SettingsViewProps) {
   return (
     <div className="system-page">
-      <div className="system-page-header">
-        <div className="system-page-title">
-          <GearSix size={20} aria-hidden="true" />
-          <div>
-            <h1>设置</h1>
-            <p>当前运行配置与本地界面偏好；配置在 API 进程中管理，这里只读展示。</p>
-          </div>
+      <header className="legacy-page-header">
+        <div>
+          <h1>设置</h1>
+          <p>当前运行配置与本地界面偏好；配置在 API 进程中管理，这里只读展示。</p>
         </div>
-      </div>
+      </header>
 
       {error && settings ? (
         <div className="legacy-error" role="alert">

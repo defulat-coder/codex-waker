@@ -3556,6 +3556,22 @@ button.agent-card:hover,
 .skills-toolbar-search {
   width: 220px;
 }
+.skills-scope-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-tertiary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.skills-scope-filter select {
+  min-height: 30px;
+  padding: 4px 8px;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+}
 .skills-body {
   flex: 1;
   min-height: 0;
@@ -4176,33 +4192,6 @@ button.agent-card:hover,
   flex-direction: column;
   overflow-y: auto;
   padding: var(--space-4) var(--space-5) var(--space-9);
-}
-.system-page-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-2);
-  width: 100%;
-  max-width: 1024px;
-  margin-bottom: var(--space-4);
-}
-.system-page-title {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  color: var(--text-primary);
-}
-.system-page-title h1 {
-  margin: 0;
-  font-size: 16px;
-  line-height: 19.2px;
-  letter-spacing: -0.48px;
-  font-weight: 600;
-}
-.system-page-title p {
-  margin: 2px 0 0;
-  font-size: 12px;
-  color: var(--text-tertiary);
 }
 .system-page-loading {
   font-size: 13px;
@@ -4929,6 +4918,9 @@ button.agent-card:hover,
   grid-template-columns: 1fr auto;
   gap: 7px;
   margin-top: 10px;
+}
+.automation-manager {
+  margin-top: var(--space-4);
 }
 .automation-manager > .section-heading {
   gap: var(--space-4);
@@ -6682,6 +6674,7 @@ button.agent-card:hover,
   color: var(--text-quaternary);
   font-size: 14px;
   line-height: 24px;
+  text-wrap: pretty;
 }
 .page-actions {
   display: flex;

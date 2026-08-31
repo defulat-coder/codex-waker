@@ -1,7 +1,6 @@
 import { motion } from 'motion/react';
 import type { UsageResponse } from '@waker/contracts';
 import { ArrowClockwise } from '@phosphor-icons/react/dist/icons/ArrowClockwise';
-import { ChartLine } from '@phosphor-icons/react/dist/icons/ChartLine';
 import { formatRelativeTime } from '../lib/sessions.js';
 import { MOTION_EASE } from '../lib/motion.js';
 import { AgentChip } from './AgentChip.js';
@@ -29,33 +28,34 @@ export function UsageView({ usage, loading, loaded, error, onRefresh }: UsageVie
 
   return (
     <div className="system-page">
-      <div className="system-page-header">
-        <div className="system-page-title">
-          <ChartLine size={20} aria-hidden="true" />
-          <div>
-            <h1>用量</h1>
-            <p>
-              会话与提问来自 .codex/sessions 的持久化记录，Token 统计来自本地
-              SQLite（.codex/workbench.db）。
-            </p>
-          </div>
+      <header className="legacy-page-header">
+        <div>
+          <h1>用量</h1>
+          <p>
+            会话与提问来自 .codex/sessions 的持久化记录，
+            <span style={{ whiteSpace: 'nowrap' }}>
+              Token 统计来自本地 SQLite（.codex/workbench.db）。
+            </span>
+          </p>
         </div>
-        <button
-          type="button"
-          className="inbox-refresh"
-          onClick={onRefresh}
-          aria-label="刷新用量"
-          disabled={loading}
-        >
-          {loading ? (
-            <MotionSpinner>
+        <div className="page-actions">
+          <button
+            type="button"
+            className="inbox-refresh"
+            onClick={onRefresh}
+            aria-label="刷新用量"
+            disabled={loading}
+          >
+            {loading ? (
+              <MotionSpinner>
+                <ArrowClockwise size={16} />
+              </MotionSpinner>
+            ) : (
               <ArrowClockwise size={16} />
-            </MotionSpinner>
-          ) : (
-            <ArrowClockwise size={16} />
-          )}
-        </button>
-      </div>
+            )}
+          </button>
+        </div>
+      </header>
 
       {error && usage ? (
         <div className="legacy-error" role="alert">

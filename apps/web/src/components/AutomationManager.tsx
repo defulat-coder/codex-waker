@@ -442,7 +442,7 @@ export function AutomationManager({
   };
 
   return (
-    <section className="legacy-subsection automation-manager" aria-labelledby="automations-title">
+    <section className="automation-manager" aria-labelledby="automations-title">
       <div className="section-heading">
         <div>
           <h2 id="automations-title">自动任务</h2>

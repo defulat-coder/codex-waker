@@ -1301,7 +1301,7 @@ export function WorkflowManager({
                       </span>
                     </div>
                     <p>
-                      {selected.description || '没有流程说明'} · v{selected.version ?? 1}
+                      v{selected.version ?? 1} · {selected.description || '没有流程说明'}
                     </p>
                   </div>
                   <div className="page-actions">
