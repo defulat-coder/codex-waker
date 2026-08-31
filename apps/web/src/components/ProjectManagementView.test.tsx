@@ -39,6 +39,25 @@ afterEach(() => {
 });
 
 describe('ProjectManagementView', () => {
+  it('网络中断时本地化错误并可重试恢复项目目录', async () => {
+    let attempts = 0;
+    globalThis.fetch = (async () => {
+      attempts += 1;
+      if (attempts === 1) throw new TypeError('Failed to fetch');
+      return json(emptyResources([PROJECT]));
+    }) as typeof fetch;
+
+    render(<ProjectManagementView wakerId="waker-one" notify={() => {}} />);
+    const alert = await screen.findByRole('alert');
+    assert.match(alert.textContent ?? '', /项目暂时无法读取/);
+    assert.doesNotMatch(alert.textContent ?? '', /Failed to fetch/);
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+
+    assert.ok(await screen.findByRole('heading', { name: PROJECT.name }));
+    assert.ok(screen.getByText('就绪'));
+    assert.equal(attempts, 2);
+  });
+
   it('创建、编辑并在展示真实影响后删除项目', async () => {
     let projects = [PROJECT];
     const calls: Array<{ method: string; url: string; body?: unknown }> = [];

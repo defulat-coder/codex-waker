@@ -6,6 +6,7 @@ import { Plus } from '@phosphor-icons/react/dist/icons/Plus';
 import { Trash } from '@phosphor-icons/react/dist/icons/Trash';
 import { fetchLocalResources } from '../lib/api.js';
 import { cx } from '../lib/cx.js';
+import { readableErrorMessage } from '../lib/errors.js';
 import {
   createProject,
   deleteProject,
@@ -19,6 +20,12 @@ import type { Notify } from './Toasts.js';
 import { MOTION_DIALOG_BACKDROP, MOTION_DIALOG_SURFACE, MOTION_TRANSITION } from '../lib/motion.js';
 
 type Editor = ProjectInput & { mode: 'create' | 'edit' };
+
+const PROJECT_STATUS_LABELS: Record<WakerProject['status'], string> = {
+  ready: '就绪',
+  initializing: '初始化中',
+  error: '异常',
+};
 
 const blankEditor: Editor = {
   mode: 'create',
@@ -69,7 +76,7 @@ export function ProjectManagementView({
         projects.some((project) => project.id === current) ? current : (projects[0]?.id ?? ''),
       );
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '项目加载失败');
+      setError(readableErrorMessage(cause, '项目暂时无法读取'));
     }
   }, [wakerId]);
 
@@ -129,7 +136,7 @@ export function ProjectManagementView({
       onChanged?.();
       notify(editor.mode === 'edit' ? '项目已更新' : '项目已创建', 'success');
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '项目暂时无法保存', 'error');
+      notify(readableErrorMessage(cause, '项目暂时无法保存'), 'error');
     } finally {
       setBusy(false);
     }
@@ -142,7 +149,7 @@ export function ProjectManagementView({
     try {
       setImpact(await fetchProjectDeleteImpact(wakerId, deleteTarget.id));
     } catch (cause) {
-      setImpactError(cause instanceof Error ? cause.message : '删除影响暂时无法读取');
+      setImpactError(readableErrorMessage(cause, '删除影响暂时无法读取'));
     }
   }, [deleteTarget, wakerId]);
 
@@ -168,7 +175,7 @@ export function ProjectManagementView({
       onChanged?.();
       notify('项目已删除', 'success');
     } catch (cause) {
-      setImpactError(cause instanceof Error ? cause.message : '项目暂时无法删除');
+      setImpactError(readableErrorMessage(cause, '项目暂时无法删除'));
     } finally {
       setBusy(false);
     }
@@ -272,7 +279,7 @@ export function ProjectManagementView({
                       <dt>状态</dt>
                       <dd>
                         <span className={cx('resource-status', selected.status)}>
-                          {selected.status}
+                          {PROJECT_STATUS_LABELS[selected.status]}
                         </span>
                         {selected.error && <span>{selected.error}</span>}
                       </dd>
