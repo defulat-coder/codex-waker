@@ -78,6 +78,28 @@ afterEach(() => {
 });
 
 describe('SkillsView', () => {
+  it('网络中断时本地化错误并可重试恢复技能列表', async () => {
+    const calls: Call[] = [];
+    installApi(calls);
+    const healthyFetch = globalThis.fetch;
+    let shouldFail = true;
+    globalThis.fetch = (async (input, init) => {
+      if (String(input).endsWith('/skills/installed') && shouldFail) {
+        shouldFail = false;
+        throw new TypeError('Failed to fetch');
+      }
+      return healthyFetch(input, init);
+    }) as typeof fetch;
+
+    render(<SkillsView />);
+    const alert = await screen.findByRole('alert');
+    assert.match(alert.textContent ?? '', /我的技能暂时无法读取/);
+    assert.doesNotMatch(alert.textContent ?? '', /Failed to fetch/);
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+
+    assert.ok(await screen.findByRole('button', { name: /review-skill/ }));
+  });
+
   it('filters runtime, invalid and legacy inventory without claiming Waker bindings', async () => {
     const calls: Call[] = [];
     installApi(calls);
@@ -109,7 +131,9 @@ describe('SkillsView', () => {
     assert.ok(await screen.findByText('abc123'));
     assert.ok(screen.getByText('tool:git'));
     assert.ok(screen.getByText('SKILL.md'));
-    fireEvent.click(screen.getByRole('button', { name: '关闭技能详情' }));
+    fireEvent.keyDown(screen.getByRole('complementary', { name: /review-skill/ }), {
+      key: 'Escape',
+    });
     await waitFor(() => assert.ok(document.activeElement === card));
     installedTab.focus();
     fireEvent.keyDown(installedTab, { key: 'ArrowRight' });

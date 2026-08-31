@@ -29,6 +29,7 @@ import {
 } from '../lib/api.js';
 import { formatInstallCount } from '../lib/explore.js';
 import { cx } from '../lib/cx.js';
+import { readableErrorMessage } from '../lib/errors.js';
 import { MOTION_DIALOG_BACKDROP, MOTION_DIALOG_SURFACE, MOTION_EASE } from '../lib/motion.js';
 import { useDialogFocus } from '../hooks/useDialogFocus.js';
 import { useVisiblePolling } from '../hooks/useVisiblePolling.js';
@@ -92,7 +93,7 @@ export function SkillsView() {
     try {
       setInstalled(await fetchInstalledSkills());
     } catch (cause) {
-      setInstalledError(cause instanceof Error ? cause.message : '我的技能暂时无法读取');
+      setInstalledError(readableErrorMessage(cause, '我的技能暂时无法读取'));
     } finally {
       setLoading('');
     }
@@ -108,7 +109,7 @@ export function SkillsView() {
       if (generation === libraryGeneration.current) setLibrary(result);
     } catch (cause) {
       if (generation === libraryGeneration.current)
-        setLibraryError(cause instanceof Error ? cause.message : '第三方发现源暂时无法读取');
+        setLibraryError(readableErrorMessage(cause, '第三方发现源暂时无法读取'));
     } finally {
       if (generation === libraryGeneration.current) setLoading('');
     }
@@ -138,7 +139,7 @@ export function SkillsView() {
     void request
       .catch((cause) => {
         if (generation === detailGeneration.current)
-          setDetailError(cause instanceof Error ? cause.message : '技能详情暂时无法读取');
+          setDetailError(readableErrorMessage(cause, '技能详情暂时无法读取'));
       })
       .finally(() => generation === detailGeneration.current && setLoading(''));
   }, [detailNonce, selection]);
@@ -206,7 +207,7 @@ export function SkillsView() {
       setSelection({ kind: 'library', item: { ...pendingInstall, installed: true } });
       setPendingInstall(null);
     } catch (cause) {
-      setActionError(cause instanceof Error ? cause.message : '技能暂时无法安装');
+      setActionError(readableErrorMessage(cause, '技能暂时无法安装'));
     } finally {
       setBusy('');
     }
@@ -226,7 +227,7 @@ export function SkillsView() {
       setPendingRemove(null);
       setSelection(null);
     } catch (cause) {
-      setActionError(cause instanceof Error ? cause.message : '技能暂时无法删除');
+      setActionError(readableErrorMessage(cause, '技能暂时无法删除'));
     } finally {
       setBusy('');
     }
@@ -246,7 +247,7 @@ export function SkillsView() {
       setScope('installed');
       setSelection({ kind: 'installed', item });
     } catch (cause) {
-      setActionError(cause instanceof Error ? cause.message : 'SKILL.md 暂时无法上传');
+      setActionError(readableErrorMessage(cause, 'SKILL.md 暂时无法上传'));
     } finally {
       setBusy('');
     }
@@ -421,6 +422,11 @@ export function SkillsView() {
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: 20 }}
               transition={{ duration: 0.18, ease: MOTION_EASE }}
+              onKeyDown={(event) => {
+                if (event.key !== 'Escape') return;
+                event.stopPropagation();
+                closeDetail();
+              }}
             >
               <Detail
                 selection={selection}
