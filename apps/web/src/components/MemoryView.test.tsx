@@ -74,7 +74,25 @@ function mockFetch(calls: Call[], projects: WakerProject[] = [PROJECT]): void {
       : undefined;
     calls.push({ method, url, body });
     if (url.includes('/local-resources')) return json(resources(projects));
-    if (url.includes('/api/v1/memory/timeline')) return json({ items: [], total: 0 });
+    if (url.includes('/api/v1/memory/timeline'))
+      return json({
+        items: url.includes('scopeType=waker')
+          ? [
+              {
+                id: 1,
+                documentId: WAKER_MEMORY.id,
+                scope: WAKER_MEMORY.scope,
+                source: WAKER_MEMORY.source,
+                action: 'create',
+                status: 'success',
+                version: 1,
+                details: {},
+                createdAt: WAKER_MEMORY.createdAt,
+              },
+            ]
+          : [],
+        total: url.includes('scopeType=waker') ? 1 : 0,
+      });
     if (url.endsWith('/versions') || url.endsWith('/snapshots')) return json({ items: [] });
     if (url === '/api/v1/memories' && method === 'POST')
       return json({ ...PROJECT_MEMORY, ...(body as object), id: 'mem-created' }, 201);
@@ -89,6 +107,31 @@ afterEach(() => {
 });
 
 describe('MemoryView 范围筛选', () => {
+  it('网络中断时本地化错误并可重试恢复记忆', async () => {
+    const calls: Call[] = [];
+    mockFetch(calls);
+    const healthyFetch = globalThis.fetch;
+    let shouldFail = true;
+    globalThis.fetch = (async (input, init) => {
+      if (String(input).includes('/api/v1/memories?') && shouldFail) {
+        shouldFail = false;
+        throw new TypeError('Failed to fetch');
+      }
+      return healthyFetch(input, init);
+    }) as typeof fetch;
+
+    render(<MemoryView wakerId="waker-one" onClose={() => {}} notify={() => {}} />);
+    const alert = await screen.findByRole('alert');
+    assert.match(alert.textContent ?? '', /记忆暂时无法读取/);
+    assert.doesNotMatch(alert.textContent ?? '', /Failed to fetch/);
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+
+    assert.ok(await screen.findByRole('button', { name: /个人偏好/ }));
+    assert.ok(screen.getByText('创建'));
+    const status = screen.getByText('成功');
+    assert.ok(status.classList.contains('success'));
+  });
+
   it('默认个人范围，切换项目后按新 scope 拉取且列表隔离', async () => {
     const calls: Call[] = [];
     mockFetch(calls);

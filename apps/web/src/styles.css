@@ -7573,6 +7573,7 @@ button.agent-card:hover,
 .resource-status.active,
 .resource-status.completed,
 .resource-status.connected,
+.resource-status.success,
 .resource-status.succeeded {
   color: var(--text-brand);
   background: var(--brand-secondary);

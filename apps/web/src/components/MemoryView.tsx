@@ -39,6 +39,7 @@ import {
   updateMemory,
 } from '../lib/api.js';
 import { cx } from '../lib/cx.js';
+import { readableErrorMessage } from '../lib/errors.js';
 import { useDialogFocus } from '../hooks/useDialogFocus.js';
 import { MotionLoadingRows } from './MotionFeedback.js';
 import type { Notify } from './Toasts.js';
@@ -59,6 +60,15 @@ const MEMORY_SCOPE_TABS: Array<Extract<MemoryScopeType, 'waker' | 'project'>> = 
   'waker',
   'project',
 ];
+const MEMORY_ACTION_LABELS: Record<string, string> = {
+  create: '创建',
+  update: '更新',
+  delete: '删除',
+  rollback: '回滚',
+};
+const MEMORY_STATUS_LABELS: Record<string, string> = {
+  success: '成功',
+};
 const blank: Editor = {
   mode: 'create',
   title: '',
@@ -143,7 +153,7 @@ export function MemoryView({
       setSelected((current) => list.find((item) => item.id === current?.id) ?? list[0] ?? null);
       setTimeline(await fetchMemoryTimeline(scope));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '记忆加载失败');
+      setError(readableErrorMessage(cause, '记忆暂时无法读取'));
     }
   }, [scope]);
   useEffect(() => {
@@ -212,7 +222,7 @@ export function MemoryView({
       await load();
       notify('记忆已保存', 'success');
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '记忆暂时无法保存', 'error');
+      notify(readableErrorMessage(cause, '记忆暂时无法保存'), 'error');
     } finally {
       setBusy(false);
     }
@@ -234,7 +244,7 @@ export function MemoryView({
       anchor.click();
       URL.revokeObjectURL(anchor.href);
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '导出失败', 'error');
+      notify(readableErrorMessage(cause, '记忆暂时无法导出'), 'error');
     }
   };
   const rollback = async (snapshot: MemorySnapshot, apply: boolean) => {
@@ -249,7 +259,7 @@ export function MemoryView({
       notify(apply ? '已应用回滚' : `预检完成：${JSON.stringify(result)}`, apply ? 'success' : 'info');
       if (apply) await load();
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '回滚失败', 'error');
+      notify(readableErrorMessage(cause, '记忆暂时无法回滚'), 'error');
     }
   };
   const compare = async () => {
@@ -267,7 +277,7 @@ export function MemoryView({
       );
       await load();
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '记忆维护失败', 'error');
+      notify(readableErrorMessage(cause, '记忆维护暂时无法运行'), 'error');
     } finally {
       setBusy(false);
     }
@@ -511,12 +521,14 @@ export function MemoryView({
                     .map((entry) => (
                       <div key={entry.id}>
                         <span>
-                          <strong>{entry.action}</strong>
+                          <strong>{MEMORY_ACTION_LABELS[entry.action] ?? entry.action}</strong>
                           <small>
                             v{entry.version} · {new Date(entry.createdAt).toLocaleString()}
                           </small>
                         </span>
-                        <b className="resource-status">{entry.status}</b>
+                        <b className={cx('resource-status', entry.status)}>
+                          {MEMORY_STATUS_LABELS[entry.status] ?? entry.status}
+                        </b>
                       </div>
                     ))}
                 </div>
