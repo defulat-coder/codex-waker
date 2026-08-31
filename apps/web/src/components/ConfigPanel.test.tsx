@@ -25,6 +25,16 @@ const RESOURCES: AgentResources = {
   appendSystem: false,
   stats: { sessionCount: 0, questionCount: 0 },
 };
+const PROMPT_RESOURCES: AgentResources = {
+  ...RESOURCES,
+  prompts: [
+    {
+      name: 'agent-chat',
+      path: '.codex/prompts/agent-chat.md',
+      description: '通用对话模板',
+    },
+  ],
+};
 
 function agentDetail(body: string): AgentDetail {
   return {
@@ -83,10 +93,31 @@ afterEach(() => {
 });
 
 describe('ConfigPanel 三上下文卡片', () => {
+  it('提示词网络失败时显示本地化错误', async () => {
+    const calls: Call[] = [];
+    installApi(calls, { value: SECTIONED_BODY });
+    const baseFetch = globalThis.fetch;
+    globalThis.fetch = (async (input, init) => {
+      const url = String(input);
+      if (url.endsWith('/agents/brainstormer/resources')) return json(PROMPT_RESOURCES);
+      if (url.endsWith('/prompts/agent-chat')) throw new TypeError('Failed to fetch');
+      return baseFetch(input, init);
+    }) as typeof fetch;
+    const notices: Array<{ text: string; tone?: string }> = [];
+    renderPanel((text, tone) => notices.push({ text, tone }));
+    fireEvent.click(await screen.findByRole('button', { name: '编辑提示词 agent-chat' }));
+
+    await waitFor(() =>
+      assert.deepEqual(notices.at(-1), { text: '提示词暂时无法读取', tone: 'error' }),
+    );
+    assert.equal(notices.some((notice) => notice.text.includes('Failed to fetch')), false);
+  });
+
   it('按约定渲染 01 身份 / 02 人设 / 03 设定集三卡，空段显示暂未设置', async () => {
     const calls: Call[] = [];
     installApi(calls, { value: SECTIONED_BODY });
     renderPanel();
+    assert.ok(await screen.findByRole('heading', { name: '头脑风暴', level: 2 }));
     assert.ok(await screen.findByText('01 身份'));
     assert.ok(screen.getByText('02 人设'));
     assert.ok(screen.getByText('03 设定集'));

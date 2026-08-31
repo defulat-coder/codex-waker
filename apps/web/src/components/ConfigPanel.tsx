@@ -41,6 +41,7 @@ import {
   type ThinkingPreference,
 } from '../lib/configPanel.js';
 import { cx } from '../lib/cx.js';
+import { readableErrorMessage } from '../lib/errors.js';
 import { MOTION_EASE, MOTION_TRANSITION } from '../lib/motion.js';
 import { useWorkspace } from '../context/WorkspaceContext.js';
 import { AgentChip } from './AgentChip.js';
@@ -334,7 +335,7 @@ function ResourcesSection({
       const document = await fetchPrompt(name);
       setPromptDraft({ name, content: document.content, description: document.description ?? '' });
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '提示词暂时无法读取', 'error');
+      notify(readableErrorMessage(cause, '提示词暂时无法读取'), 'error');
     }
   };
 
@@ -350,7 +351,7 @@ function ResourcesSection({
       notify('提示词模板已保存', 'success');
       onChanged();
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '提示词暂时无法保存', 'error');
+      notify(readableErrorMessage(cause, '提示词暂时无法保存'), 'error');
     } finally {
       setPromptSaving(false);
     }
@@ -361,7 +362,7 @@ function ResourcesSection({
       const { content } = await fetchAppendSystem();
       setAppendDraft(content ?? '');
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '追加系统提示暂时无法读取', 'error');
+      notify(readableErrorMessage(cause, '追加系统提示暂时无法读取'), 'error');
     }
   };
 
@@ -374,7 +375,7 @@ function ResourcesSection({
       notify(content ? '追加系统提示已保存' : '已移除 .codex/APPEND_SYSTEM.md', 'success');
       onChanged();
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '追加系统提示暂时无法保存', 'error');
+      notify(readableErrorMessage(cause, '追加系统提示暂时无法保存'), 'error');
     } finally {
       setAppendSaving(false);
     }
@@ -732,7 +733,7 @@ export function ConfigPanel({
       void reloadDetail();
       reloadWorkspace();
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : 'Agent 暂时无法保存', 'error');
+      notify(readableErrorMessage(cause, 'Waker 暂时无法保存'), 'error');
     } finally {
       setSaving(false);
     }
@@ -749,7 +750,7 @@ export function ConfigPanel({
       reloadWorkspace();
       return true;
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : 'Agent 暂时无法保存', 'error');
+      notify(readableErrorMessage(cause, 'Waker 暂时无法保存'), 'error');
       return false;
     } finally {
       setSaving(false);
@@ -770,7 +771,7 @@ export function ConfigPanel({
     >
       <div className="config-panel-frame">
         <div className="config-panel-header">
-          <span className="config-title">{detail.data ? detail.data.name : 'Agent 配置'}</span>
+          <h2 className="config-title">{detail.data ? detail.data.name : 'Agent 配置'}</h2>
           <button
             type="button"
             className="icon-button"
