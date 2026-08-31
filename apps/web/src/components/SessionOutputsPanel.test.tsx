@@ -126,6 +126,27 @@ describe('SessionOutputsPanel', () => {
     assert.deepEqual(notices, [{ text: '1 个成功，1 个失败', tone: 'error' }]);
   });
 
+  it('结果登记网络失败时显示本地化错误且不丢失附件', async () => {
+    const target = attachment(1, { originalName: 'report.txt', mimeType: 'text/plain' });
+    globalThis.fetch = (async (input, init) => {
+      const url = String(input);
+      if (url.includes('/outputs?')) return jsonResponse(outputs([target]));
+      if (url.includes('/artifacts') && init?.method === 'POST')
+        throw new TypeError('Failed to fetch');
+      return jsonResponse({ error: 'unexpected request' }, 500);
+    }) as typeof fetch;
+    const notices: Array<{ text: string; tone?: string }> = [];
+    renderPanel({ notify: (text, tone) => notices.push({ text, tone }) });
+    await screen.findByText('report.txt');
+    fireEvent.click(screen.getByRole('button', { name: '登记结果' }));
+
+    await waitFor(() =>
+      assert.deepEqual(notices.at(-1), { text: '结果暂时无法登记', tone: 'error' }),
+    );
+    assert.ok(screen.getByText('report.txt'));
+    assert.equal(notices.some((notice) => notice.text.includes('Failed to fetch')), false);
+  });
+
   it('安全截断文本预览，展示结果路径与文件变更详情，并用 Escape 恢复焦点', async () => {
     const textAttachment = attachment(1, {
       originalName: 'notes.md',

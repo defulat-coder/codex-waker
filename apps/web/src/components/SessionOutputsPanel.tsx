@@ -363,7 +363,7 @@ export function SessionOutputsPanel({
                               notify('结果已登记', 'success');
                               await load();
                             } catch (cause) {
-                              notify(cause instanceof Error ? cause.message : '登记失败', 'error');
+                              notify(readableErrorMessage(cause, '结果暂时无法登记'), 'error');
                             }
                           }}
                         >
@@ -430,7 +430,7 @@ export function SessionOutputsPanel({
                     notify('文件变更已登记', 'success');
                     await load();
                   } catch (cause) {
-                    notify(cause instanceof Error ? cause.message : '登记失败', 'error');
+                    notify(readableErrorMessage(cause, '文件变更暂时无法登记'), 'error');
                   }
                 }}
               >
@@ -591,7 +591,7 @@ export function SessionOutputsPanel({
                     notify('附件已删除', 'success');
                     await load();
                   } catch (cause) {
-                    notify(cause instanceof Error ? cause.message : '附件删除失败', 'error');
+                    notify(readableErrorMessage(cause, '附件暂时无法删除'), 'error');
                   } finally {
                     setDeleting(false);
                   }
