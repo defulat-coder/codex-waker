@@ -4191,7 +4191,7 @@ button.agent-card:hover,
   gap: var(--space-2);
   color: var(--text-primary);
 }
-.system-page-title h3 {
+.system-page-title h1 {
   margin: 0;
   font-size: 16px;
   line-height: 19.2px;
@@ -4298,7 +4298,7 @@ button.agent-card:hover,
   background: var(--bg-primary);
   padding: var(--space-4) var(--space-5);
 }
-.settings-card h4 {
+.settings-card h2 {
   margin: 0 0 var(--space-3);
   font-size: 13px;
   font-weight: 600;

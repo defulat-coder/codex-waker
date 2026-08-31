@@ -150,7 +150,7 @@ export function SettingsView({
         <div className="system-page-title">
           <GearSix size={20} aria-hidden="true" />
           <div>
-            <h3>设置</h3>
+            <h1>设置</h1>
             <p>当前运行配置与本地界面偏好；配置在 API 进程中管理，这里只读展示。</p>
           </div>
         </div>
@@ -184,7 +184,7 @@ export function SettingsView({
           transition={{ duration: 0.2, ease: MOTION_EASE }}
         >
           <section className="settings-card">
-            <h4>模型</h4>
+            <h2>模型</h2>
             <dl className="settings-rows">
               <div className="settings-row">
                 <dt>Provider</dt>
@@ -212,7 +212,7 @@ export function SettingsView({
           </section>
 
           <section className="settings-card">
-            <h4>Thinking</h4>
+            <h2>Thinking</h2>
             <dl className="settings-rows">
               <div className="settings-row">
                 <dt>默认级别</dt>
@@ -227,7 +227,7 @@ export function SettingsView({
           </section>
 
           <section className="settings-card">
-            <h4>资源</h4>
+            <h2>资源</h2>
             <dl className="settings-rows">
               <div className="settings-row">
                 <dt>.codex/agents</dt>
@@ -255,7 +255,7 @@ export function SettingsView({
           </section>
 
           <section className="settings-card">
-            <h4>权限与沙箱</h4>
+            <h2>权限与沙箱</h2>
             <dl className="settings-rows">
               <div className="settings-row">
                 <dt>Codex 运行时</dt>
@@ -280,7 +280,7 @@ export function SettingsView({
           </section>
 
           <section className="settings-card">
-            <h4>界面偏好</h4>
+            <h2>界面偏好</h2>
             <dl className="settings-rows">
               <div className="settings-row">
                 <dt>主题亮暗</dt>

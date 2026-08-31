@@ -37,6 +37,7 @@ describe('UsageView', () => {
       />,
     );
 
+    assert.ok(screen.getByRole('heading', { name: '用量', level: 1 }));
     assert.ok(screen.getByRole('alert'));
     assert.ok(screen.getByText('统计服务不可用'));
     fireEvent.click(screen.getByRole('button', { name: '重试' }));
@@ -54,6 +55,7 @@ describe('UsageView', () => {
       />,
     );
 
+    assert.ok(screen.getByRole('heading', { name: '按 Agent 分列', level: 2 }));
     assert.ok(screen.getByRole('alert'));
     assert.ok(screen.getByText('用量刷新失败，当前仍显示上次统计的数据。'));
     assert.equal(screen.getAllByText('30').length, 2);

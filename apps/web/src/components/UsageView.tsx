@@ -33,7 +33,7 @@ export function UsageView({ usage, loading, loaded, error, onRefresh }: UsageVie
         <div className="system-page-title">
           <ChartLine size={20} aria-hidden="true" />
           <div>
-            <h3>用量</h3>
+            <h1>用量</h1>
             <p>
               会话与提问来自 .codex/sessions 的持久化记录，Token 统计来自本地
               SQLite（.codex/workbench.db）。
@@ -93,7 +93,7 @@ export function UsageView({ usage, loading, loaded, error, onRefresh }: UsageVie
             ))}
           </motion.div>
 
-          <h4 className="usage-table-title">按 Agent 分列</h4>
+          <h2 className="usage-table-title">按 Agent 分列</h2>
           <table className="usage-table">
             <thead>
               <tr>

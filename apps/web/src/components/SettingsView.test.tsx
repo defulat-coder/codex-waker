@@ -37,6 +37,8 @@ function renderSettings(preferences: UiPreferences = DEFAULT_UI_PREFERENCES) {
 describe('SettingsView 界面偏好', () => {
   it('主题亮暗渲染三档并高亮当前值，切换写偏好', () => {
     const { calls } = renderSettings({ ...DEFAULT_UI_PREFERENCES, theme: 'auto' });
+    assert.ok(screen.getByRole('heading', { name: '设置', level: 1 }));
+    assert.ok(screen.getByRole('heading', { name: '界面偏好', level: 2 }));
 
     const group = screen.getByRole('radiogroup', { name: '主题亮暗' });
     const options = ['自动', '浅色', '深色'].map((label) =>
