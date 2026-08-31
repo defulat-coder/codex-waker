@@ -37,6 +37,7 @@ import {
   type UiPreferences,
 } from './lib/preferences.js';
 import { applyThemePreference } from './lib/theme.js';
+import { readableErrorMessage } from './lib/errors.js';
 import { useAsyncData } from './hooks/useAsyncData.js';
 import { useChatController } from './hooks/useChatController.js';
 import { useVisiblePolling } from './hooks/useVisiblePolling.js';
@@ -295,7 +296,7 @@ export default function App() {
       void reloadSettings();
       void loadPreferences();
     } catch (error) {
-      setFatal(error instanceof Error ? error.message : '工作区信息暂时无法读取');
+      setFatal(readableErrorMessage(error, '工作区信息暂时无法读取'));
     }
   }, [loadSessions, loadPreferences, reloadInbox, reloadSettings]);
 

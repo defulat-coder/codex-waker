@@ -128,10 +128,7 @@ describe('App 会话视图', () => {
     let workspaceAttempts = 0;
     globalThis.fetch = (async (input, init) => {
       if (String(input).includes('/api/v1/workspace') && workspaceAttempts++ === 0) {
-        return new Response(JSON.stringify({ error: '工作区验证失败' }), {
-          status: 500,
-          headers: { 'content-type': 'application/json' },
-        });
+        throw new TypeError('Failed to fetch');
       }
       return healthyFetch(input, init);
     }) as typeof fetch;
@@ -139,7 +136,8 @@ describe('App 会话视图', () => {
     render(<App />);
     assert.equal(screen.getByRole('status').getAttribute('aria-busy'), 'true');
     const alert = await screen.findByRole('alert');
-    assert.match(alert.textContent ?? '', /工作区验证失败/);
+    assert.match(alert.textContent ?? '', /工作区信息暂时无法读取/);
+    assert.doesNotMatch(alert.textContent ?? '', /Failed to fetch/);
 
     fireEvent.click(screen.getByRole('button', { name: '重试' }));
     assert.ok(await screen.findByRole('heading', { name: '我的Wakers' }));

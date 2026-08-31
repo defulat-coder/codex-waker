@@ -21,6 +21,7 @@ import {
 import { MotionLoadingRows } from './MotionFeedback.js';
 import type { Notify } from './Toasts.js';
 import { MOTION_DIALOG_BACKDROP, MOTION_DIALOG_SURFACE, MOTION_TRANSITION } from '../lib/motion.js';
+import { readableErrorMessage } from '../lib/errors.js';
 
 const MAX_SELECTED_ATTACHMENTS = 8;
 const MAX_TEXT_PREVIEW_BYTES = 64 * 1024;
@@ -37,14 +38,6 @@ type PreviewContent =
   | { status: 'error'; message: string }
   | { status: 'image'; url: string }
   | { status: 'text'; text: string; truncated: boolean };
-
-function readableFailure(cause: unknown, fallback: string): string {
-  return cause instanceof TypeError
-    ? fallback
-    : cause instanceof Error
-      ? cause.message
-      : fallback;
-}
 
 function previewType(item: SessionAttachment): 'image' | 'text' | undefined {
   const mimeType = item.mimeType.toLowerCase().split(';')[0]?.trim();
@@ -114,7 +107,7 @@ export function SessionOutputsPanel({
     try {
       setData(await fetchSessionOutputs(agentId, sessionId));
     } catch (cause) {
-      setError(readableFailure(cause, '附件与结果暂时无法读取'));
+      setError(readableErrorMessage(cause, '附件与结果暂时无法读取'));
     }
   }, [agentId, sessionId]);
 
@@ -148,7 +141,7 @@ export function SessionOutputsPanel({
         if (!controller.signal.aborted)
           setPreviewContent({
             status: 'error',
-            message: readableFailure(cause, '附件预览暂时无法读取'),
+            message: readableErrorMessage(cause, '附件预览暂时无法读取'),
           });
       });
     return () => {
