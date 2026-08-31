@@ -2,7 +2,6 @@ import type { SessionSummary } from '@waker/contracts';
 import { motion, useReducedMotion } from 'motion/react';
 import { ChatCircle } from '@phosphor-icons/react/dist/icons/ChatCircle';
 import { ClockCounterClockwise } from '@phosphor-icons/react/dist/icons/ClockCounterClockwise';
-import { DotsThree } from '@phosphor-icons/react/dist/icons/DotsThree';
 import { cx } from '../lib/cx.js';
 import { MOTION_TRANSITION } from '../lib/motion.js';
 import { handleCompositeKeyDown } from '../hooks/useDismissable.js';
@@ -91,10 +90,9 @@ export function QoderTaskPanel({
                   )}
                   <i aria-hidden="true" />
                   <span>
-                    <strong>{session.title}</strong>
+                    <strong title={session.title}>{session.title}</strong>
                     <small>{session.questionCount} 次提问</small>
                   </span>
-                  <DotsThree size={14} aria-hidden="true" />
                 </button>
               );
             })}

@@ -63,6 +63,8 @@ describe('QoderTaskPanel', () => {
       options.map((option) => option.tabIndex),
       [0, -1],
     );
+    assert.equal(options[0]!.querySelector('strong')?.getAttribute('title'), '排查构建失败');
+    assert.equal(options[0]!.querySelector('svg'), null);
     options[0]!.focus();
     fireEvent.keyDown(options[0]!, { key: 'ArrowDown' });
     assert.equal(document.activeElement, options[1]);
