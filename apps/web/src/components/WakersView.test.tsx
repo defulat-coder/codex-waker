@@ -127,6 +127,27 @@ function clickMoreAction(card: HTMLElement, agentName: string, action: string) {
 }
 
 describe('WakersView delete impact', () => {
+  it('网络中断时本地化删除影响错误并可重新检查', async () => {
+    let attempts = 0;
+    globalThis.fetch = (async () => {
+      attempts += 1;
+      if (attempts === 1) throw new TypeError('Failed to fetch');
+      return Response.json(impact('agent-a', 2));
+    }) as typeof fetch;
+    renderWakers();
+    const card = screen.getByRole('heading', { name: /Agent A/ }).closest('article')!;
+    clickMoreAction(card, 'Agent A', '删除');
+
+    const alert = await screen.findByRole('alert');
+    assert.match(alert.textContent ?? '', /Waker 删除影响暂时无法读取/);
+    assert.doesNotMatch(alert.textContent ?? '', /Failed to fetch/);
+    assert.ok((screen.getByRole('button', { name: '确认删除' }) as HTMLButtonElement).disabled);
+    fireEvent.click(screen.getByRole('button', { name: '重新检查' }));
+
+    assert.ok(await screen.findByText(/2 个会话/));
+    assert.equal(attempts, 2);
+  });
+
   it('discards a late impact response from a previously selected Waker', async () => {
     const a = deferred<Response>();
     const b = deferred<Response>();

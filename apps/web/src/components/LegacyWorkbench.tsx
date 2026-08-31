@@ -288,7 +288,7 @@ export function WakersView({
         deleteTargetIdRef.current !== agent.id
       )
         return;
-      setDeleteImpactError(cause instanceof Error ? cause.message : 'Waker 删除影响暂时无法读取');
+      setDeleteImpactError(readableErrorMessage(cause, 'Waker 删除影响暂时无法读取'));
     }
   }, []);
   // 本地语义：每个 Waker 都由本机 Codex runtime 承载，因此全部在线且同属于本机环境；
@@ -327,7 +327,7 @@ export function WakersView({
       await markAllInboxRead();
       onReadAll();
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '全部标为已读失败', 'error');
+      notify(readableErrorMessage(cause, '暂时无法全部标为已读'), 'error');
     } finally {
       setMarkingAll(false);
     }
@@ -771,7 +771,7 @@ export function WakersView({
                 setDeleteTarget(null);
                 setDeleteConfirmation('');
               } catch (cause) {
-                notify(cause instanceof Error ? cause.message : '删除失败', 'error');
+                notify(readableErrorMessage(cause, 'Waker 暂时无法删除'), 'error');
               }
             }}
           >
@@ -1074,7 +1074,7 @@ export function KnowledgeView({
       setNotebooks(books);
       setSelected((current) => current || books[0]?.id || '');
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '知识库加载失败');
+      setError(readableErrorMessage(cause, '知识库暂时无法读取'));
     }
   }, [wakerId]);
   useEffect(() => {
@@ -1118,7 +1118,7 @@ export function KnowledgeView({
       await load();
       setSelected(notebook.id);
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '创建失败', 'error');
+      notify(readableErrorMessage(cause, '知识库暂时无法创建'), 'error');
     }
   };
   const createDocument = async (event: FormEvent) => {
@@ -1146,7 +1146,7 @@ export function KnowledgeView({
       setDocuments(await fetchKnowledgeDocuments(selected, scope));
       await load();
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '文档保存失败', 'error');
+      notify(readableErrorMessage(cause, '知识文档暂时无法保存'), 'error');
     }
   };
   const search = async (event: FormEvent) => {
@@ -1167,7 +1167,7 @@ export function KnowledgeView({
         }),
       );
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '检索失败', 'error');
+      notify(readableErrorMessage(cause, '知识检索暂时无法运行'), 'error');
     }
   };
   const selectedBook = useMemo(
