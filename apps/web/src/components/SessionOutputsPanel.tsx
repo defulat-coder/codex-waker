@@ -38,6 +38,14 @@ type PreviewContent =
   | { status: 'image'; url: string }
   | { status: 'text'; text: string; truncated: boolean };
 
+function readableFailure(cause: unknown, fallback: string): string {
+  return cause instanceof TypeError
+    ? fallback
+    : cause instanceof Error
+      ? cause.message
+      : fallback;
+}
+
 function previewType(item: SessionAttachment): 'image' | 'text' | undefined {
   const mimeType = item.mimeType.toLowerCase().split(';')[0]?.trim();
   if (mimeType && IMAGE_MIME_TYPES.has(mimeType)) return 'image';
@@ -106,7 +114,7 @@ export function SessionOutputsPanel({
     try {
       setData(await fetchSessionOutputs(agentId, sessionId));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '加载失败');
+      setError(readableFailure(cause, '附件与结果暂时无法读取'));
     }
   }, [agentId, sessionId]);
 
@@ -140,7 +148,7 @@ export function SessionOutputsPanel({
         if (!controller.signal.aborted)
           setPreviewContent({
             status: 'error',
-            message: cause instanceof Error ? cause.message : '附件预览加载失败',
+            message: readableFailure(cause, '附件预览暂时无法读取'),
           });
       });
     return () => {

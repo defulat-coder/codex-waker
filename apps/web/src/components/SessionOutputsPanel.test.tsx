@@ -56,6 +56,24 @@ afterEach(() => {
 });
 
 describe('SessionOutputsPanel', () => {
+  it('网络中断时显示可行动的本地化提示并可重试恢复', async () => {
+    let attempts = 0;
+    globalThis.fetch = (async () => {
+      attempts += 1;
+      if (attempts === 1) throw new TypeError('Failed to fetch');
+      return jsonResponse(outputs());
+    }) as typeof fetch;
+
+    renderPanel();
+    const alert = await screen.findByRole('alert');
+    assert.match(alert.textContent ?? '', /附件与结果暂时无法读取/);
+    assert.doesNotMatch(alert.textContent ?? '', /Failed to fetch/);
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+
+    assert.ok(await screen.findByText('尚未上传附件'));
+    assert.equal(attempts, 2);
+  });
+
   it('限制单批文件数量并保留上限内文件', () => {
     const files = Array.from(
       { length: 22 },
