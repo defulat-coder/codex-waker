@@ -959,6 +959,7 @@ export function WorkflowManager({
   const parsedEditor = editor ? parseWorkflowDefinition(editor.definitionText) : null;
   const visibleRunTotal = Math.min(runTotal, MAX_VISIBLE_HISTORY);
   const visibleVersionTotal = Math.min(versionTotal, MAX_VISIBLE_HISTORY);
+  const listOnly = startAtList && !selectedId && !editor;
 
   const selectWorkflow = (workflowId: string) => {
     setSelectedId(workflowId);
@@ -1057,13 +1058,13 @@ export function WorkflowManager({
       ) : !items ? (
         <MotionLoadingRows label="正在加载 WakerFlow" />
       ) : (
-        <div className={cx('workflow-workspace', !selectedId && !editor && 'list-only')}>
+        <div className={cx('workflow-workspace', listOnly && 'list-only')}>
           <nav
             ref={workflowListRef}
             className="workflow-list"
             aria-label="WakerFlow 列表"
-            aria-orientation="vertical"
-            role="tablist"
+            aria-orientation={listOnly ? undefined : 'vertical'}
+            role={listOnly ? undefined : 'tablist'}
           >
             {items.map((item, index) => (
               <motion.button
@@ -1071,12 +1072,12 @@ export function WorkflowManager({
                 type="button"
                 key={item.id}
                 id={workflowTabId(item.id)}
-                role="tab"
-                aria-selected={selectedId === item.id}
-                aria-controls={workflowPanelId(item.id)}
-                tabIndex={selectedId === item.id ? 0 : -1}
+                role={listOnly ? undefined : 'tab'}
+                aria-selected={listOnly ? undefined : selectedId === item.id}
+                aria-controls={listOnly ? undefined : workflowPanelId(item.id)}
+                tabIndex={listOnly ? undefined : selectedId === item.id ? 0 : -1}
                 onClick={() => selectWorkflow(item.id)}
-                onKeyDown={(event) => onWorkflowTabKeyDown(event, index)}
+                onKeyDown={listOnly ? undefined : (event) => onWorkflowTabKeyDown(event, index)}
                 layout="position"
                 whileTap={{ scale: 0.985 }}
               >

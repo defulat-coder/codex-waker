@@ -323,6 +323,24 @@ describe('WorkflowManager', () => {
     assert.match(rule, /rgba\(var\(--shadow-color\), 0\.05\)/);
   });
 
+  it('uses ordinary navigation buttons until a list-only workflow is selected', async () => {
+    const calls: Call[] = [];
+    installApi(calls);
+    render(<WorkflowManager wakerId="waker-one" notify={() => {}} startAtList />);
+
+    const card = await screen.findByRole('button', { name: /人工审核流程/ });
+    assert.equal(screen.queryByRole('tablist'), null);
+    assert.equal(card.getAttribute('aria-selected'), null);
+    assert.equal(card.getAttribute('aria-controls'), null);
+    assert.equal(card.tabIndex, 0);
+
+    fireEvent.click(card);
+
+    const selectedTab = await screen.findByRole('tab', { name: /人工审核流程/ });
+    assert.equal(selectedTab.getAttribute('aria-selected'), 'true');
+    assert.ok(await screen.findByRole('tabpanel'));
+  });
+
   it('announces list failures and retries in place', async () => {
     const calls: Call[] = [];
     installApi(calls);
