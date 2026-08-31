@@ -55,6 +55,7 @@ import {
   markAllInboxRead,
 } from '../lib/api.js';
 import { cx } from '../lib/cx.js';
+import { readableErrorMessage } from '../lib/errors.js';
 import {
   MOTION_DIALOG_BACKDROP,
   MOTION_DIALOG_SURFACE,
@@ -839,6 +840,33 @@ export function WakersView({
   );
 }
 
+const RESOURCE_STATUS_TEXT: Record<string, string> = {
+  ready: '就绪',
+  initializing: '初始化中',
+  draft: '草稿',
+  active: '已启用',
+  paused: '已暂停',
+  queued: '排队中',
+  running: '运行中',
+  waiting: '等待中',
+  completed: '已完成',
+  failed: '失败',
+  cancelled: '已取消',
+  connected: '已连接',
+  stopped: '已停止',
+  disabled: '已禁用',
+  error: '异常',
+};
+const CHANNEL_PROVIDER_TEXT: Record<LocalResourcesResponse['channels'][number]['provider'], string> =
+  {
+    local: '本地',
+    dingtalk: '钉钉',
+    feishu: '飞书',
+    weixin: '微信',
+    wecom: '企业微信',
+    qq: 'QQ',
+  };
+
 export function ResourcesView({
   kind,
   wakerId,
@@ -860,7 +888,7 @@ export function ResourcesView({
     }
     fetchLocalResources(wakerId)
       .then(setData)
-      .catch((cause) => setError(cause instanceof Error ? cause.message : '资源加载失败'));
+      .catch((cause) => setError(readableErrorMessage(cause, '资源暂时无法读取')));
   }, [wakerId]);
   useEffect(() => {
     void load();
@@ -919,7 +947,7 @@ export function ResourcesView({
       setName('');
       load();
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '创建失败', 'error');
+      notify(readableErrorMessage(cause, '资源暂时无法创建'), 'error');
     } finally {
       setSubmitting(false);
     }
@@ -970,13 +998,15 @@ export function ResourcesView({
                 <strong>{'title' in item ? item.title : item.name}</strong>
                 <small>
                   {'provider' in item
-                    ? item.provider
+                    ? CHANNEL_PROVIDER_TEXT[item.provider]
                     : 'description' in item
                       ? item.description || item.id
                       : item.id}
                 </small>
               </div>
-              <span className={cx('resource-status', item.status)}>{item.status}</span>
+              <span className={cx('resource-status', item.status)}>
+                {RESOURCE_STATUS_TEXT[item.status] ?? item.status}
+              </span>
             </div>
           ))}
         </div>
