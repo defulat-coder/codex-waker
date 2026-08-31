@@ -26,6 +26,7 @@ import type {
   WakerTask,
 } from '@waker/contracts';
 import { cx } from '../lib/cx.js';
+import { readableErrorMessage } from '../lib/errors.js';
 import {
   MOTION_DIALOG_BACKDROP,
   MOTION_DIALOG_SURFACE,
@@ -95,6 +96,45 @@ const TYPE_TEXT: Record<BoardTaskType, string> = {
   workflow: '流程',
   manual: '手工任务',
 };
+const SOURCE_TEXT: Record<BoardTaskRecord['sourceType'], string> = {
+  manual: '手工任务',
+  conversation: '会话',
+  automation: 'Automation',
+  workflow: 'Workflow',
+};
+const ACTION_SOURCE_TEXT: Record<HumanActionRecord['source'], string> = {
+  workflow: 'Workflow',
+  codex: 'Codex',
+};
+const PRIORITY_TEXT: Record<BoardTaskRecord['priority'], string> = {
+  low: '低',
+  normal: '普通',
+  high: '高',
+  urgent: '紧急',
+};
+const EVENT_TEXT: Record<string, string> = {
+  created: '创建任务',
+  updated: '更新任务',
+  'automation.session_linked': '自动任务关联会话',
+  'automation.session_unlinked': '自动任务解除会话关联',
+  'automation.started': '自动任务开始',
+  'automation.succeeded': '自动任务完成',
+  'automation.failed': '自动任务失败',
+  'automation.cancelled': '自动任务已取消',
+  'automation.skipped': '自动任务已跳过',
+  'workflow.started': '工作流开始',
+  'workflow.session_linked': '工作流关联会话',
+  'workflow.session_unlinked': '工作流解除会话关联',
+  'workflow.progress': '工作流推进',
+  'workflow.waiting': '工作流等待继续',
+  'workflow.resumed': '工作流恢复执行',
+  'workflow.succeeded': '工作流完成',
+  'workflow.failed': '工作流失败',
+  'workflow.cancelled': '工作流已取消',
+  'human_action.created': '创建人工操作',
+  'human_action.handled': '完成人工操作',
+  'human_action.ignored': '忽略人工操作',
+};
 const LANES: Array<{ id: string; title: string; statuses: BoardTaskStatus[] }> = [
   { id: 'queued', title: '排队', statuses: ['queued'] },
   { id: 'running', title: '运行', statuses: ['running'] },
@@ -103,11 +143,15 @@ const LANES: Array<{ id: string; title: string; statuses: BoardTaskStatus[] }> =
   { id: 'failed', title: '失败 / 取消', statuses: ['failed', 'cancelled'] },
 ];
 const SOURCE_OPTIONS: Array<{ value: BoardTaskRecord['sourceType']; label: string }> = [
-  { value: 'manual', label: '手工任务' },
-  { value: 'conversation', label: '会话' },
-  { value: 'automation', label: 'Automation' },
-  { value: 'workflow', label: 'Workflow' },
+  { value: 'manual', label: SOURCE_TEXT.manual },
+  { value: 'conversation', label: SOURCE_TEXT.conversation },
+  { value: 'automation', label: SOURCE_TEXT.automation },
+  { value: 'workflow', label: SOURCE_TEXT.workflow },
 ];
+
+function boardStatusText(status: string): string {
+  return STATUS_TEXT[status as BoardTaskStatus] ?? status;
+}
 
 class RequestError extends Error {
   constructor(
@@ -277,7 +321,7 @@ export function BoardView({
         hasSnapshotRef.current = true;
       } catch (cause) {
         if (generation !== loadGenerationRef.current || isAbortError(cause)) return;
-        const message = cause instanceof Error ? cause.message : '任务看板暂时无法读取';
+        const message = readableErrorMessage(cause, '任务看板暂时无法读取');
         if (background && hasSnapshotRef.current) setRefreshError(message);
         else setError(message);
       } finally {
@@ -370,7 +414,7 @@ export function BoardView({
         ownerRef.current === owner &&
         !isAbortError(cause)
       ) {
-        const message = cause instanceof Error ? cause.message : '人工操作暂时无法读取';
+        const message = readableErrorMessage(cause, '人工操作暂时无法读取');
         if (hasActionSnapshotRef.current) setActionRefreshError(message);
         else setActionError(message);
       }
@@ -417,7 +461,7 @@ export function BoardView({
       requestAnimationFrame(() => detailRef.current?.focus());
     } catch (cause) {
       if (generation !== detailGenerationRef.current || ownerRef.current !== owner) return;
-      setDetailError(cause instanceof Error ? cause.message : '任务详情暂时无法读取');
+      setDetailError(readableErrorMessage(cause, '任务详情暂时无法读取'));
     }
   };
 
@@ -502,9 +546,7 @@ export function BoardView({
       setEditorError(
         cause instanceof RequestError && cause.status === 409
           ? '任务已由其他请求更新。请关闭编辑器并重新打开最新版本。'
-          : cause instanceof Error
-            ? cause.message
-            : '手工任务暂时无法保存',
+          : readableErrorMessage(cause, '手工任务暂时无法保存'),
       );
     } finally {
       if (ownerRef.current === owner) setBusy('');
@@ -528,7 +570,7 @@ export function BoardView({
         setDeleteImpact(impact);
     } catch (cause) {
       if (generation !== detailGenerationRef.current || ownerRef.current !== owner) return;
-      setDeleteImpactError(cause instanceof Error ? cause.message : '删除影响暂时无法读取');
+      setDeleteImpactError(readableErrorMessage(cause, '删除影响暂时无法读取'));
     }
   };
 
@@ -549,7 +591,7 @@ export function BoardView({
       await load();
       notify('手工任务已删除', 'success');
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : '手工任务暂时无法删除', 'error');
+      notify(readableErrorMessage(cause, '手工任务暂时无法删除'), 'error');
     } finally {
       setBusy('');
     }
@@ -740,7 +782,7 @@ export function BoardView({
                 setActionInputIssues((current) => ({
                   ...current,
                   [action.id]: {
-                    message: cause instanceof Error ? cause.message : '人工输入暂时无法提交',
+                    message: readableErrorMessage(cause, '人工输入暂时无法提交'),
                     invalid: false,
                   },
                 }));
@@ -767,6 +809,11 @@ export function BoardView({
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 24 }}
             transition={{ duration: 0.18, ease: MOTION_EASE }}
+            onKeyDown={(event) => {
+              if (event.key !== 'Escape') return;
+              event.stopPropagation();
+              closeDetail();
+            }}
           >
             <div className="board-detail-header">
               <div>
@@ -1054,7 +1101,7 @@ export function BoardView({
                     } catch (cause) {
                       if (ownerRef.current !== owner) return;
                       setIgnoreError(
-                        cause instanceof Error ? cause.message : '人工操作暂时无法忽略',
+                        readableErrorMessage(cause, '人工操作暂时无法忽略'),
                       );
                     } finally {
                       if (ownerRef.current === owner) setBusy('');
@@ -1269,7 +1316,7 @@ function BoardTaskSurface({
                     </td>
                     <td>{task.projectName ?? task.projectId ?? '—'}</td>
                     <td>{formatTime(task.lastActiveAt)}</td>
-                    <td>{task.sourceType}</td>
+                    <td>{SOURCE_TEXT[task.sourceType]}</td>
                   </motion.tr>
                 ))}
               </tbody>
@@ -1376,7 +1423,7 @@ function BoardDetailContent({
         <div>
           <dt>来源</dt>
           <dd>
-            {task.sourceType}
+            {SOURCE_TEXT[task.sourceType]}
             {task.sourceId ? ` · ${task.sourceId}` : ''}
           </dd>
         </div>
@@ -1390,7 +1437,7 @@ function BoardDetailContent({
         </div>
         <div>
           <dt>优先级</dt>
-          <dd>{task.priority}</dd>
+          <dd>{PRIORITY_TEXT[task.priority]}</dd>
         </div>
         <div>
           <dt>版本</dt>
@@ -1459,9 +1506,9 @@ function BoardDetailContent({
               <li key={event.id}>
                 <span />
                 <div>
-                  <strong>{event.label}</strong>
+                  <strong>{EVENT_TEXT[event.label] ?? event.label}</strong>
                   <small>
-                    {event.status ? `${event.status} · ` : ''}
+                    {event.status ? `${boardStatusText(event.status)} · ` : ''}
                     {formatTime(event.createdAt)}
                   </small>
                 </div>
@@ -1584,7 +1631,7 @@ function HumanActionSurface({
                   </span>
                 </header>
                 <small>
-                  {action.source} · {formatTime(action.createdAt)}
+                  {ACTION_SOURCE_TEXT[action.source]} · {formatTime(action.createdAt)}
                 </small>
                 {action.source === 'workflow' && action.status === 'pending' ? (
                   <form

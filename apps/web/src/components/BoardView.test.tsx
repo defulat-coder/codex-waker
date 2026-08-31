@@ -162,6 +162,30 @@ afterEach(() => {
 });
 
 describe('BoardView', () => {
+  it('网络中断时本地化错误并可重试恢复任务列表', async () => {
+    let attempts = 0;
+    globalThis.fetch = (async (input) => {
+      const url = String(input);
+      if (url.includes('/local-resources'))
+        return json({ projects: [], automations: [], workflows: [], channels: [], tasks: [] });
+      if (url.includes('/board/tasks?')) {
+        attempts += 1;
+        if (attempts === 1) throw new TypeError('Failed to fetch');
+        return json({ items: [MANUAL], total: 1, projects: [] });
+      }
+      return json({ error: `unexpected request: ${url}` }, 500);
+    }) as typeof fetch;
+
+    render(<BoardView wakerId="waker-one" notify={() => {}} />);
+    const alert = await screen.findByRole('alert');
+    assert.match(alert.textContent ?? '', /任务看板暂时无法读取/);
+    assert.doesNotMatch(alert.textContent ?? '', /Failed to fetch/);
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+
+    assert.ok(await screen.findByRole('button', { name: MANUAL.title }));
+    assert.equal(attempts, 2);
+  });
+
   it('uses server filters, native list semantics, bounded load-more and honest lanes', async () => {
     const calls: Call[] = [];
     const tasks = Array.from({ length: 21 }, (_, index): BoardTaskRecord => ({
@@ -318,11 +342,14 @@ describe('BoardView', () => {
     assert.ok(within(detail).getByText('派生任务只读；状态由宿主运行更新。'));
     assert.equal(within(detail).queryByRole('button', { name: '编辑' }), null);
     assert.ok(within(detail).getByText('等待输入'));
+    assert.ok(within(detail).getByText(/Workflow · flow-one/));
+    assert.ok(within(detail).getByText('普通'));
+    assert.ok(within(detail).getByText(/等待中 ·/));
     fireEvent.click(within(detail).getByRole('button', { name: '打开会话' }));
     fireEvent.click(within(detail).getByRole('button', { name: '打开流程' }));
     assert.deepEqual(sessions, ['session-one']);
     assert.deepEqual(workflows, ['flow-one']);
-    fireEvent.click(within(detail).getByRole('button', { name: '关闭任务详情' }));
+    fireEvent.keyDown(detail, { key: 'Escape' });
     await waitFor(() => assert.ok(document.activeElement === row));
   });
 
@@ -339,9 +366,9 @@ describe('BoardView', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: '保存' }));
     await waitFor(() => {
       assert.ok(within(detail).getByText('运行中'));
-      assert.ok(within(detail).getByText('high'));
+      assert.ok(within(detail).getByText('高'));
       assert.ok(within(detail).getByText('v4'));
-      assert.ok(within(detail).getByText(/running/));
+      assert.equal(within(detail).getAllByText(/运行中/).length, 2);
     });
   });
 
