@@ -28,6 +28,24 @@ const agents: AgentSummary[] = [
 ];
 
 describe('QoderChatSidebar', () => {
+  it('说明本地模式为什么不能新建云端群组', () => {
+    render(
+      <QoderChatSidebar
+        agents={agents}
+        currentAgentId="agent-a"
+        onSelectAgent={() => {}}
+        onMarkAllRead={() => {}}
+        markingAllRead={false}
+      />,
+    );
+
+    const createGroup = screen.getByRole('button', {
+      name: '新建群组，本地模式不提供云端群组',
+    });
+    assert.equal(createGroup.hasAttribute('disabled'), true);
+    assert.equal(createGroup.getAttribute('title'), '本地模式不提供云端群组');
+  });
+
   it('使用单选列表语义、roving tabindex 与方向键切换 Waker', () => {
     const selections: string[] = [];
     function Fixture() {

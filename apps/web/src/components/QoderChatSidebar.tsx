@@ -70,7 +70,12 @@ export function QoderChatSidebar({
           <small>Beta</small>
         </div>
         <div className="qoder-chat-group-actions">
-          <button type="button" disabled title="本地模式不提供云端群组">
+          <button
+            type="button"
+            disabled
+            aria-label="新建群组，本地模式不提供云端群组"
+            title="本地模式不提供云端群组"
+          >
             <Plus size={14} /> 新建群组
           </button>
           <MagnifyingGlass size={16} aria-hidden="true" />
