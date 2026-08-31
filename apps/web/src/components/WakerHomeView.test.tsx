@@ -1,5 +1,6 @@
 import { afterEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import type {
   AgentDetail,
@@ -11,6 +12,7 @@ import type {
 import { WakerHomeView } from './WakerHomeView.js';
 
 const originalFetch = globalThis.fetch;
+const styles = readFileSync(new URL('../styles.css', import.meta.url), 'utf8');
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
@@ -131,6 +133,11 @@ async function settle() {
 }
 
 describe('WakerHomeView', () => {
+  it('lets the single-column home grid shrink beside a configuration panel', () => {
+    const rule = styles.match(/\.waker-home-body\s*\{([^}]*)\}/)?.[1] ?? '';
+    assert.match(rule, /grid-template-columns:\s*minmax\(0, 1fr\)/);
+  });
+
   it('shows the loading state before data arrives', () => {
     globalThis.fetch = (async () => new Promise<Response>(() => {})) as typeof fetch;
     renderHome();

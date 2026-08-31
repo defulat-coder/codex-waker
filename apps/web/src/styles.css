@@ -7243,6 +7243,7 @@ button.agent-card:hover,
 /* Waker Home（角色详情）：管理卡片「查看角色详情」进入的主页视图。 */
 .waker-home-body {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-4);
   align-content: start;
 }
