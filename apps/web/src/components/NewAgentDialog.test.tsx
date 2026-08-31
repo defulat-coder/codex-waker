@@ -1,6 +1,6 @@
 import { afterEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { AgentTemplate } from '@waker/contracts';
 import { NewAgentDialog } from './NewAgentDialog.js';
 
@@ -277,6 +277,37 @@ describe('NewAgentDialog', () => {
     const upload = calls.find((call) => call.url.endsWith('/avatar') && call.method === 'PUT');
     assert.equal(upload?.body?.mimeType, 'image/jpeg');
     assert.ok(calls.some((call) => call.url.endsWith('/waker-avatar-hq-001.jpg')));
+  });
+
+  it('头像网络失败时本地化错误并恢复原头像项焦点', async () => {
+    const calls: Call[] = [];
+    installApi(calls);
+    const healthyFetch = globalThis.fetch;
+    let shouldFail = true;
+    globalThis.fetch = (async (input, init) => {
+      if (String(input).includes('/waker-avatar-hq-001.jpg') && shouldFail) {
+        shouldFail = false;
+        throw new TypeError('Failed to fetch');
+      }
+      return healthyFetch(input, init);
+    }) as typeof fetch;
+    renderDialog();
+    await screen.findByRole('option', { name: /自定义角色/ });
+    fireEvent.click(screen.getByRole('button', { name: '选择内置头像' }));
+    const library = screen.getByRole('listbox', { name: '内置头像' });
+    const first = within(library).getByRole('option', { name: '头像 001' });
+    fireEvent.focus(first);
+    await act(async () => {
+      fireEvent.click(first);
+      await Promise.resolve();
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    });
+
+    const alert = await screen.findByRole('alert');
+    assert.match(alert.textContent ?? '', /头像资源暂时无法读取/);
+    assert.doesNotMatch(alert.textContent ?? '', /Failed to fetch/);
+    await waitFor(() => assert.equal(document.activeElement, first));
+    assert.ok(screen.getByRole('listbox', { name: '内置头像' }));
   });
 
   it('uses roving focus in the avatar library without selecting on arrow keys', async () => {

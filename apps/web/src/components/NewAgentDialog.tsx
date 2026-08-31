@@ -13,6 +13,7 @@ import {
 import { blankAgentRequest } from '../lib/explore.js';
 import { readFileBase64 } from '../lib/composerAttachments.js';
 import { cx } from '../lib/cx.js';
+import { readableErrorMessage } from '../lib/errors.js';
 import {
   MOTION_DIALOG_BACKDROP,
   MOTION_DIALOG_SURFACE,
@@ -108,6 +109,8 @@ export function NewAgentDialog({
   const [error, setError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const idInputRef = useRef<HTMLInputElement>(null);
+  const avatarLibraryTriggerRef = useRef<HTMLButtonElement>(null);
+  const avatarFocusRestoreRef = useRef<HTMLButtonElement | null>(null);
   const dialogRef = useDialogFocus<HTMLFormElement>(open, onClose);
 
   useEffect(() => {
@@ -121,6 +124,7 @@ export function NewAgentDialog({
     setAvatarPage(0);
     setSelectedLibraryAvatar('');
     setLoadingLibraryAvatar('');
+    avatarFocusRestoreRef.current = null;
     setAdvanced(false);
     setSaving(false);
     setError('');
@@ -136,6 +140,15 @@ export function NewAgentDialog({
       cancelled = true;
     };
   }, [open]);
+
+  useEffect(() => {
+    if (loadingLibraryAvatar || !avatarFocusRestoreRef.current) return;
+    const target = avatarFocusRestoreRef.current;
+    avatarFocusRestoreRef.current = null;
+    requestAnimationFrame(() => {
+      if (target.isConnected && !target.disabled) target.focus();
+    });
+  }, [avatarLibraryOpen, loadingLibraryAvatar]);
 
   const selectedTemplate = templates.find((template) => template.id === templateId);
   const inheritedAvatarUrl =
@@ -179,8 +192,12 @@ export function NewAgentDialog({
     }
   };
 
-  const pickLibraryAvatar = async (entry: (typeof AVATAR_LIBRARY)[number]) => {
+  const pickLibraryAvatar = async (
+    entry: (typeof AVATAR_LIBRARY)[number],
+    trigger: HTMLButtonElement,
+  ) => {
     if (saving || loadingLibraryAvatar) return;
+    avatarFocusRestoreRef.current = trigger;
     setLoadingLibraryAvatar(entry.id);
     try {
       const response = await fetch(entry.url);
@@ -191,8 +208,9 @@ export function NewAgentDialog({
         entry.id,
       );
       setAvatarLibraryOpen(false);
+      avatarFocusRestoreRef.current = avatarLibraryTriggerRef.current;
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '头像资源暂时无法读取');
+      setError(readableErrorMessage(cause, '头像资源暂时无法读取'));
     } finally {
       setLoadingLibraryAvatar('');
     }
@@ -265,13 +283,13 @@ export function NewAgentDialog({
         } catch (cause) {
           // Agent 已创建成功，只报告头像失败，不回滚。
           onAvatarError?.(
-            `Waker 已创建，但头像上传失败：${cause instanceof Error ? cause.message : '未知错误'}`,
+            `Waker 已创建，但头像上传失败：${readableErrorMessage(cause, '头像暂时无法上传')}`,
           );
         }
       }
       onCreated(created.id);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Agent 暂时无法创建');
+      setError(readableErrorMessage(cause, 'Waker 暂时无法创建'));
     } finally {
       setSaving(false);
     }
@@ -439,6 +457,7 @@ export function NewAgentDialog({
                   )}
                 </AnimatePresence>
                 <button
+                  ref={avatarLibraryTriggerRef}
                   type="button"
                   className="header-button"
                   aria-expanded={avatarLibraryOpen}
@@ -531,7 +550,9 @@ export function NewAgentDialog({
                             tabIndex={focusedAvatarId === entry.id ? 0 : -1}
                             className={cx(selectedLibraryAvatar === entry.id && 'selected')}
                             disabled={saving || Boolean(loadingLibraryAvatar)}
-                            onClick={() => void pickLibraryAvatar(entry)}
+                            onClick={(event) =>
+                              void pickLibraryAvatar(entry, event.currentTarget)
+                            }
                             onFocus={() => setAvatarFocusId(entry.id)}
                             onKeyDown={(event) => navigateRoleOptions(event, false)}
                             key={entry.id}
