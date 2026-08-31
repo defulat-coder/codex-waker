@@ -487,7 +487,7 @@ export function Composer({
           </button>
           <input
             ref={fileInputRef}
-            className="visually-hidden"
+            hidden
             type="file"
             multiple
             accept="image/*,text/*,.json,.xml"

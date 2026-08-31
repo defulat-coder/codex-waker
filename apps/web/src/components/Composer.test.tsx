@@ -160,6 +160,7 @@ describe('Composer attachments', () => {
       return true;
     });
     const input = view.container.querySelector('input[type="file"]') as HTMLInputElement;
+    assert.ok(input.hidden);
     fireEvent.change(input, {
       target: {
         files: [
